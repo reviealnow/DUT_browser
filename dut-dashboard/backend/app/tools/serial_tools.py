@@ -28,20 +28,26 @@ def open_serial(
     replay_path: str | None = None,
     replay_interval_ms: int = 100,
 ) -> dict:
-    ctx.serial_worker.open(
-        port=port,
-        baudrate=baudrate,
-        mode=mode,
-        replay_path=replay_path,
-        replay_interval_ms=replay_interval_ms,
-    )
-    return {"ok": True, "mode": mode, "log_path": ctx.serial_worker.current_log_path}
+    try:
+        ctx.serial_worker.open(
+            port=port,
+            baudrate=baudrate,
+            mode=mode,
+            replay_path=replay_path,
+            replay_interval_ms=replay_interval_ms,
+        )
+        return {"ok": True, "mode": mode, "log_path": ctx.serial_worker.current_log_path}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 
 @tool(name="close_serial", description="Close the current serial connection", tags=["serial"])
 def close_serial(ctx: AppContext) -> dict:
-    ctx.serial_worker.close()
-    return {"ok": True}
+    try:
+        ctx.serial_worker.close()
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 
 @tool(name="send_serial", description="Send text to the open serial port", tags=["serial"])

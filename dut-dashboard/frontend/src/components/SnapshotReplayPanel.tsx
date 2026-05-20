@@ -124,7 +124,7 @@ export default function SnapshotReplayPanel({ replayStatus, replayProgress, onRe
         >
           {files.map((f) => (
             <div
-              key={f.name}
+              key={`${f.mtime}-${f.name}`}
               onClick={() => setSelectedFile(f.name)}
               style={{
                 display: "flex",

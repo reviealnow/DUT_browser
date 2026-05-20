@@ -13,6 +13,8 @@ from app.websocket.ws_manager import WebSocketManager
 
 router = APIRouter(prefix="/api/snapshots", tags=["snapshots"])
 
+_replay_lock = asyncio.Lock()
+
 
 class ReplayStartRequest(BaseModel):
     file: str
@@ -48,18 +50,16 @@ def list_snapshots() -> dict:
 async def start_replay(body: ReplayStartRequest, request: Request) -> dict:
     safe = _safe_name(body.file)
     path = LOG_DIR / safe
+    if not path.resolve().is_relative_to(LOG_DIR.resolve()):
+        raise HTTPException(status_code=400, detail="Invalid path")
     if not path.exists() or not path.is_file():
         raise HTTPException(status_code=404, detail="Snapshot file not found")
 
     ws_manager: WebSocketManager = request.app.state.ws_manager
 
-    existing: asyncio.Task | None = getattr(request.app.state, "replay_task", None)
-    if existing and not existing.done():
-        existing.cancel()
-
     lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
     total = len(lines)
-    speed_ms = max(50, body.speed_ms)
+    speed_ms = max(50, min(body.speed_ms, 30_000))
 
     async def do_replay() -> None:
         try:
@@ -89,8 +89,12 @@ async def start_replay(body: ReplayStartRequest, request: Request) -> dict:
         except asyncio.CancelledError:
             await ws_manager.broadcast({"type": "replay_stopped"})
 
-    task = asyncio.create_task(do_replay())
-    request.app.state.replay_task = task
+    async with _replay_lock:
+        existing: asyncio.Task | None = getattr(request.app.state, "replay_task", None)
+        if existing and not existing.done():
+            existing.cancel()
+        task = asyncio.create_task(do_replay())
+        request.app.state.replay_task = task
     return {"ok": True, "total": total, "file": safe}
 
 
