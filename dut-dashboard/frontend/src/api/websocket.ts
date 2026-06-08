@@ -48,8 +48,11 @@ export type DashboardEvent =
       radio: "2G" | "5G" | "6G";
       total_size: number;
       clients: WifiClient[];
-    }
-  | { type: string; [key: string]: unknown };
+    };
+// Note: this is a closed discriminated union. Unknown runtime event types are
+// parsed as DashboardEvent and fall through the type checks (ignored). A
+// permissive `{ type: string; [k]: unknown }` member is intentionally omitted
+// because it poisons discriminant narrowing on the members above.
 
 export function connectDashboardWebSocket(onEvent: (event: DashboardEvent) => void): WebSocket {
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
