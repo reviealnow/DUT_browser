@@ -6,6 +6,7 @@ __pycache__/
 venv/
 
 dut-dashboard/frontend/node_modules/
+dut-dashboard/frontend/dist/
 
 dut-dashboard/logs/analyzer_output/
 dut-dashboard/logs/snapshots.jsonl
