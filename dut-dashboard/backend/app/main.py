@@ -10,6 +10,7 @@ from app.config import ANALYZER_OUTPUT_DIR, SNAPSHOT_FILE
 from app.parser.sysmon_parser import SysMonParser
 from app.serial.serial_worker import SerialWorker
 from app.services.analyzer_service import AnalyzerService
+from app.services.console_buffer import ConsoleBuffer
 from app.services.snapshot_store import SnapshotStore
 from app.websocket.ws_manager import WebSocketManager
 
@@ -23,13 +24,16 @@ async def on_startup() -> None:
     ws_manager = WebSocketManager()
     ws_manager.bind_loop(asyncio.get_running_loop())
     snapshot_store = SnapshotStore(SNAPSHOT_FILE)
+    console_buffer = ConsoleBuffer()
 
     def on_event(event: dict) -> None:
         snapshot_store.observe(event)
+        console_buffer.observe(event)
         ws_manager.emit_from_thread(event)
 
     app.state.ws_manager = ws_manager
     app.state.snapshot_store = snapshot_store
+    app.state.console_buffer = console_buffer
     app.state.parser = SysMonParser(on_event=on_event)
     app.state.serial_worker = SerialWorker(app.state.parser)
     app.state.analyzer_service = AnalyzerService()
@@ -46,6 +50,14 @@ def get_snapshots(limit: int = 120) -> dict:
     limit = max(1, min(limit, 500))
     snapshots = app.state.snapshot_store.recent(limit)
     return {"snapshots": snapshots}
+
+
+@app.get("/api/console/tail")
+def get_console_tail(limit: int = 500) -> dict:
+    """Recent console lines so the Serial Console seeds instantly on (re)load."""
+    limit = max(1, min(limit, 500))
+    lines = app.state.console_buffer.recent(limit)
+    return {"lines": lines}
 
 
 @app.get("/api/download/{file_name}")
