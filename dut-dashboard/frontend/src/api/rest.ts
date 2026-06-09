@@ -1,3 +1,5 @@
+import { SnapshotPayload } from "./websocket";
+
 export type OpenSerialParams = {
   port: string;
   baudrate: number;
@@ -57,4 +59,10 @@ export async function listSerialPorts(): Promise<SerialPortInfo[]> {
 
 export function getSerialLogDownloadUrl(fileName: string): string {
   return `/api/serial/logs/${encodeURIComponent(fileName)}`;
+}
+
+/** Recent full snapshots for instant chart backfill on (re)connect. */
+export async function getSnapshots(limit = 120): Promise<SnapshotPayload[]> {
+  const result = await get<{ snapshots: SnapshotPayload[] }>(`/api/snapshots?limit=${limit}`);
+  return result.snapshots;
 }

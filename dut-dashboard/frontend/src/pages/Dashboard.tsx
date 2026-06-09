@@ -8,10 +8,10 @@ import {
   sendSerial,
   SerialPortInfo,
 } from "../api/rest";
-import { connectDashboardWebSocket } from "../api/websocket";
 import ConsolePanel from "../components/ConsolePanel";
+import { CRITICAL_CRASH_PATTERN } from "../monitoring/crash";
+import { useDutMonitorContext } from "../monitoring/DutMonitorContext";
 const DEFAULT_SERIAL_PORT = "/dev/ttyUSB0";
-const CRITICAL_CRASH_PATTERN = /\b(kernel panic|q6 crash|watchdog(?:\s+reset|\s+bite|\s+timeout)?)\b/i;
 
 function choosePreferredPort(ports: SerialPortInfo[]): string {
   if (ports.length === 0) {
@@ -22,7 +22,9 @@ function choosePreferredPort(ports: SerialPortInfo[]): string {
 }
 
 export default function Dashboard() {
-  const [lines, setLines] = useState<string[]>([]);
+  // Console lines come from the single shared WebSocket (useDutMonitor) instead
+  // of Dashboard opening its own connection.
+  const { lines } = useDutMonitorContext();
   const [mode, setMode] = useState<"serial" | "replay">("serial");
   const [port, setPort] = useState(DEFAULT_SERIAL_PORT);
   const [baudrate, setBaudrate] = useState(115200);
@@ -36,20 +38,6 @@ export default function Dashboard() {
   const [criticalCrashKeywordInput, setCriticalCrashKeywordInput] = useState("");
   const [lockedCriticalCrashKeywords, setLockedCriticalCrashKeywords] = useState<string[]>([]);
   const [downloadNotice, setDownloadNotice] = useState<{ message: string; tone: "blue" | "green" } | null>(null);
-
-  useEffect(() => {
-    const ws = connectDashboardWebSocket((event) => {
-      const maybeText = (event as { text?: unknown }).text;
-      if (event.type === "console_line" && typeof maybeText === "string") {
-        setLines((prev) => [...prev, maybeText].slice(-1000));
-        return;
-      }
-      if (event.type === "console_line_batch" && Array.isArray(event.lines)) {
-        setLines((prev) => [...prev, ...event.lines].slice(-1000));
-      }
-    });
-    return () => ws.close();
-  }, []);
 
   async function handleOpen() {
     const response = await openSerial({
