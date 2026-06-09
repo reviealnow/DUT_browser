@@ -37,7 +37,13 @@ export default function AppShell() {
             title={current.title}
             subtitle={current.subtitle}
             search={active === "logs" || active === "downloads" ? <SearchBox /> : undefined}
-            actions={<ToolbarActions status={monitor.status} onConnect={() => setActive("console")} />}
+            actions={
+            <ToolbarActions
+              status={monitor.status}
+              lastEventAgeSec={monitor.lastEventAgeSec}
+              onConnect={() => setActive("console")}
+            />
+          }
           />
           <main className="content">{renderSection(active, monitor)}</main>
         </div>
@@ -151,6 +157,10 @@ function ConsoleStatusBody({ monitor }: { monitor: DutMonitorState }) {
         <div className="stat-row">
           <dt>Last snapshot</dt>
           <dd>{monitor.lastSnapshotTs ?? "—"}</dd>
+        </div>
+        <div className="stat-row">
+          <dt>Last event</dt>
+          <dd>{monitor.lastEventAgeSec === null ? "—" : `${monitor.lastEventAgeSec}s ago`}</dd>
         </div>
         <div className="stat-row">
           <dt>Crash matches</dt>
@@ -272,10 +282,20 @@ function SearchBox() {
   );
 }
 
-function ToolbarActions({ status, onConnect }: { status: DutStatus; onConnect: () => void }) {
+function ToolbarActions({
+  status,
+  lastEventAgeSec,
+  onConnect,
+}: {
+  status: DutStatus;
+  lastEventAgeSec: number | null;
+  onConnect: () => void;
+}) {
   const statusMeta = STATUS_META[status];
+  const age = formatEventAge(lastEventAgeSec);
   return (
     <>
+      {age && status !== "offline" ? <span className="toolbar-sub">{age}</span> : null}
       <span className={`pill ${statusMeta.pill}`} title="Backend link + DUT stream status">
         <span className="dot" />
         {statusMeta.label}
@@ -285,6 +305,16 @@ function ToolbarActions({ status, onConnect }: { status: DutStatus; onConnect: (
       </button>
     </>
   );
+}
+
+function formatEventAge(seconds: number | null): string | null {
+  if (seconds === null) {
+    return null;
+  }
+  if (seconds < 60) {
+    return `last event ${seconds}s ago`;
+  }
+  return `last event ${Math.floor(seconds / 60)}m ago`;
 }
 
 type StatusMeta = { label: string; sub: string; pill: "ok" | "idle" | "danger" };

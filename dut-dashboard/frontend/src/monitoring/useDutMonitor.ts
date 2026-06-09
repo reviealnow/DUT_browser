@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { getSnapshots } from "../api/rest";
 import { connectDashboardWebSocket, SnapshotPayload } from "../api/websocket";
 import { CRITICAL_CRASH_PATTERN } from "./crash";
 
@@ -42,6 +43,8 @@ export type DutMonitorState = {
   crashLines: string[];
   /** device_ts of the latest snapshot. */
   lastSnapshotTs: string | null;
+  /** Whole seconds since the last stream event; null before any event. */
+  lastEventAgeSec: number | null;
 };
 
 /**
@@ -122,6 +125,47 @@ export function useDutMonitor(): DutMonitorState {
     };
   }, []);
 
+  // Phase 5 backfill: on mount, seed charts/KPIs from server-side snapshot
+  // history so they populate instantly instead of waiting for the next snapshot.
+  // Live WS state takes precedence (merge/upsert by device_ts).
+  useEffect(() => {
+    let cancelled = false;
+    getSnapshots(MAX_HISTORY)
+      .then((snaps) => {
+        if (cancelled || snaps.length === 0) {
+          return;
+        }
+        const backfillHistory = snaps.reduce<CpuHistoryPoint[]>((acc, snap) => upsertCpuPoint(acc, snap), []);
+        setCpuHistory((prev) => {
+          const seen = new Set(prev.map((point) => point.ts));
+          const additions = backfillHistory.filter((point) => !seen.has(point.ts));
+          return [...additions, ...prev].slice(-MAX_HISTORY);
+        });
+
+        const backfillWifi: Record<string, number> = {};
+        let sawWifi = false;
+        for (const snap of snaps) {
+          for (const [radio, payload] of Object.entries(snap.wifi_clients ?? {})) {
+            backfillWifi[radio] = payload.total_size;
+            sawWifi = true;
+          }
+        }
+        if (sawWifi) {
+          setWifiByRadio((prev) => ({ ...backfillWifi, ...prev }));
+          setWifiSeen(true);
+        }
+
+        // Only seed the latest snapshot if a live one hasn't arrived yet.
+        setSnapshot((prev) => prev ?? snaps[snaps.length - 1]);
+      })
+      .catch(() => {
+        // Offline or endpoint unavailable: charts simply stay empty until live.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Keep wifi totals in sync with the latest snapshot's client list when present.
   useEffect(() => {
     if (!snapshot?.wifi_clients) {
@@ -158,6 +202,13 @@ export function useDutMonitor(): DutMonitorState {
     return nowTick - lastActivityRef.current < STREAM_ACTIVE_WINDOW_MS ? "streaming" : "idle";
   }, [connected, nowTick]);
 
+  const lastEventAgeSec = useMemo(() => {
+    if (lastActivityRef.current === 0) {
+      return null;
+    }
+    return Math.max(0, Math.floor((nowTick - lastActivityRef.current) / 1000));
+  }, [nowTick]);
+
   return {
     status,
     lines,
@@ -171,6 +222,7 @@ export function useDutMonitor(): DutMonitorState {
     crashCount,
     crashLines,
     lastSnapshotTs: snapshot?.device_ts ?? null,
+    lastEventAgeSec,
   };
 }
 

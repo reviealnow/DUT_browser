@@ -22,12 +22,14 @@ app.include_router(analyzer_router)
 async def on_startup() -> None:
     ws_manager = WebSocketManager()
     ws_manager.bind_loop(asyncio.get_running_loop())
+    snapshot_store = SnapshotStore(SNAPSHOT_FILE)
 
     def on_event(event: dict) -> None:
+        snapshot_store.observe(event)
         ws_manager.emit_from_thread(event)
 
     app.state.ws_manager = ws_manager
-    app.state.snapshot_store = SnapshotStore(SNAPSHOT_FILE)
+    app.state.snapshot_store = snapshot_store
     app.state.parser = SysMonParser(on_event=on_event)
     app.state.serial_worker = SerialWorker(app.state.parser)
     app.state.analyzer_service = AnalyzerService()
@@ -36,6 +38,14 @@ async def on_startup() -> None:
 @app.get("/health")
 def health() -> dict:
     return {"ok": True, "phase": "milestone-4"}
+
+
+@app.get("/api/snapshots")
+def get_snapshots(limit: int = 120) -> dict:
+    """Recent full snapshots for instant frontend chart backfill on (re)connect."""
+    limit = max(1, min(limit, 500))
+    snapshots = app.state.snapshot_store.recent(limit)
+    return {"snapshots": snapshots}
 
 
 @app.get("/api/download/{file_name}")

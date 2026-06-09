@@ -14,7 +14,7 @@ class SysMonParser:
     )
     CLIENT_MARKER_RE = re.compile(r"^--- CLIENTS Radio=(2G|5G|6G) ---\s*$")
     CONSOLE_BATCH_SIZE = 20
-    CONSOLE_BATCH_MAX_LATENCY_SEC = 0.2
+    CONSOLE_BATCH_MAX_LATENCY_SEC = 0.05
 
     def __init__(self, on_event: Callable[[dict], None]) -> None:
         self.on_event = on_event
