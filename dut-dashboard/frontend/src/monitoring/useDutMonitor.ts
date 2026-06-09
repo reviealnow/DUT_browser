@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { getSnapshots } from "../api/rest";
+import { getConsoleTail, getSnapshots } from "../api/rest";
 import { connectDashboardWebSocket, SnapshotPayload } from "../api/websocket";
 import { CRITICAL_CRASH_PATTERN } from "./crash";
 
@@ -161,6 +161,21 @@ export function useDutMonitor(): DutMonitorState {
       .catch(() => {
         // Offline or endpoint unavailable: charts simply stay empty until live.
       });
+
+    // Seed the Serial Console with recent lines, but only if no live line has
+    // arrived yet — console is an unkeyed append-only stream, so live wins to
+    // avoid out-of-order/duplicate seeding.
+    getConsoleTail(MAX_LINES)
+      .then((tail) => {
+        if (cancelled || tail.length === 0) {
+          return;
+        }
+        setLines((prev) => (prev.length > 0 ? prev : tail.slice(-MAX_LINES)));
+      })
+      .catch(() => {
+        // Offline or endpoint unavailable: console simply stays empty until live.
+      });
+
     return () => {
       cancelled = true;
     };

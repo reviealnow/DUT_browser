@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 from collections import OrderedDict
 from copy import deepcopy
@@ -27,10 +28,16 @@ class SnapshotStore:
         self._lock = threading.Lock()
         self._ring: "OrderedDict[str, dict]" = OrderedDict()
         self._latest: dict | None = None
+        self._appends_since_compact = 0
 
         self.file_path.parent.mkdir(parents=True, exist_ok=True)
         self.file_path.touch(exist_ok=True)
         self._load_tail()
+        # Rewrite the file from the (deduped, bounded) ring so an existing
+        # append-only file is compacted at startup — fixes accumulated bloat
+        # and duplicate lines without changing recent()/_load_tail behavior.
+        with self._lock:
+            self._compact_locked()
 
     # ---- ingest ---------------------------------------------------------
 
@@ -100,6 +107,24 @@ class SnapshotStore:
             line = json.dumps(snapshot, separators=(",", ":"))
             with self.file_path.open("a", encoding="utf-8") as fp:
                 fp.write(line + "\n")
+            self._appends_since_compact += 1
+            # Bound the append-only file: after ~ring_max appends, rewrite it
+            # from the ring (keeps the file within roughly [ring_max, 2*ring_max]).
+            if self._appends_since_compact >= self.ring_max:
+                self._compact_locked()
+        except Exception:
+            return
+
+    def _compact_locked(self) -> None:
+        # Atomically rewrite the file from the current ring (deduped by
+        # device_ts, bounded to ring_max) via a temp file + os.replace.
+        try:
+            tmp_path = self.file_path.with_name(self.file_path.name + ".tmp")
+            with tmp_path.open("w", encoding="utf-8") as fp:
+                for snapshot in self._ring.values():
+                    fp.write(json.dumps(snapshot, separators=(",", ":")) + "\n")
+            os.replace(tmp_path, self.file_path)
+            self._appends_since_compact = 0
         except Exception:
             return
 

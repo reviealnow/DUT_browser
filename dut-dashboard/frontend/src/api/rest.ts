@@ -66,3 +66,9 @@ export async function getSnapshots(limit = 120): Promise<SnapshotPayload[]> {
   const result = await get<{ snapshots: SnapshotPayload[] }>(`/api/snapshots?limit=${limit}`);
   return result.snapshots;
 }
+
+/** Recent console lines so the Serial Console seeds instantly on (re)load. */
+export async function getConsoleTail(limit = 500): Promise<string[]> {
+  const result = await get<{ lines: string[] }>(`/api/console/tail?limit=${limit}`);
+  return result.lines;
+}
