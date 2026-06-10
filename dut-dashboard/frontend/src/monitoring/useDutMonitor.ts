@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { getConsoleTail, getSnapshots } from "../api/rest";
 import { connectDashboardWebSocket, SnapshotPayload } from "../api/websocket";
@@ -70,71 +70,13 @@ export function useDutMonitor(): DutMonitorState {
 
   const lastActivityRef = useRef(0);
 
-  useEffect(() => {
-    const recordActivity = () => {
-      lastActivityRef.current = Date.now();
-    };
-
-    const ingestLines = (incoming: string[]) => {
-      if (incoming.length === 0) {
-        return;
-      }
-      setLines((prev) => [...prev, ...incoming].slice(-MAX_LINES));
-      recordActivity();
-    };
-
-    const ws = connectDashboardWebSocket((event) => {
-      const maybeText = (event as { text?: unknown }).text;
-      if (event.type === "console_line" && typeof maybeText === "string") {
-        ingestLines([maybeText]);
-        return;
-      }
-      if (event.type === "console_line_batch" && Array.isArray(event.lines)) {
-        ingestLines(event.lines as string[]);
-        return;
-      }
-      if (event.type === "snapshot_update" && "snapshot" in event) {
-        const snap = (event as { snapshot: SnapshotPayload }).snapshot;
-        setSnapshot(snap);
-        setCpuHistory((prev) => upsertCpuPoint(prev, snap));
-        recordActivity();
-        return;
-      }
-      if (event.type === "wifi_clients_update") {
-        const radio = (event as { radio?: string }).radio;
-        const totalSize = (event as { total_size?: number }).total_size;
-        if (typeof radio === "string" && typeof totalSize === "number") {
-          setWifiByRadio((prev) => ({ ...prev, [radio]: totalSize }));
-          setWifiSeen(true);
-          recordActivity();
-        }
-      }
-    });
-
-    ws.addEventListener("open", () => setConnected(true));
-    ws.addEventListener("close", () => setConnected(false));
-    if (ws.readyState === WebSocket.OPEN) {
-      setConnected(true);
-    }
-
-    const interval = window.setInterval(() => setNowTick(Date.now()), STATUS_TICK_MS);
-
-    return () => {
-      window.clearInterval(interval);
-      ws.close();
-    };
-  }, []);
-
-  // Phase 5 backfill: on mount, seed charts/KPIs from server-side snapshot
-  // history so they populate instantly instead of waiting for the next snapshot.
-  // Live WS state takes precedence (merge/upsert by device_ts).
-  useEffect(() => {
-    let cancelled = false;
-    getSnapshots(MAX_HISTORY)
-      .then((snaps) => {
-        if (cancelled || snaps.length === 0) {
-          return;
-        }
+  // Seed charts/KPIs/console from server-side history so they populate instantly
+  // on (re)connect instead of waiting for the next event. Idempotent (upsert by
+  // device_ts / seed-if-empty) so it is safe to call on every reconnect.
+  const runBackfill = useCallback(async () => {
+    try {
+      const snaps = await getSnapshots(MAX_HISTORY);
+      if (snaps.length > 0) {
         const backfillHistory = snaps.reduce<CpuHistoryPoint[]>((acc, snap) => upsertCpuPoint(acc, snap), []);
         setCpuHistory((prev) => {
           const seen = new Set(prev.map((point) => point.ts));
@@ -154,32 +96,79 @@ export function useDutMonitor(): DutMonitorState {
           setWifiByRadio((prev) => ({ ...backfillWifi, ...prev }));
           setWifiSeen(true);
         }
-
-        // Only seed the latest snapshot if a live one hasn't arrived yet.
         setSnapshot((prev) => prev ?? snaps[snaps.length - 1]);
-      })
-      .catch(() => {
-        // Offline or endpoint unavailable: charts simply stay empty until live.
-      });
+      }
+    } catch {
+      // Offline or endpoint unavailable: charts stay empty until live.
+    }
 
-    // Seed the Serial Console with recent lines, but only if no live line has
-    // arrived yet — console is an unkeyed append-only stream, so live wins to
-    // avoid out-of-order/duplicate seeding.
-    getConsoleTail(MAX_LINES)
-      .then((tail) => {
-        if (cancelled || tail.length === 0) {
+    try {
+      const tail = await getConsoleTail(MAX_LINES);
+      // Console is an unkeyed append-only stream → seed only if empty (live wins).
+      if (tail.length > 0) {
+        setLines((prev) => (prev.length > 0 ? prev : tail.slice(-MAX_LINES)));
+      }
+    } catch {
+      // Offline or endpoint unavailable: console stays empty until live.
+    }
+  }, []);
+
+  useEffect(() => {
+    const recordActivity = () => {
+      lastActivityRef.current = Date.now();
+    };
+
+    const ingestLines = (incoming: string[]) => {
+      if (incoming.length === 0) {
+        return;
+      }
+      setLines((prev) => [...prev, ...incoming].slice(-MAX_LINES));
+      recordActivity();
+    };
+
+    const socket = connectDashboardWebSocket({
+      onEvent: (event) => {
+        const maybeText = (event as { text?: unknown }).text;
+        if (event.type === "console_line" && typeof maybeText === "string") {
+          ingestLines([maybeText]);
           return;
         }
-        setLines((prev) => (prev.length > 0 ? prev : tail.slice(-MAX_LINES)));
-      })
-      .catch(() => {
-        // Offline or endpoint unavailable: console simply stays empty until live.
-      });
+        if (event.type === "console_line_batch" && Array.isArray(event.lines)) {
+          ingestLines(event.lines as string[]);
+          return;
+        }
+        if (event.type === "snapshot_update" && "snapshot" in event) {
+          const snap = (event as { snapshot: SnapshotPayload }).snapshot;
+          setSnapshot(snap);
+          setCpuHistory((prev) => upsertCpuPoint(prev, snap));
+          recordActivity();
+          return;
+        }
+        if (event.type === "wifi_clients_update") {
+          const radio = (event as { radio?: string }).radio;
+          const totalSize = (event as { total_size?: number }).total_size;
+          if (typeof radio === "string" && typeof totalSize === "number") {
+            setWifiByRadio((prev) => ({ ...prev, [radio]: totalSize }));
+            setWifiSeen(true);
+            recordActivity();
+          }
+        }
+      },
+      // Runs on first connect and on every reconnect → recover after a drop.
+      onOpen: () => {
+        setConnected(true);
+        void runBackfill();
+      },
+      onClose: () => setConnected(false),
+    });
+
+    const interval = window.setInterval(() => setNowTick(Date.now()), STATUS_TICK_MS);
 
     return () => {
-      cancelled = true;
+      window.clearInterval(interval);
+      socket.close();
     };
-  }, []);
+  }, [runBackfill]);
 
   // Keep wifi totals in sync with the latest snapshot's client list when present.
   useEffect(() => {

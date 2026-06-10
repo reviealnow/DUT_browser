@@ -54,36 +54,100 @@ export type DashboardEvent =
 // permissive `{ type: string; [k]: unknown }` member is intentionally omitted
 // because it poisons discriminant narrowing on the members above.
 
-export function connectDashboardWebSocket(onEvent: (event: DashboardEvent) => void): WebSocket {
-  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  const ws = new WebSocket(`${protocol}://${window.location.host}/ws`);
-  let latestSnapshot: SnapshotPayload | null = null;
+export type DashboardSocket = { close: () => void };
 
-  ws.onmessage = (message: MessageEvent<string>) => {
-    try {
-      const event = JSON.parse(message.data) as DashboardEvent;
-      if (event && typeof event === "object" && "type" in event) {
-        if (event.type === "snapshot_update") {
-          latestSnapshot = event.snapshot;
-          onEvent(event);
-          return;
-        }
-        if (event.type === "snapshot_delta") {
-          if (!latestSnapshot) {
-            return;
-          }
-          latestSnapshot = applySnapshotDelta(latestSnapshot, event.delta);
-          onEvent({ type: "snapshot_update", snapshot: latestSnapshot });
-          return;
-        }
-        onEvent(event);
-      }
-    } catch {
-      // Ignore malformed messages.
+export type DashboardSocketHandlers = {
+  onEvent: (event: DashboardEvent) => void;
+  /** Fired on every (re)connect once the socket is open. */
+  onOpen?: () => void;
+  /** Fired on every drop/close. */
+  onClose?: () => void;
+};
+
+const RECONNECT_BASE_MS = 1000;
+const RECONNECT_MAX_MS = 10_000;
+
+/**
+ * Self-reconnecting dashboard WebSocket. Reconnects with exponential backoff
+ * (1s → cap 10s, + jitter) until close() is called, so a backend restart is
+ * recovered automatically. `latestSnapshot` (the delta base) is reset on each
+ * (re)connect; callers should re-run backfill in onOpen.
+ */
+export function connectDashboardWebSocket(handlers: DashboardSocketHandlers): DashboardSocket {
+  const { onEvent, onOpen, onClose } = handlers;
+  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+  const url = `${protocol}://${window.location.host}/ws`;
+
+  let ws: WebSocket | null = null;
+  let closedByCaller = false;
+  let reconnectTimer: number | null = null;
+  let attempt = 0;
+
+  const scheduleReconnect = () => {
+    if (closedByCaller) {
+      return;
     }
+    const delay = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** attempt);
+    const jitter = Math.random() * 0.3 * delay;
+    attempt += 1;
+    reconnectTimer = window.setTimeout(open, delay + jitter);
   };
 
-  return ws;
+  function open() {
+    let latestSnapshot: SnapshotPayload | null = null;
+    const socket = new WebSocket(url);
+    ws = socket;
+
+    socket.onopen = () => {
+      attempt = 0;
+      onOpen?.();
+    };
+
+    socket.onmessage = (message: MessageEvent<string>) => {
+      try {
+        const event = JSON.parse(message.data) as DashboardEvent;
+        if (event && typeof event === "object" && "type" in event) {
+          if (event.type === "snapshot_update") {
+            latestSnapshot = event.snapshot;
+            onEvent(event);
+            return;
+          }
+          if (event.type === "snapshot_delta") {
+            if (!latestSnapshot) {
+              return;
+            }
+            latestSnapshot = applySnapshotDelta(latestSnapshot, event.delta);
+            onEvent({ type: "snapshot_update", snapshot: latestSnapshot });
+            return;
+          }
+          onEvent(event);
+        }
+      } catch {
+        // Ignore malformed messages.
+      }
+    };
+
+    socket.onclose = () => {
+      onClose?.();
+      scheduleReconnect();
+    };
+
+    socket.onerror = () => {
+      socket.close(); // triggers onclose -> reconnect
+    };
+  }
+
+  open();
+
+  return {
+    close: () => {
+      closedByCaller = true;
+      if (reconnectTimer !== null) {
+        window.clearTimeout(reconnectTimer);
+      }
+      ws?.close();
+    },
+  };
 }
 
 function applySnapshotDelta(base: SnapshotPayload, delta: SnapshotDelta): SnapshotPayload {
