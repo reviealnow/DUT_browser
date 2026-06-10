@@ -13,6 +13,7 @@ from app.serial.serial_worker import SerialWorker
 from app.services.analyzer_service import AnalyzerService
 from app.services.console_buffer import ConsoleBuffer
 from app.services.snapshot_store import SnapshotStore
+from app.websocket.terminal_manager import TerminalManager
 from app.websocket.ws_manager import WebSocketManager
 
 app = FastAPI(title="DUT Local Monitoring Dashboard")
@@ -32,11 +33,16 @@ async def on_startup() -> None:
         console_buffer.observe(event)
         ws_manager.emit_from_thread(event)
 
+    terminal_manager = TerminalManager()
+    terminal_manager.bind_loop(asyncio.get_running_loop())
+
     app.state.ws_manager = ws_manager
     app.state.snapshot_store = snapshot_store
     app.state.console_buffer = console_buffer
+    app.state.terminal_manager = terminal_manager
     app.state.parser = SysMonParser(on_event=on_event)
     app.state.serial_worker = SerialWorker(app.state.parser)
+    app.state.serial_worker.set_terminal_output(terminal_manager.emit_bytes_from_thread)
     app.state.analyzer_service = AnalyzerService()
 
 
@@ -85,6 +91,37 @@ async def websocket_endpoint(ws: WebSocket) -> None:
         manager.disconnect(ws)
     except Exception:
         manager.disconnect(ws)
+
+
+@app.websocket("/ws/term")
+async def terminal_endpoint(ws: WebSocket) -> None:
+    """Raw interactive serial terminal. Output is broadcast via TerminalManager;
+    input (keystrokes) is written straight to the serial port. Mode switching is
+    explicit (POST /api/serial/terminal/enter|exit), so this only carries bytes."""
+    terminal: TerminalManager = app.state.terminal_manager
+    worker = app.state.serial_worker
+    await terminal.connect(ws)
+    try:
+        while True:
+            message = await ws.receive()
+            if message.get("type") == "websocket.disconnect":
+                break
+            data = message.get("bytes")
+            if data is None and message.get("text") is not None:
+                data = message["text"].encode("utf-8", errors="ignore")
+            if not data:
+                continue
+            try:
+                worker.write_raw(data)
+            except Exception:
+                # Serial not open / not in terminal mode: ignore the keystroke.
+                pass
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        terminal.disconnect(ws)
 
 
 # Serve the built frontend (single-port production). Mounted LAST and only when
