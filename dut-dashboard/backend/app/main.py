@@ -3,10 +3,11 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api.analyzer_api import router as analyzer_router
 from app.api.serial_api import router as serial_router
-from app.config import ANALYZER_OUTPUT_DIR, SNAPSHOT_FILE
+from app.config import ANALYZER_OUTPUT_DIR, FRONTEND_DIST, SNAPSHOT_FILE
 from app.parser.sysmon_parser import SysMonParser
 from app.serial.serial_worker import SerialWorker
 from app.services.analyzer_service import AnalyzerService
@@ -84,6 +85,13 @@ async def websocket_endpoint(ws: WebSocket) -> None:
         manager.disconnect(ws)
     except Exception:
         manager.disconnect(ws)
+
+
+# Serve the built frontend (single-port production). Mounted LAST and only when
+# the build exists, so /api/* and /ws (registered above) keep priority and dev
+# mode (no dist/ -> Vite serves the UI) is unaffected.
+if FRONTEND_DIST.is_dir():
+    app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")
 
 
 if __name__ == "__main__":
