@@ -165,9 +165,21 @@ deltas onto the last full snapshot):
 | `POST` | `/api/serial/close` | stop the worker |
 | `POST` | `/api/serial/send` | `{text}` (serial mode only; `""` = Ctrl-C) |
 | `GET` | `/api/serial/logs/{file}` | download log — direct `.log` or analyzer `.zip` (see below) |
+| `POST` | `/api/serial/terminal/enter` | switch to raw interactive terminal mode (monitoring pauses); 400 if serial not open |
+| `POST` | `/api/serial/terminal/exit` | resume monitoring |
 | `GET` | `/api/serial/efficiency-report` | parser counters |
 | `POST` | `/api/analyzer/run` | `{log_path}` → runs analyzer; returns produced files |
 | `GET` | `/api/download/{file}` | download an artifact from `logs/analyzer_output/` |
+
+### Interactive terminal (xterm.js)
+
+The Serial Console has a **Monitor / Terminal** toggle. "Terminal" drives the DUT
+serial console with a bundled xterm.js (no CDN) over a separate **`/ws/term`** raw
+byte channel, so `vi` / `nano` work. Entering terminal mode is explicit and
+**pauses sysmon monitoring** (CPU/Wi-Fi/crash KPIs freeze on their last values;
+raw bytes are still written to the session log) so terminal escape sequences never
+reach the parser. Leaving the terminal (button or navigating away) resumes
+monitoring. Serial mode only — not replay. Assumes a single controller.
 
 ### Serial vs Replay
 
