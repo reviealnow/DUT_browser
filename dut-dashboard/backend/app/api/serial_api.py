@@ -213,6 +213,23 @@ def send_serial(body: SerialSendRequest, request: Request) -> dict:
     return {"ok": True}
 
 
+@router.post("/terminal/enter")
+def enter_terminal(request: Request) -> dict:
+    """Switch to interactive raw-terminal mode (sysmon monitoring pauses)."""
+    try:
+        request.app.state.serial_worker.enter_terminal()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True, "terminal": True}
+
+
+@router.post("/terminal/exit")
+def exit_terminal(request: Request) -> dict:
+    """Resume sysmon monitoring."""
+    request.app.state.serial_worker.exit_terminal()
+    return {"ok": True, "terminal": False}
+
+
 @router.get("/efficiency-report")
 def get_efficiency_report(request: Request) -> dict:
     return request.app.state.parser.efficiency_report()

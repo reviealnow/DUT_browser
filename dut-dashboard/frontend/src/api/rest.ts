@@ -72,3 +72,16 @@ export async function getConsoleTail(limit = 500): Promise<string[]> {
   const result = await get<{ lines: string[] }>(`/api/console/tail?limit=${limit}`);
   return result.lines;
 }
+
+/** Switch the serial reader into raw interactive terminal mode (monitoring pauses). */
+export async function enterTerminal(): Promise<void> {
+  const response = await fetch("/api/serial/terminal/enter", { method: "POST" });
+  if (!response.ok) {
+    throw new Error((await response.json().catch(() => ({}))).detail || "Failed to enter terminal mode");
+  }
+}
+
+/** Resume sysmon monitoring. */
+export async function exitTerminal(): Promise<void> {
+  await fetch("/api/serial/terminal/exit", { method: "POST" }).catch(() => undefined);
+}

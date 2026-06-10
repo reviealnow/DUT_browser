@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   closeSerial,
+  enterTerminal,
+  exitTerminal,
   getSerialLogDownloadUrl,
   listSerialPorts,
   openSerial,
@@ -9,6 +11,8 @@ import {
   SerialPortInfo,
 } from "../api/rest";
 import ConsolePanel from "../components/ConsolePanel";
+// Lazy-loaded so the xterm.js bundle only loads when the terminal is opened.
+const TerminalView = lazy(() => import("../components/TerminalView"));
 import { CRITICAL_CRASH_PATTERN } from "../monitoring/crash";
 import { useDutMonitorContext } from "../monitoring/DutMonitorContext";
 const DEFAULT_SERIAL_PORT = "/dev/ttyUSB0";
@@ -34,6 +38,8 @@ export default function Dashboard() {
   const [portsLoading, setPortsLoading] = useState(false);
   const [portsError, setPortsError] = useState("");
   const [currentLogFileName, setCurrentLogFileName] = useState("");
+  const [consoleView, setConsoleView] = useState<"monitor" | "terminal">("monitor");
+  const [terminalError, setTerminalError] = useState("");
   const [lastSeenCriticalCrashCount, setLastSeenCriticalCrashCount] = useState(0);
   const [criticalCrashKeywordInput, setCriticalCrashKeywordInput] = useState("");
   const [lockedCriticalCrashKeywords, setLockedCriticalCrashKeywords] = useState<string[]>([]);
@@ -59,6 +65,30 @@ export default function Dashboard() {
   async function handleSend(text: string) {
     await sendSerial(text);
   }
+
+  async function handleOpenTerminal() {
+    setTerminalError("");
+    try {
+      await enterTerminal(); // backend switches to raw mode; sysmon monitoring pauses
+      setConsoleView("terminal");
+    } catch (error) {
+      setTerminalError(error instanceof Error ? error.message : "Failed to open terminal");
+    }
+  }
+
+  function handleCloseTerminal() {
+    // Unmount the terminal first (closes /ws/term), then resume monitoring.
+    setConsoleView("monitor");
+    void exitTerminal();
+  }
+
+  // Safety: if this section unmounts (e.g. user switches sidebar nav) while in
+  // terminal mode, resume monitoring on the backend. exitTerminal is idempotent.
+  useEffect(() => {
+    return () => {
+      void exitTerminal();
+    };
+  }, []);
 
   async function handleRunTop() {
     await sendSerial("top\n");
@@ -440,12 +470,32 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
-      <ConsolePanel
-        lines={lines}
-        onSend={handleSend}
-        onDownloadLog={handleDownloadLog}
-        canDownloadLog={Boolean(currentLogFileName)}
-      />
+      <div style={{ marginTop: 12 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+          <button type="button" onClick={handleCloseTerminal} disabled={consoleView === "monitor"}>
+            Monitor
+          </button>
+          <button type="button" onClick={() => void handleOpenTerminal()} disabled={consoleView === "terminal"}>
+            Terminal (vi / nano)
+          </button>
+          {consoleView === "terminal" ? (
+            <span style={{ fontSize: 12, color: "#8a4b00" }}>Monitoring paused while in terminal mode.</span>
+          ) : null}
+          {terminalError ? <span style={{ fontSize: 12, color: "#b00020" }}>{terminalError}</span> : null}
+        </div>
+        {consoleView === "terminal" ? (
+          <Suspense fallback={<div style={{ padding: 16, color: "#666" }}>Loading terminal…</div>}>
+            <TerminalView />
+          </Suspense>
+        ) : (
+          <ConsolePanel
+            lines={lines}
+            onSend={handleSend}
+            onDownloadLog={handleDownloadLog}
+            canDownloadLog={Boolean(currentLogFileName)}
+          />
+        )}
+      </div>
       {downloadNotice ? (
         <div
           style={{

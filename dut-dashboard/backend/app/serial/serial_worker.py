@@ -25,6 +25,14 @@ class SerialWorker:
         self._log_fp = None
         self._log_path: Path | None = None
         self._last_fsync_monotonic: float = 0.0
+        # Interactive raw-terminal mode (Phase 8): when on, the reader forwards
+        # raw bytes to _terminal_output instead of feeding the sysmon parser.
+        self._terminal = False
+        self._terminal_output = None  # type: ignore[assignment]
+
+    def set_terminal_output(self, callback) -> None:
+        """Register a callback(bytes) for raw serial output in terminal mode."""
+        self._terminal_output = callback
 
     def open(
         self,
@@ -72,6 +80,7 @@ class SerialWorker:
                 finally:
                     self._serial = None
             self._mode = None
+            self._terminal = False
             old_thread = self._thread
             self._thread = None
 
@@ -92,11 +101,59 @@ class SerialWorker:
             self._serial.write(text.encode("utf-8", errors="ignore"))
             self._serial.flush()
 
+    @property
+    def is_terminal(self) -> bool:
+        return self._terminal
+
+    def enter_terminal(self) -> None:
+        """Switch the reader to raw passthrough (sysmon parsing pauses)."""
+        with self._lock:
+            if self._mode != "serial" or self._serial is None or not self._serial.is_open:
+                raise RuntimeError("Serial port is not open")
+            self._terminal = True
+        self._write_log_line("\n--- terminal session start ---\n")
+
+    def exit_terminal(self) -> None:
+        """Resume sysmon monitoring."""
+        with self._lock:
+            was_terminal = self._terminal
+            self._terminal = False
+        if was_terminal:
+            self._write_log_line("\n--- terminal session end ---\n")
+
+    def write_raw(self, data: bytes) -> None:
+        """Write raw bytes to the serial port (terminal keystrokes)."""
+        with self._lock:
+            if self._mode != "serial" or self._serial is None or not self._serial.is_open:
+                raise RuntimeError("Serial port is not open")
+            self._serial.write(data)
+            self._serial.flush()
+
     def read_loop(self) -> None:
         while not self._stop_event.is_set():
             ser = self._serial
             if ser is None or not ser.is_open:
                 break
+
+            if self._terminal:
+                # Raw passthrough: forward bytes to the terminal, log verbatim,
+                # do NOT feed the sysmon parser (avoid polluting CPU/crash data).
+                try:
+                    waiting = ser.in_waiting
+                except Exception:
+                    waiting = 0
+                try:
+                    data = ser.read(waiting or 1)
+                except Exception:
+                    break
+                if not data:
+                    continue
+                self._write_log_raw(data.decode("utf-8", errors="ignore"))
+                callback = self._terminal_output
+                if callback is not None:
+                    callback(data)
+                continue
+
             try:
                 line = ser.readline()
             except Exception:
@@ -142,6 +199,15 @@ class SerialWorker:
             self._log_fp.write(line)
             if not line.endswith("\n"):
                 self._log_fp.write("\n")
+            self._log_fp.flush()
+        self._maybe_force_sync()
+
+    def _write_log_raw(self, text: str) -> None:
+        # Verbatim write for raw terminal bytes — no newline insertion.
+        with self._lock:
+            if self._log_fp is None:
+                return
+            self._log_fp.write(text)
             self._log_fp.flush()
         self._maybe_force_sync()
 
