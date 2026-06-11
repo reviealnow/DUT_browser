@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
+import { getMemory, MemorySeries } from "../api/rest";
 import ChartData from "../components/charts/ChartData";
 import Sparkline from "../components/charts/Sparkline";
 import { Card, EmptyState, KpiCard } from "../components/shell/Card";
@@ -45,7 +46,15 @@ export default function AppShell() {
             />
           }
           />
-          <main className="content">{renderSection(active, monitor)}</main>
+          <main className="content">
+            {/* Serial Console stays mounted across nav so the serial session,
+                selected port, log, and terminal state persist; it is only
+                hidden when another section is active. */}
+            <div className="embed" style={{ display: active === "console" ? "block" : "none" }}>
+              <Dashboard active={active === "console"} />
+            </div>
+            {active !== "console" ? renderSection(active, monitor) : null}
+          </main>
         </div>
       </div>
     </DutMonitorProvider>
@@ -57,12 +66,8 @@ function renderSection(active: SectionId, monitor: DutMonitorState) {
     case "overview":
       return <OverviewSection monitor={monitor} />;
     case "console":
-      // Existing Dashboard, untouched — preserves all current behavior.
-      return (
-        <div className="embed">
-          <Dashboard />
-        </div>
-      );
+      // Rendered separately (always mounted) so its session/state persists.
+      return null;
     case "cpu":
       return (
         <Card title="CPU trend" subtitle="Per-core busy % over time (memory is post-analysis only)">
@@ -121,8 +126,8 @@ function OverviewSection({ monitor }: { monitor: DutMonitorState }) {
         <Card title="CPU trend" subtitle="Per-core busy % over time">
           <CpuTrendBody monitor={monitor} />
         </Card>
-        <Card title="Memory trend" subtitle="From analyzer output">
-          <EmptyState icon="🧠" message="No memory data yet" hint="Memory is post-analysis only (analyzer bundle)." />
+        <Card title="Memory trend" subtitle="From analyzer output (post-analysis)">
+          <MemoryTrendBody />
         </Card>
         <Card title="Wi-Fi client summary" subtitle="Clients per radio">
           <WifiSummaryBody monitor={monitor} />
@@ -173,6 +178,74 @@ function ConsoleStatusBody({ monitor }: { monitor: DutMonitorState }) {
 
 function OfflineState() {
   return <EmptyState icon="🔌" message="Backend not reachable" hint="Start the backend, then open a DUT." />;
+}
+
+const toMb = (kb: number) => (kb / 1024).toFixed(0);
+
+function MemoryTrendBody() {
+  const [series, setSeries] = useState<MemorySeries | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  const load = () => {
+    setFailed(false);
+    getMemory(500)
+      .then(setSeries)
+      .catch(() => setFailed(true));
+  };
+  useEffect(() => {
+    load();
+  }, []);
+
+  if (failed) {
+    return <EmptyState icon="🧠" message="Could not load memory data" hint="Is the backend reachable?" />;
+  }
+  if (!series) {
+    return <EmptyState icon="🧠" message="Loading…" />;
+  }
+  if (!series.available || series.points.length === 0) {
+    return (
+      <EmptyState
+        icon="🧠"
+        message="No memory data yet"
+        hint="Post-analysis only — download a DUT log (or run the analyzer) to populate this."
+      />
+    );
+  }
+
+  // Memory values are large; normalise the effective-available series to its own
+  // range so the leak trend is visible (Sparkline plots 0..max). Absolute values
+  // are shown in the footer; raw points go in the JSON blob.
+  const effective = series.points.map((point) => point.effectiveKb);
+  const min = Math.min(...effective);
+  const max = Math.max(...effective);
+  const span = max - min || 1;
+  const normalised = effective.map((value) => ((value - min) / span) * 100);
+  const latest = series.points[series.points.length - 1];
+
+  return (
+    <div className="chart">
+      <div className="chart-figure">
+        <Sparkline values={normalised} max={100} ariaLabel="Effective available memory trend" />
+      </div>
+      <div className="chart-foot">
+        <div className="chart-metric">
+          {toMb(latest.effectiveKb)}
+          <span className="unit">MB effective avail</span>
+        </div>
+        <div className="chart-legend">
+          <span>
+            <span className="swatch" />
+            MemAvail {toMb(latest.memAvailableKb)} MB
+          </span>
+          <span>Slab {toMb(latest.slabKb)} MB</span>
+          <button type="button" className="btn" style={{ padding: "2px 8px" }} onClick={load}>
+            ↻
+          </button>
+        </div>
+      </div>
+      <ChartData id="memory-trend-data" data={series.points} />
+    </div>
+  );
 }
 
 function CpuTrendBody({ monitor }: { monitor: DutMonitorState }) {
