@@ -73,6 +73,26 @@ export async function getConsoleTail(limit = 500): Promise<string[]> {
   return result.lines;
 }
 
+export type MemoryPoint = {
+  ts: string;
+  memAvailableKb: number;
+  slabKb: number;
+  sunreclaimKb: number;
+  effectiveKb: number;
+};
+
+export type MemorySeries = {
+  available: boolean;
+  generated_at?: string | null;
+  version?: string | null;
+  points: MemoryPoint[];
+};
+
+/** Parsed memory series from the latest analyzer run (post-analysis only). */
+export async function getMemory(limit = 500): Promise<MemorySeries> {
+  return get<MemorySeries>(`/api/analyzer/memory?limit=${limit}`);
+}
+
 /** Switch the serial reader into raw interactive terminal mode (monitoring pauses). */
 export async function enterTerminal(): Promise<void> {
   const response = await fetch("/api/serial/terminal/enter", { method: "POST" });

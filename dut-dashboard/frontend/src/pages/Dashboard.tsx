@@ -25,7 +25,7 @@ function choosePreferredPort(ports: SerialPortInfo[]): string {
   return macosCuPort ? macosCuPort.device : ports[0].device;
 }
 
-export default function Dashboard() {
+export default function Dashboard({ active = true }: { active?: boolean }) {
   // Console lines come from the single shared WebSocket (useDutMonitor) instead
   // of Dashboard opening its own connection.
   const { lines } = useDutMonitorContext();
@@ -82,13 +82,16 @@ export default function Dashboard() {
     void exitTerminal();
   }
 
-  // Safety: if this section unmounts (e.g. user switches sidebar nav) while in
-  // terminal mode, resume monitoring on the backend. exitTerminal is idempotent.
+  // Dashboard now stays mounted across nav (state persists). When the Serial
+  // Console section is hidden while in terminal mode, auto-exit terminal so the
+  // other sections' KPIs/charts keep updating (monitoring resumes), and return
+  // to the monitor view; the serial session and selected port are preserved.
   useEffect(() => {
-    return () => {
+    if (!active && consoleView === "terminal") {
+      setConsoleView("monitor");
       void exitTerminal();
-    };
-  }, []);
+    }
+  }, [active, consoleView]);
 
   async function handleRunTop() {
     await sendSerial("top\n");
