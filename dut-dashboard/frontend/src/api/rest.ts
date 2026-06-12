@@ -88,6 +88,19 @@ export type MemorySeries = {
   points: MemoryPoint[];
 };
 
+export type LogEntry = { name: string; size: number; mtime: string };
+export type LogList = { sessions: LogEntry[]; artifacts: LogEntry[] };
+
+/** List saved DUT session logs and analyzer artifacts (read-only browse). */
+export async function getLogs(): Promise<LogList> {
+  return get<LogList>("/api/logs");
+}
+
+/** Download URL for an analyzer artifact in logs/analyzer_output/. */
+export function getAnalyzerDownloadUrl(fileName: string): string {
+  return `/api/download/${encodeURIComponent(fileName)}`;
+}
+
 /** Parsed memory series from the latest analyzer run (post-analysis only). */
 export async function getMemory(limit = 500): Promise<MemorySeries> {
   return get<MemorySeries>(`/api/analyzer/memory?limit=${limit}`);

@@ -626,6 +626,109 @@ body {
   flex: none;
 }
 
+/* ---------- File table (Downloads) ---------- */
+
+.filetable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.filetable th {
+  text-align: left;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0 var(--space-3) var(--space-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.filetable td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.filetable tr:last-child td {
+  border-bottom: none;
+}
+
+.filetable td:nth-child(2),
+.filetable td:nth-child(3) {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.filetable td:last-child {
+  text-align: right;
+}
+
+.filetable-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: normal;
+  word-break: break-all;
+}
+
+/* ---------- Settings ---------- */
+
+.settings-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.setting-row:last-child {
+  border-bottom: none;
+}
+
+.setting-label {
+  font-weight: 600;
+}
+
+.setting-hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.accent-swatches {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.accent-swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.accent-swatch.active {
+  border-color: var(--ink);
+  box-shadow: 0 0 0 2px var(--panel) inset;
+}
+
+.setting-row select {
+  font: inherit;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink);
+}
+
 /* ---------- Responsive ---------- */
 
 @media (max-width: 1100px) {

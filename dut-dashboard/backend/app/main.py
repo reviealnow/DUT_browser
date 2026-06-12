@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -7,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.analyzer_api import router as analyzer_router
 from app.api.serial_api import router as serial_router
-from app.config import ANALYZER_OUTPUT_DIR, FRONTEND_DIST, SNAPSHOT_FILE
+from app.config import ANALYZER_OUTPUT_DIR, FRONTEND_DIST, LOG_DIR, SNAPSHOT_FILE
 from app.parser.sysmon_parser import SysMonParser
 from app.serial.serial_worker import SerialWorker
 from app.services.analyzer_service import AnalyzerService
@@ -65,6 +66,35 @@ def get_console_tail(limit: int = 500) -> dict:
     limit = max(1, min(limit, 500))
     lines = app.state.console_buffer.recent(limit)
     return {"lines": lines}
+
+
+@app.get("/api/logs")
+def list_logs() -> dict:
+    """Browse saved artifacts: DUT session logs and analyzer outputs (read-only,
+    newest first). Download session logs via /api/serial/logs/{name} and analyzer
+    outputs via /api/download/{name}."""
+
+    def entries(paths) -> list[dict]:
+        items: list[dict] = []
+        for path in paths:
+            try:
+                if not path.is_file() or path.name.startswith("."):
+                    continue
+                stat = path.stat()
+                items.append(
+                    {
+                        "name": path.name,
+                        "size": stat.st_size,
+                        "mtime": datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds"),
+                    }
+                )
+            except OSError:
+                continue
+        return sorted(items, key=lambda item: item["mtime"], reverse=True)
+
+    sessions = entries(LOG_DIR.glob("dut-session-*.log")) if LOG_DIR.is_dir() else []
+    artifacts = entries(ANALYZER_OUTPUT_DIR.glob("*")) if ANALYZER_OUTPUT_DIR.is_dir() else []
+    return {"sessions": sessions, "artifacts": artifacts}
 
 
 @app.get("/api/download/{file_name}")
