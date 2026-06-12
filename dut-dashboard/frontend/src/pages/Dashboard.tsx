@@ -15,6 +15,7 @@ import ConsolePanel from "../components/ConsolePanel";
 const TerminalView = lazy(() => import("../components/TerminalView"));
 import { CRITICAL_CRASH_PATTERN } from "../monitoring/crash";
 import { useDutMonitorContext } from "../monitoring/DutMonitorContext";
+import { loadCrashKeywords, loadSettings, saveCrashKeywords } from "../monitoring/useSettings";
 const DEFAULT_SERIAL_PORT = "/dev/ttyUSB0";
 
 function choosePreferredPort(ports: SerialPortInfo[]): string {
@@ -31,7 +32,7 @@ export default function Dashboard({ active = true }: { active?: boolean }) {
   const { lines } = useDutMonitorContext();
   const [mode, setMode] = useState<"serial" | "replay">("serial");
   const [port, setPort] = useState(DEFAULT_SERIAL_PORT);
-  const [baudrate, setBaudrate] = useState(115200);
+  const [baudrate, setBaudrate] = useState(() => loadSettings().defaultBaud);
   const [replayPath, setReplayPath] = useState("logs/sample.log");
   const [replayIntervalMs, setReplayIntervalMs] = useState(100);
   const [serialPorts, setSerialPorts] = useState<SerialPortInfo[]>([]);
@@ -42,7 +43,7 @@ export default function Dashboard({ active = true }: { active?: boolean }) {
   const [terminalError, setTerminalError] = useState("");
   const [lastSeenCriticalCrashCount, setLastSeenCriticalCrashCount] = useState(0);
   const [criticalCrashKeywordInput, setCriticalCrashKeywordInput] = useState("");
-  const [lockedCriticalCrashKeywords, setLockedCriticalCrashKeywords] = useState<string[]>([]);
+  const [lockedCriticalCrashKeywords, setLockedCriticalCrashKeywords] = useState<string[]>(loadCrashKeywords);
   const [downloadNotice, setDownloadNotice] = useState<{ message: string; tone: "blue" | "green" } | null>(null);
 
   async function handleOpen() {
@@ -92,6 +93,11 @@ export default function Dashboard({ active = true }: { active?: boolean }) {
       void exitTerminal();
     }
   }, [active, consoleView]);
+
+  // Persist locked critical-crash keywords (Settings) so they survive reloads.
+  useEffect(() => {
+    saveCrashKeywords(lockedCriticalCrashKeywords);
+  }, [lockedCriticalCrashKeywords]);
 
   async function handleRunTop() {
     await sendSerial("top\n");

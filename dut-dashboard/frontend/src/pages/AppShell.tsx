@@ -3,6 +3,9 @@ import { useEffect, useState } from "react";
 import { getMemory, MemorySeries } from "../api/rest";
 import ChartData from "../components/charts/ChartData";
 import Sparkline from "../components/charts/Sparkline";
+import DownloadsSection from "../components/DownloadsSection";
+import SettingsSection from "../components/SettingsSection";
+import { applyAccent, loadSettings } from "../monitoring/useSettings";
 import { Card, EmptyState, KpiCard } from "../components/shell/Card";
 import Sidebar from "../components/shell/Sidebar";
 import Topbar from "../components/shell/Topbar";
@@ -26,8 +29,14 @@ const PHASE3_HINT = "Trend charts and live views arrive in Phase 3.";
  */
 export default function AppShell() {
   const [active, setActive] = useState<SectionId>("overview");
+  const [search, setSearch] = useState("");
   const monitor = useDutMonitor();
   const current = NAV_ITEMS.find((item) => item.id === active) ?? NAV_ITEMS[0];
+
+  // Apply the saved accent on load so the theme persists across reloads.
+  useEffect(() => {
+    applyAccent(loadSettings().accent);
+  }, []);
 
   return (
     <DutMonitorProvider value={monitor}>
@@ -37,7 +46,11 @@ export default function AppShell() {
           <Topbar
             title={current.title}
             subtitle={current.subtitle}
-            search={active === "logs" || active === "downloads" ? <SearchBox /> : undefined}
+            search={
+              active === "logs" || active === "downloads" ? (
+                <SearchBox value={search} onChange={setSearch} />
+              ) : undefined
+            }
             actions={
             <ToolbarActions
               status={monitor.status}
@@ -53,7 +66,7 @@ export default function AppShell() {
             <div className="embed" style={{ display: active === "console" ? "block" : "none" }}>
               <Dashboard active={active === "console"} />
             </div>
-            {active !== "console" ? renderSection(active, monitor) : null}
+            {active !== "console" ? renderSection(active, monitor, search) : null}
           </main>
         </div>
       </div>
@@ -61,7 +74,7 @@ export default function AppShell() {
   );
 }
 
-function renderSection(active: SectionId, monitor: DutMonitorState) {
+function renderSection(active: SectionId, monitor: DutMonitorState, search: string) {
   switch (active) {
     case "overview":
       return <OverviewSection monitor={monitor} />;
@@ -87,17 +100,9 @@ function renderSection(active: SectionId, monitor: DutMonitorState) {
         </Card>
       );
     case "downloads":
-      return (
-        <Card title="Downloads" subtitle="Log bundles and analyzer artifacts">
-          <EmptyState icon="⬇" message="No downloads yet" hint={PHASE3_HINT} />
-        </Card>
-      );
+      return <DownloadsSection query={search} />;
     case "settings":
-      return (
-        <Card title="Settings" subtitle="Dashboard configuration">
-          <EmptyState icon="⚙" message="No settings yet" hint="Configuration options arrive in a later phase." />
-        </Card>
-      );
+      return <SettingsSection />;
     default:
       return null;
   }
@@ -345,12 +350,17 @@ function CrashEventsBody({ monitor }: { monitor: DutMonitorState }) {
   );
 }
 
-function SearchBox() {
-  // Phase 1: presentational only. Wired to real filtering in a later phase.
+function SearchBox({ value, onChange }: { value: string; onChange: (next: string) => void }) {
   return (
     <div className="search">
       <span aria-hidden>🔍</span>
-      <input type="search" placeholder="Filter…" aria-label="Filter" />
+      <input
+        type="search"
+        placeholder="Filter…"
+        aria-label="Filter"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
     </div>
   );
 }
