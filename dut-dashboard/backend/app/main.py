@@ -8,12 +8,9 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.analyzer_api import router as analyzer_router
 from app.api.serial_api import router as serial_router
-from app.config import ANALYZER_OUTPUT_DIR, FRONTEND_DIST, LOG_DIR, SNAPSHOT_FILE
-from app.parser.sysmon_parser import SysMonParser
-from app.serial.serial_worker import SerialWorker
+from app.config import ANALYZER_OUTPUT_DIR, FRONTEND_DIST, LOG_DIR
+from app.dut.registry import DEFAULT_DUT_ID, DutContext, DutRegistry, build_default_registry
 from app.services.analyzer_service import AnalyzerService
-from app.services.console_buffer import ConsoleBuffer
-from app.services.snapshot_store import SnapshotStore
 from app.websocket.terminal_manager import TerminalManager
 from app.websocket.ws_manager import WebSocketManager
 
@@ -24,27 +21,24 @@ app.include_router(analyzer_router)
 
 @app.on_event("startup")
 async def on_startup() -> None:
+    loop = asyncio.get_running_loop()
     ws_manager = WebSocketManager()
-    ws_manager.bind_loop(asyncio.get_running_loop())
-    snapshot_store = SnapshotStore(SNAPSHOT_FILE)
-    console_buffer = ConsoleBuffer()
+    ws_manager.bind_loop(loop)
 
-    def on_event(event: dict) -> None:
-        snapshot_store.observe(event)
-        console_buffer.observe(event)
-        ws_manager.emit_from_thread(event)
-
-    terminal_manager = TerminalManager()
-    terminal_manager.bind_loop(asyncio.get_running_loop())
-
+    # Shared, cross-DUT services.
     app.state.ws_manager = ws_manager
-    app.state.snapshot_store = snapshot_store
-    app.state.console_buffer = console_buffer
-    app.state.terminal_manager = terminal_manager
-    app.state.parser = SysMonParser(on_event=on_event)
-    app.state.serial_worker = SerialWorker(app.state.parser)
-    app.state.serial_worker.set_terminal_output(terminal_manager.emit_bytes_from_thread)
     app.state.analyzer_service = AnalyzerService()
+
+    # Per-DUT runtime; A0 registers the single default DUT (behaviour unchanged).
+    app.state.dut_registry = build_default_registry(ws_manager=ws_manager, loop=loop)
+
+
+def resolve_dut(app_, dut_id: str) -> DutContext:
+    """Look up a DUT context or raise 404 for an unknown id."""
+    try:
+        return app_.state.dut_registry.get(dut_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"Unknown DUT: {dut_id}") from exc
 
 
 @app.get("/health")
@@ -53,18 +47,18 @@ def health() -> dict:
 
 
 @app.get("/api/snapshots")
-def get_snapshots(limit: int = 120) -> dict:
+def get_snapshots(limit: int = 120, dut: str = DEFAULT_DUT_ID) -> dict:
     """Recent full snapshots for instant frontend chart backfill on (re)connect."""
     limit = max(1, min(limit, 500))
-    snapshots = app.state.snapshot_store.recent(limit)
+    snapshots = resolve_dut(app, dut).snapshot_store.recent(limit)
     return {"snapshots": snapshots}
 
 
 @app.get("/api/console/tail")
-def get_console_tail(limit: int = 500) -> dict:
+def get_console_tail(limit: int = 500, dut: str = DEFAULT_DUT_ID) -> dict:
     """Recent console lines so the Serial Console seeds instantly on (re)load."""
     limit = max(1, min(limit, 500))
-    lines = app.state.console_buffer.recent(limit)
+    lines = resolve_dut(app, dut).console_buffer.recent(limit)
     return {"lines": lines}
 
 
@@ -128,8 +122,14 @@ async def terminal_endpoint(ws: WebSocket) -> None:
     """Raw interactive serial terminal. Output is broadcast via TerminalManager;
     input (keystrokes) is written straight to the serial port. Mode switching is
     explicit (POST /api/serial/terminal/enter|exit), so this only carries bytes."""
-    terminal: TerminalManager = app.state.terminal_manager
-    worker = app.state.serial_worker
+    dut_id = ws.query_params.get("dut", DEFAULT_DUT_ID)
+    try:
+        context = app.state.dut_registry.get(dut_id)
+    except KeyError:
+        await ws.close(code=1008)
+        return
+    terminal: TerminalManager = context.terminal_manager
+    worker = context.serial_worker
     await terminal.connect(ws)
     try:
         while True:

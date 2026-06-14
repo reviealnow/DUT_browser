@@ -1,3 +1,4 @@
+import { DEFAULT_DUT_ID } from "./dut";
 import { SnapshotPayload } from "./websocket";
 
 export type OpenSerialParams = {
@@ -40,16 +41,19 @@ async function get<T>(url: string): Promise<T> {
   return (await response.json()) as T;
 }
 
-export async function openSerial(params: OpenSerialParams): Promise<OpenSerialResponse> {
-  return post<OpenSerialResponse>("/api/serial/open", params);
+export async function openSerial(
+  params: OpenSerialParams,
+  dutId = DEFAULT_DUT_ID,
+): Promise<OpenSerialResponse> {
+  return post<OpenSerialResponse>(`/api/serial/open?dut=${dutId}`, params);
 }
 
-export async function closeSerial(): Promise<{ ok: boolean }> {
-  return post<{ ok: boolean }>("/api/serial/close", {});
+export async function closeSerial(dutId = DEFAULT_DUT_ID): Promise<{ ok: boolean }> {
+  return post<{ ok: boolean }>(`/api/serial/close?dut=${dutId}`, {});
 }
 
-export async function sendSerial(text: string): Promise<{ ok: boolean }> {
-  return post<{ ok: boolean }>("/api/serial/send", { text });
+export async function sendSerial(text: string, dutId = DEFAULT_DUT_ID): Promise<{ ok: boolean }> {
+  return post<{ ok: boolean }>(`/api/serial/send?dut=${dutId}`, { text });
 }
 
 export async function listSerialPorts(): Promise<SerialPortInfo[]> {
@@ -62,14 +66,18 @@ export function getSerialLogDownloadUrl(fileName: string): string {
 }
 
 /** Recent full snapshots for instant chart backfill on (re)connect. */
-export async function getSnapshots(limit = 120): Promise<SnapshotPayload[]> {
-  const result = await get<{ snapshots: SnapshotPayload[] }>(`/api/snapshots?limit=${limit}`);
+export async function getSnapshots(limit = 120, dutId = DEFAULT_DUT_ID): Promise<SnapshotPayload[]> {
+  const result = await get<{ snapshots: SnapshotPayload[] }>(
+    `/api/snapshots?limit=${limit}&dut=${dutId}`,
+  );
   return result.snapshots;
 }
 
 /** Recent console lines so the Serial Console seeds instantly on (re)load. */
-export async function getConsoleTail(limit = 500): Promise<string[]> {
-  const result = await get<{ lines: string[] }>(`/api/console/tail?limit=${limit}`);
+export async function getConsoleTail(limit = 500, dutId = DEFAULT_DUT_ID): Promise<string[]> {
+  const result = await get<{ lines: string[] }>(
+    `/api/console/tail?limit=${limit}&dut=${dutId}`,
+  );
   return result.lines;
 }
 
@@ -107,14 +115,14 @@ export async function getMemory(limit = 500): Promise<MemorySeries> {
 }
 
 /** Switch the serial reader into raw interactive terminal mode (monitoring pauses). */
-export async function enterTerminal(): Promise<void> {
-  const response = await fetch("/api/serial/terminal/enter", { method: "POST" });
+export async function enterTerminal(dutId = DEFAULT_DUT_ID): Promise<void> {
+  const response = await fetch(`/api/serial/terminal/enter?dut=${dutId}`, { method: "POST" });
   if (!response.ok) {
     throw new Error((await response.json().catch(() => ({}))).detail || "Failed to enter terminal mode");
   }
 }
 
 /** Resume sysmon monitoring. */
-export async function exitTerminal(): Promise<void> {
-  await fetch("/api/serial/terminal/exit", { method: "POST" }).catch(() => undefined);
+export async function exitTerminal(dutId = DEFAULT_DUT_ID): Promise<void> {
+  await fetch(`/api/serial/terminal/exit?dut=${dutId}`, { method: "POST" }).catch(() => undefined);
 }
