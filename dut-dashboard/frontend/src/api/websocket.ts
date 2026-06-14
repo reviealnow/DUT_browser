@@ -1,3 +1,5 @@
+import { DEFAULT_DUT_ID } from "./dut";
+
 export type CpuCore = {
   usr: number;
   sys: number;
@@ -73,10 +75,13 @@ const RECONNECT_MAX_MS = 10_000;
  * recovered automatically. `latestSnapshot` (the delta base) is reset on each
  * (re)connect; callers should re-run backfill in onOpen.
  */
-export function connectDashboardWebSocket(handlers: DashboardSocketHandlers): DashboardSocket {
+export function connectDashboardWebSocket(
+  handlers: DashboardSocketHandlers,
+  dutId = DEFAULT_DUT_ID,
+): DashboardSocket {
   const { onEvent, onOpen, onClose } = handlers;
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  const url = `${protocol}://${window.location.host}/ws`;
+  const url = `${protocol}://${window.location.host}/ws?dut=${dutId}`;
 
   let ws: WebSocket | null = null;
   let closedByCaller = false;

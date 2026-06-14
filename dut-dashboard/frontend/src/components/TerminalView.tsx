@@ -3,6 +3,8 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 
+import { DEFAULT_DUT_ID } from "../api/dut";
+
 /**
  * Interactive raw serial terminal (xterm.js <-> /ws/term). Forwards keystrokes
  * as bytes and writes raw serial output, so vi/nano work. The backend must
@@ -34,7 +36,7 @@ export default function TerminalView() {
     term.focus();
 
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${protocol}://${window.location.host}/ws/term`);
+    const ws = new WebSocket(`${protocol}://${window.location.host}/ws/term?dut=${DEFAULT_DUT_ID}`);
     ws.binaryType = "arraybuffer";
 
     ws.onopen = () => term.writeln("\x1b[2m[connected — interactive serial terminal]\x1b[0m");
