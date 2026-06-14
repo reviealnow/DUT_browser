@@ -17,8 +17,17 @@ from pydantic import BaseModel
 from serial.tools import list_ports
 
 from app.config import ANALYZER_SCRIPT, LOG_DIR
+from app.dut.registry import DEFAULT_DUT_ID, DutContext
 
 router = APIRouter(prefix="/api/serial", tags=["serial"])
+
+
+def _dut(request: Request, dut: str) -> DutContext:
+    """Resolve a DUT context or raise 404 for an unknown id."""
+    try:
+        return request.app.state.dut_registry.get(dut)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"Unknown DUT: {dut}") from exc
 
 
 class SerialOpenRequest(BaseModel):
@@ -183,9 +192,9 @@ def list_serial_ports() -> dict:
 
 
 @router.post("/open")
-def open_serial(body: SerialOpenRequest, request: Request) -> dict:
+def open_serial(body: SerialOpenRequest, request: Request, dut: str = DEFAULT_DUT_ID) -> dict:
+    serial_worker = _dut(request, dut).serial_worker
     try:
-        serial_worker = request.app.state.serial_worker
         serial_worker.open(
             port=body.port,
             baudrate=body.baudrate,
@@ -199,40 +208,40 @@ def open_serial(body: SerialOpenRequest, request: Request) -> dict:
 
 
 @router.post("/close")
-def close_serial(request: Request) -> dict:
-    request.app.state.serial_worker.close()
+def close_serial(request: Request, dut: str = DEFAULT_DUT_ID) -> dict:
+    _dut(request, dut).serial_worker.close()
     return {"ok": True}
 
 
 @router.post("/send")
-def send_serial(body: SerialSendRequest, request: Request) -> dict:
+def send_serial(body: SerialSendRequest, request: Request, dut: str = DEFAULT_DUT_ID) -> dict:
     try:
-        request.app.state.serial_worker.send(body.text)
+        _dut(request, dut).serial_worker.send(body.text)
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"ok": True}
 
 
 @router.post("/terminal/enter")
-def enter_terminal(request: Request) -> dict:
+def enter_terminal(request: Request, dut: str = DEFAULT_DUT_ID) -> dict:
     """Switch to interactive raw-terminal mode (sysmon monitoring pauses)."""
     try:
-        request.app.state.serial_worker.enter_terminal()
+        _dut(request, dut).serial_worker.enter_terminal()
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"ok": True, "terminal": True}
 
 
 @router.post("/terminal/exit")
-def exit_terminal(request: Request) -> dict:
+def exit_terminal(request: Request, dut: str = DEFAULT_DUT_ID) -> dict:
     """Resume sysmon monitoring."""
-    request.app.state.serial_worker.exit_terminal()
+    _dut(request, dut).serial_worker.exit_terminal()
     return {"ok": True, "terminal": False}
 
 
 @router.get("/efficiency-report")
-def get_efficiency_report(request: Request) -> dict:
-    return request.app.state.parser.efficiency_report()
+def get_efficiency_report(request: Request, dut: str = DEFAULT_DUT_ID) -> dict:
+    return _dut(request, dut).parser.efficiency_report()
 
 
 @router.get("/logs/{file_name}")
