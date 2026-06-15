@@ -4,6 +4,7 @@ import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 
 import { DEFAULT_DUT_ID } from "../api/dut";
+import { resizeTerminal } from "../api/rest";
 
 /**
  * Interactive raw serial terminal (xterm.js <-> /ws/term). Forwards keystrokes
@@ -39,7 +40,12 @@ export default function TerminalView() {
     const ws = new WebSocket(`${protocol}://${window.location.host}/ws/term?dut=${DEFAULT_DUT_ID}`);
     ws.binaryType = "arraybuffer";
 
-    ws.onopen = () => term.writeln("\x1b[2m[connected — interactive serial terminal]\x1b[0m");
+    // Send the DUT its terminal size + TERM once connected, so vi/nano render
+    // at the right dimensions. Subsequent resizes (below) update stty only.
+    ws.onopen = () => {
+      term.writeln("\x1b[2m[connected — interactive serial terminal]\x1b[0m");
+      void resizeTerminal(term.rows, term.cols, "xterm");
+    };
     ws.onmessage = (event: MessageEvent) => {
       if (event.data instanceof ArrayBuffer) {
         term.write(new Uint8Array(event.data));
@@ -56,6 +62,17 @@ export default function TerminalView() {
       }
     });
 
+    // When the xterm grid actually changes size, push the new rows/cols to the DUT
+    // (debounced so dragging the window doesn't spam stty). onResize only fires on a
+    // real grid change, so window-resize -> fit() -> onResize is naturally deduped.
+    let resizeTimer: number | undefined;
+    const resizeSub = term.onResize(({ rows, cols }) => {
+      window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(() => {
+        void resizeTerminal(rows, cols);
+      }, 150);
+    });
+
     const handleResize = () => {
       try {
         fit.fit();
@@ -66,7 +83,9 @@ export default function TerminalView() {
     window.addEventListener("resize", handleResize);
 
     return () => {
+      window.clearTimeout(resizeTimer);
       window.removeEventListener("resize", handleResize);
+      resizeSub.dispose();
       dataSub.dispose();
       ws.close();
       term.dispose();
