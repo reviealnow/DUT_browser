@@ -139,3 +139,36 @@ export async function resizeTerminal(
 ): Promise<void> {
   await post(`/api/serial/terminal/resize?dut=${dutId}`, { rows, cols, term }).catch(() => undefined);
 }
+
+export type WifiClientRow = {
+  iface: string;
+  band: string;
+  ssid?: string;
+  mac: string;
+  vendor: string;
+  aid: number | null;
+  channel: number | null;
+  txrate: string | null;
+  rxrate: string | null;
+  rssi: number | null;
+  signal_pct: number | null;
+  snr: number | null;
+  assoc_time: string | null;
+  phymode: string | null;
+  width: string | null;
+  rxnss: number | null;
+  txnss: number | null;
+};
+
+export type WifiVap = { iface: string; ssid: string; band: string; channel: number | null };
+export type WifiClientsResult = { clients: WifiClientRow[]; vaps: WifiVap[]; captured_at: string };
+
+/** On-demand scan of associated Wi-Fi clients (wlanconfig per active VAP). */
+export async function getWifiClients(dutId = DEFAULT_DUT_ID): Promise<WifiClientsResult> {
+  return get<WifiClientsResult>(`/api/wifi/clients?dut=${dutId}`);
+}
+
+/** Disassociate a Wi-Fi client (wlanconfig kickmac). */
+export async function kickWifiClient(iface: string, mac: string, dutId = DEFAULT_DUT_ID): Promise<void> {
+  await post(`/api/serial/wifi/kick?dut=${dutId}`, { iface, mac });
+}

@@ -5,6 +5,7 @@ import ChartData from "../components/charts/ChartData";
 import Sparkline from "../components/charts/Sparkline";
 import DownloadsSection from "../components/DownloadsSection";
 import SettingsSection from "../components/SettingsSection";
+import WifiClientsCard from "../components/WifiClientsCard";
 import { applyAccent, loadSettings } from "../monitoring/useSettings";
 import { Card, EmptyState, KpiCard } from "../components/shell/Card";
 import Sidebar from "../components/shell/Sidebar";
@@ -97,9 +98,12 @@ function renderSection(active: SectionId, monitor: DutMonitorState, search: stri
       );
     case "wifi":
       return (
-        <Card title="Wi-Fi clients" subtitle="Associated clients by radio">
-          <WifiSummaryBody monitor={monitor} />
-        </Card>
+        <div style={{ display: "grid", gap: "var(--space-4)" }}>
+          <Card title="Wi-Fi client summary" subtitle="Associated clients by radio">
+            <WifiSummaryBody monitor={monitor} />
+          </Card>
+          <WifiClientsCard />
+        </div>
       );
     case "logs":
       return (
