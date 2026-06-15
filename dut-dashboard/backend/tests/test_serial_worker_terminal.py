@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import threading
 import time
 import unittest
@@ -172,6 +173,60 @@ class SerialWorkerTerminalTests(unittest.TestCase):
         worker = SerialWorker(StubParser())
         with self.assertRaises(RuntimeError):
             worker.resize_terminal(24, 80)
+
+
+class _AutoFakeSerial(FakeSerial):
+    """When the captured command is written (`cmd; echo <sentinel>`), queue the
+    command's fake stdout followed by the sentinel line so read_loop completes."""
+
+    def write(self, data: bytes) -> None:
+        super().write(data)
+        text = data.decode("utf-8", errors="ignore")
+        m = re.search(r"echo (\S+)", text)
+        if m:
+            self.feed(b"vap-output-line\n" + m.group(1).encode() + b"\n")
+
+
+class CaptureCommandTests(unittest.TestCase):
+    def _running_worker(self, fake) -> tuple[SerialWorker, StubParser, threading.Thread]:
+        parser = StubParser()
+        worker = SerialWorker(parser)
+        worker._serial = fake  # type: ignore[attr-defined]
+        worker._mode = "serial"  # type: ignore[attr-defined]
+        worker._stop_event.clear()
+        t = threading.Thread(target=worker.read_loop, daemon=True)
+        t.start()
+        return worker, parser, t
+
+    def test_capture_returns_stdout_and_skips_parser(self) -> None:
+        fake = _AutoFakeSerial()
+        worker, parser, t = self._running_worker(fake)
+        try:
+            out = worker.capture_command("iwconfig", timeout=2.0)
+            self.assertIn("vap-output-line", out)
+            self.assertNotIn("__DUTCAP", out)           # sentinel stripped
+            self.assertFalse(worker._capture_active)      # cleared after return
+            self.assertEqual(parser.fed, [])              # parser not fed during capture
+        finally:
+            worker._stop_event.set()  # type: ignore[attr-defined]
+            fake.close()
+            t.join(timeout=1.0)
+
+    def test_capture_timeout_returns_and_clears(self) -> None:
+        fake = FakeSerial()  # never feeds a sentinel back
+        worker, _parser, t = self._running_worker(fake)
+        try:
+            out = worker.capture_command("iwconfig", timeout=0.3)
+            self.assertEqual(out, "")
+            self.assertFalse(worker._capture_active)       # state cleared on timeout
+        finally:
+            worker._stop_event.set()  # type: ignore[attr-defined]
+            fake.close()
+            t.join(timeout=1.0)
+
+    def test_capture_requires_serial_open(self) -> None:
+        with self.assertRaises(RuntimeError):
+            SerialWorker(StubParser()).capture_command("iwconfig")
 
 
 if __name__ == "__main__":
