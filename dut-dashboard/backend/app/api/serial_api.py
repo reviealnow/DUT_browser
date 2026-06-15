@@ -48,6 +48,15 @@ class SerialResizeRequest(BaseModel):
     term: str | None = None
 
 
+class WifiKickRequest(BaseModel):
+    iface: str
+    mac: str
+
+
+_IFACE_RE = re.compile(r"^ath\d+$")
+_KICK_MAC_RE = re.compile(r"^[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}$")
+
+
 class DownloadWorkflowError(Exception):
     def __init__(self, message: str, status_code: int = 500) -> None:
         super().__init__(message)
@@ -254,6 +263,20 @@ def resize_terminal(body: SerialResizeRequest, request: Request, dut: str = DEFA
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"ok": True, "rows": body.rows, "cols": body.cols}
+
+
+@router.post("/wifi/kick")
+def kick_wifi_client(body: WifiKickRequest, request: Request, dut: str = DEFAULT_DUT_ID) -> dict:
+    """Disassociate a Wi-Fi client via `wlanconfig <iface> kickmac <mac>`."""
+    if not _IFACE_RE.match(body.iface) or not _KICK_MAC_RE.match(body.mac):
+        raise HTTPException(status_code=400, detail="Invalid interface or MAC")
+    try:
+        _dut(request, dut).serial_worker.capture_command(
+            f"wlanconfig {body.iface} kickmac {body.mac}", timeout=5.0
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True}
 
 
 @router.get("/efficiency-report")
