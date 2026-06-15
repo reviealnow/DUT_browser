@@ -33,6 +33,12 @@ class SerialWorker:
         # raw bytes to _terminal_output instead of feeding the sysmon parser.
         self._terminal = False
         self._terminal_output = None  # type: ignore[assignment]
+        # Synchronous command-capture (Phase 14): when active, the reader collects
+        # lines into a buffer (NOT the parser) until a sentinel line is seen.
+        self._capture_active = False
+        self._capture_lines: list[str] = []
+        self._capture_sentinel = ""
+        self._capture_done = threading.Event()
 
     def set_terminal_output(self, callback) -> None:
         """Register a callback(bytes) for raw serial output in terminal mode."""
@@ -158,6 +164,44 @@ class SerialWorker:
             self._serial.write(commands.encode("utf-8", errors="ignore"))
             self._serial.flush()
 
+    def capture_command(self, cmd: str, timeout: float = 6.0) -> str:
+        """Run a shell command on the DUT and return its stdout (serial mode).
+
+        DUT-agnostic: appends `; echo <sentinel>` and reads monitor lines into a
+        buffer (not the sysmon parser) until the sentinel line appears, or timeout.
+        Mutually exclusive with terminal mode and with another in-flight capture.
+        """
+        sentinel = f"__DUTCAP_{int(time.time() * 1000) % 1_000_000:06d}__"
+        with self._lock:
+            if self._mode != "serial" or self._serial is None or not self._serial.is_open:
+                raise RuntimeError("Serial port is not open")
+            if self._terminal:
+                raise RuntimeError("Cannot capture while in terminal mode")
+            if self._capture_active:
+                raise RuntimeError("A capture is already in progress")
+            self._capture_lines = []
+            self._capture_sentinel = sentinel
+            self._capture_done.clear()
+            self._capture_active = True
+            self._serial.write(f"{cmd}; echo {sentinel}\n".encode("utf-8", errors="ignore"))
+            self._serial.flush()
+
+        self._capture_done.wait(timeout=timeout)
+
+        with self._lock:
+            self._capture_active = False
+            lines = list(self._capture_lines)
+            self._capture_lines = []
+        # Drop the echoed command line and the sentinel line; keep stdout only.
+        out: list[str] = []
+        for line in lines:
+            if sentinel in line:
+                continue
+            if line.strip() == cmd or line.strip().endswith(f"; echo {sentinel}"):
+                continue
+            out.append(line)
+        return "".join(out)
+
     def read_loop(self) -> None:
         while not self._stop_event.is_set():
             ser = self._serial
@@ -191,6 +235,15 @@ class SerialWorker:
                 continue
             decoded = line.decode("utf-8", errors="ignore")
             self._write_log_line(decoded)
+            if self._capture_active:
+                # Divert to the capture buffer instead of the parser (avoid
+                # polluting CPU/crash data with the captured command's output).
+                self._capture_lines.append(decoded)
+                # Match the sentinel only when it is echoed on its own line — not
+                # in the echoed command itself ("<cmd>; echo <sentinel>").
+                if self._capture_sentinel and decoded.strip() == self._capture_sentinel:
+                    self._capture_done.set()
+                continue
             self.parser.feed(decoded)
 
     def _replay_loop(self, replay_file: Path, replay_interval_ms: int) -> None:

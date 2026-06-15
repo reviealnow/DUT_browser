@@ -11,6 +11,7 @@ from app.api.serial_api import router as serial_router
 from app.config import ANALYZER_OUTPUT_DIR, FRONTEND_DIST, LOG_DIR
 from app.dut.registry import DEFAULT_DUT_ID, DutContext, DutRegistry, build_default_registry
 from app.services.analyzer_service import AnalyzerService
+from app.services.wifi_clients import discover_vaps, parse_wlanconfig_list
 from app.websocket.terminal_manager import TerminalManager
 from app.websocket.ws_manager import WebSocketManager
 
@@ -60,6 +61,35 @@ def get_console_tail(limit: int = 500, dut: str = DEFAULT_DUT_ID) -> dict:
     limit = max(1, min(limit, 500))
     lines = resolve_dut(app, dut).console_buffer.recent(limit)
     return {"lines": lines}
+
+
+@app.get("/api/wifi/clients")
+def get_wifi_clients(dut: str = DEFAULT_DUT_ID) -> dict:
+    """On-demand per-client Wi-Fi detail: discover active VAPs (iwconfig) then run
+    `wlanconfig <vap> list` for each and parse the association tables. Serial mode
+    only; briefly pauses sysmon parsing during the captures."""
+    worker = resolve_dut(app, dut).serial_worker
+    try:
+        iwconfig_text = worker.capture_command("iwconfig", timeout=6.0)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    vaps = discover_vaps(iwconfig_text)
+    clients: list[dict] = []
+    for vap in vaps:
+        try:
+            out = worker.capture_command(f"wlanconfig {vap['iface']} list", timeout=6.0)
+        except RuntimeError:
+            continue
+        for client in parse_wlanconfig_list(out, vap["iface"]):
+            client["ssid"] = vap["ssid"]
+            clients.append(client)
+
+    return {
+        "clients": clients,
+        "vaps": vaps,
+        "captured_at": datetime.now().isoformat(timespec="seconds"),
+    }
 
 
 @app.get("/api/logs")
