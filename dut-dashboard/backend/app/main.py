@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.analyzer_api import router as analyzer_router
+from app.api.duts_api import router as duts_router
 from app.api.serial_api import router as serial_router
 from app.config import ANALYZER_OUTPUT_DIR, FRONTEND_DIST, LOG_DIR
 from app.dut.registry import DEFAULT_DUT_ID, DutContext, DutRegistry, build_default_registry
@@ -18,6 +19,7 @@ from app.websocket.ws_manager import WebSocketManager
 app = FastAPI(title="DUT Local Monitoring Dashboard")
 app.include_router(serial_router)
 app.include_router(analyzer_router)
+app.include_router(duts_router)
 
 
 @app.on_event("startup")
