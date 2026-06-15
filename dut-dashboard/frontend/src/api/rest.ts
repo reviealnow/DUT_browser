@@ -172,3 +172,31 @@ export async function getWifiClients(dutId = DEFAULT_DUT_ID): Promise<WifiClient
 export async function kickWifiClient(iface: string, mac: string, dutId = DEFAULT_DUT_ID): Promise<void> {
   await post(`/api/serial/wifi/kick?dut=${dutId}`, { iface, mac });
 }
+
+export type DutInfo = {
+  id: string;
+  label: string;
+  mode: "serial" | "replay" | null;
+  serial_open: boolean;
+  log_path: string | null;
+  removable: boolean;
+};
+
+/** List the registered DUTs (for the switcher). */
+export async function getDuts(): Promise<DutInfo[]> {
+  const result = await get<{ duts: DutInfo[] }>("/api/duts");
+  return result.duts;
+}
+
+/** Register a new DUT at runtime. */
+export async function addDut(id: string, label?: string): Promise<void> {
+  await post("/api/duts", { id, label });
+}
+
+/** Remove a DUT (frees its serial port). The default DUT cannot be removed. */
+export async function removeDut(id: string): Promise<void> {
+  const response = await fetch(`/api/duts/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!response.ok) {
+    throw new Error((await response.json().catch(() => ({}))).detail || "Failed to remove DUT");
+  }
+}
