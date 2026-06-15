@@ -126,3 +126,16 @@ export async function enterTerminal(dutId = DEFAULT_DUT_ID): Promise<void> {
 export async function exitTerminal(dutId = DEFAULT_DUT_ID): Promise<void> {
   await fetch(`/api/serial/terminal/exit?dut=${dutId}`, { method: "POST" }).catch(() => undefined);
 }
+
+/**
+ * Tell the DUT shell the terminal size (and optionally TERM) so vi/nano render
+ * correctly. Best-effort — a failed resize must never break the terminal view.
+ */
+export async function resizeTerminal(
+  rows: number,
+  cols: number,
+  term?: string,
+  dutId = DEFAULT_DUT_ID,
+): Promise<void> {
+  await post(`/api/serial/terminal/resize?dut=${dutId}`, { rows, cols, term }).catch(() => undefined);
+}

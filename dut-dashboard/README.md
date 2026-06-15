@@ -167,6 +167,7 @@ deltas onto the last full snapshot):
 | `GET` | `/api/serial/logs/{file}` | download log — direct `.log` or analyzer `.zip` (see below) |
 | `POST` | `/api/serial/terminal/enter` | switch to raw interactive terminal mode (monitoring pauses); 400 if serial not open |
 | `POST` | `/api/serial/terminal/exit` | resume monitoring |
+| `POST` | `/api/serial/terminal/resize` | `{rows, cols, term?}` → sets DUT terminal size/type (see below); 400 if not in terminal mode |
 | `GET` | `/api/serial/efficiency-report` | parser counters |
 | `POST` | `/api/analyzer/run` | `{log_path}` → runs analyzer; returns produced files |
 | `GET` | `/api/download/{file}` | download an artifact from `logs/analyzer_output/` |
@@ -180,6 +181,14 @@ byte channel, so `vi` / `nano` work. Entering terminal mode is explicit and
 raw bytes are still written to the session log) so terminal escape sequences never
 reach the parser. Leaving the terminal (button or navigating away) resumes
 monitoring. Serial mode only — not replay. Assumes a single controller.
+
+On open and on browser resize, the client sends the xterm grid size to the DUT
+via `/api/serial/terminal/resize`, which runs `export TERM=xterm` and
+`stty rows R cols C` at the remote prompt so `vi` / `nano` render at the right
+size. `stty` errors are suppressed (`2>/dev/null`). **Note:** resizing requires
+the DUT shell to have `stty`; some busybox images don't, and their kernel tty
+winsize is fixed (e.g. 80×24) — there `TERM=xterm` still applies (correct escape
+sequences) but the editor size can't be changed from the dashboard.
 
 ### Serial vs Replay
 

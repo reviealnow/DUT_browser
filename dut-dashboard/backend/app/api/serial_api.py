@@ -42,6 +42,12 @@ class SerialSendRequest(BaseModel):
     text: str
 
 
+class SerialResizeRequest(BaseModel):
+    rows: int
+    cols: int
+    term: str | None = None
+
+
 class DownloadWorkflowError(Exception):
     def __init__(self, message: str, status_code: int = 500) -> None:
         super().__init__(message)
@@ -237,6 +243,17 @@ def exit_terminal(request: Request, dut: str = DEFAULT_DUT_ID) -> dict:
     """Resume sysmon monitoring."""
     _dut(request, dut).serial_worker.exit_terminal()
     return {"ok": True, "terminal": False}
+
+
+@router.post("/terminal/resize")
+def resize_terminal(body: SerialResizeRequest, request: Request, dut: str = DEFAULT_DUT_ID) -> dict:
+    """Tell the DUT shell the terminal size (and optionally TERM) so vi/nano render
+    at the right dimensions."""
+    try:
+        _dut(request, dut).serial_worker.resize_terminal(body.rows, body.cols, body.term)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True, "rows": body.rows, "cols": body.cols}
 
 
 @router.get("/efficiency-report")

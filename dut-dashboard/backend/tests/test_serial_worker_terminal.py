@@ -123,6 +123,56 @@ class SerialWorkerTerminalTests(unittest.TestCase):
             fake.close()
             thread.join(timeout=1.0)
 
+    def _terminal_worker(self) -> tuple[SerialWorker, "FakeSerial"]:
+        worker = SerialWorker(StubParser())
+        fake = FakeSerial()
+        worker._serial = fake  # type: ignore[attr-defined]
+        worker._mode = "serial"  # type: ignore[attr-defined]
+        worker.enter_terminal()
+        return worker, fake
+
+    def test_resize_writes_stty_and_term(self) -> None:
+        worker, fake = self._terminal_worker()
+        worker.resize_terminal(40, 100, term="xterm")
+        out = bytes(fake.outputs)
+        self.assertIn(b"export TERM=xterm\n", out)
+        self.assertIn(b"stty rows 40 cols 100 2>/dev/null\n", out)
+        # TERM must be exported before stty.
+        self.assertLess(out.index(b"export TERM"), out.index(b"stty"))
+
+    def test_resize_without_term_writes_only_stty(self) -> None:
+        worker, fake = self._terminal_worker()
+        worker.resize_terminal(24, 80)
+        out = bytes(fake.outputs)
+        self.assertNotIn(b"export TERM", out)
+        self.assertIn(b"stty rows 24 cols 80 2>/dev/null\n", out)
+
+    def test_resize_rejects_bad_term(self) -> None:
+        worker, fake = self._terminal_worker()
+        worker.resize_terminal(24, 80, term="xterm; rm -rf /")
+        out = bytes(fake.outputs)
+        self.assertNotIn(b"export TERM", out)  # bad term silently dropped
+        self.assertIn(b"stty rows 24 cols 80 2>/dev/null\n", out)
+
+    def test_resize_clamps_out_of_range(self) -> None:
+        worker, fake = self._terminal_worker()
+        worker.resize_terminal(0, 99999)
+        self.assertIn(b"stty rows 1 cols 1000 2>/dev/null\n", bytes(fake.outputs))
+
+    def test_resize_requires_terminal_mode(self) -> None:
+        worker = SerialWorker(StubParser())
+        fake = FakeSerial()
+        worker._serial = fake  # type: ignore[attr-defined]
+        worker._mode = "serial"  # type: ignore[attr-defined]
+        # serial open but not in terminal mode -> refuse (never inject at monitor prompt).
+        with self.assertRaises(RuntimeError):
+            worker.resize_terminal(24, 80)
+
+    def test_resize_requires_serial_open(self) -> None:
+        worker = SerialWorker(StubParser())
+        with self.assertRaises(RuntimeError):
+            worker.resize_terminal(24, 80)
+
 
 if __name__ == "__main__":
     unittest.main()
