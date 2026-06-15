@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { DEFAULT_DUT_ID } from "../api/dut";
 import { getConsoleTail, getSnapshots } from "../api/rest";
 import { connectDashboardWebSocket, SnapshotPayload } from "../api/websocket";
 import { CRITICAL_CRASH_PATTERN } from "./crash";
@@ -59,7 +60,7 @@ export type DutMonitorState = {
  * own connection, and the Overview charts read `cpuHistory` / `wifiByRadio` /
  * `crashLines`.
  */
-export function useDutMonitor(): DutMonitorState {
+export function useDutMonitor(dutId: string = DEFAULT_DUT_ID): DutMonitorState {
   const [lines, setLines] = useState<string[]>([]);
   const [snapshot, setSnapshot] = useState<SnapshotPayload | null>(null);
   const [cpuHistory, setCpuHistory] = useState<CpuHistoryPoint[]>([]);
@@ -75,7 +76,7 @@ export function useDutMonitor(): DutMonitorState {
   // device_ts / seed-if-empty) so it is safe to call on every reconnect.
   const runBackfill = useCallback(async () => {
     try {
-      const snaps = await getSnapshots(MAX_HISTORY);
+      const snaps = await getSnapshots(MAX_HISTORY, dutId);
       if (snaps.length > 0) {
         const backfillHistory = snaps.reduce<CpuHistoryPoint[]>((acc, snap) => upsertCpuPoint(acc, snap), []);
         setCpuHistory((prev) => {
@@ -103,7 +104,7 @@ export function useDutMonitor(): DutMonitorState {
     }
 
     try {
-      const tail = await getConsoleTail(MAX_LINES);
+      const tail = await getConsoleTail(MAX_LINES, dutId);
       // Console is an unkeyed append-only stream → seed only if empty (live wins).
       if (tail.length > 0) {
         setLines((prev) => (prev.length > 0 ? prev : tail.slice(-MAX_LINES)));
@@ -111,7 +112,18 @@ export function useDutMonitor(): DutMonitorState {
     } catch {
       // Offline or endpoint unavailable: console stays empty until live.
     }
-  }, []);
+  }, [dutId]);
+
+  // Switching DUT: drop the previous DUT's data so nothing lingers before the
+  // new DUT's backfill/live events arrive.
+  useEffect(() => {
+    setLines([]);
+    setSnapshot(null);
+    setCpuHistory([]);
+    setWifiByRadio({});
+    setWifiSeen(false);
+    lastActivityRef.current = 0;
+  }, [dutId]);
 
   useEffect(() => {
     const recordActivity = () => {
@@ -160,7 +172,7 @@ export function useDutMonitor(): DutMonitorState {
         void runBackfill();
       },
       onClose: () => setConnected(false),
-    });
+    }, dutId);
 
     const interval = window.setInterval(() => setNowTick(Date.now()), STATUS_TICK_MS);
 
