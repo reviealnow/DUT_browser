@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import threading
 import time
 from datetime import datetime
@@ -10,6 +11,9 @@ import serial
 
 from app.config import LOG_DIR
 from app.parser.sysmon_parser import SysMonParser
+
+# Allowlist for the TERM value written to the DUT shell (shell-injection guard).
+_TERM_PATTERN = re.compile(r"^[A-Za-z0-9.-]+$")
 
 
 class SerialWorker:
@@ -127,6 +131,31 @@ class SerialWorker:
             if self._mode != "serial" or self._serial is None or not self._serial.is_open:
                 raise RuntimeError("Serial port is not open")
             self._serial.write(data)
+            self._serial.flush()
+
+    def resize_terminal(self, rows: int, cols: int, term: str | None = None) -> None:
+        """Tell the DUT shell the terminal size (and optionally TERM) so full-screen
+        apps (vi/nano) render correctly. Runs `export TERM=<term>` and
+        `stty rows R cols C` at the remote prompt over the raw serial line.
+
+        Only valid in interactive terminal mode; raises otherwise so we never inject
+        commands into the sysmon monitor stream.
+        """
+        rows = max(1, min(int(rows), 1000))
+        cols = max(1, min(int(cols), 1000))
+        commands = ""
+        if term is not None and _TERM_PATTERN.match(term):
+            commands += f"export TERM={term}\n"
+        # Best-effort: stderr suppressed so DUTs whose busybox lacks `stty` don't
+        # print a "not found" error. Apps like vi also self-detect size via the
+        # cursor-position (DSR) query, which xterm.js answers automatically.
+        commands += f"stty rows {rows} cols {cols} 2>/dev/null\n"
+        with self._lock:
+            if self._mode != "serial" or self._serial is None or not self._serial.is_open:
+                raise RuntimeError("Serial port is not open")
+            if not self._terminal:
+                raise RuntimeError("Not in terminal mode")
+            self._serial.write(commands.encode("utf-8", errors="ignore"))
             self._serial.flush()
 
     def read_loop(self) -> None:
