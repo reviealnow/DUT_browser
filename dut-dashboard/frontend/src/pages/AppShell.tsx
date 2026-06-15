@@ -83,9 +83,17 @@ function renderSection(active: SectionId, monitor: DutMonitorState, search: stri
       return null;
     case "cpu":
       return (
-        <Card title="CPU trend" subtitle="Per-core busy % over time (memory is post-analysis only)">
-          <CpuTrendBody monitor={monitor} />
-        </Card>
+        <div className="grid">
+          <Card title="CPU trend" subtitle="Per-core busy % over time">
+            <CpuTrendBody monitor={monitor} />
+          </Card>
+          <Card title="Per-core CPU" subtitle="Current busy % by core">
+            <PerCoreCpuBody monitor={monitor} />
+          </Card>
+          <Card title="Memory trend" subtitle="From analyzer output (post-analysis)">
+            <MemoryTrendBody />
+          </Card>
+        </div>
       );
     case "wifi":
       return (
@@ -282,6 +290,37 @@ function CpuTrendBody({ monitor }: { monitor: DutMonitorState }) {
         </div>
       </div>
       <ChartData id="cpu-trend-data" data={monitor.cpuHistory} />
+    </div>
+  );
+}
+
+function PerCoreCpuBody({ monitor }: { monitor: DutMonitorState }) {
+  const cores = Object.entries(monitor.cpuPerCoreBusy).sort(([a], [b]) => a.localeCompare(b));
+  if (monitor.status === "offline" && cores.length === 0) {
+    return <OfflineState />;
+  }
+  if (cores.length === 0) {
+    return <EmptyState icon="📈" message="No snapshot data yet" hint="Open a DUT to stream CPU snapshots." />;
+  }
+  return (
+    <div className="chart">
+      <div className="barrows">
+        {cores.map(([core, busy]) => (
+          <div className="barrow" key={core}>
+            <div className="barrow-label">CPU{core}</div>
+            <div className="barrow-track">
+              <div className="barrow-fill" style={{ width: `${Math.min(100, Math.max(0, busy))}%` }} />
+            </div>
+            <div className="barrow-value">{busy}%</div>
+          </div>
+        ))}
+      </div>
+      <div className="chart-foot">
+        <div className="chart-metric">
+          {monitor.coreCount}
+          <span className="unit">core{monitor.coreCount === 1 ? "" : "s"}</span>
+        </div>
+      </div>
     </div>
   );
 }
