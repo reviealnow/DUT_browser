@@ -19,8 +19,11 @@ _TERM_PATTERN = re.compile(r"^[A-Za-z0-9.-]+$")
 class SerialWorker:
     _FSYNC_INTERVAL_SEC = 180
 
-    def __init__(self, parser: SysMonParser) -> None:
+    def __init__(self, parser: SysMonParser, name: str = "") -> None:
         self.parser = parser
+        # Optional per-DUT label woven into the session-log filename so concurrent
+        # DUTs don't collide on the timestamp ("" keeps the original naming).
+        self._name = name
         self._serial: serial.Serial | None = None
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
@@ -103,6 +106,15 @@ class SerialWorker:
     @property
     def current_log_path(self) -> str | None:
         return str(self._log_path) if self._log_path is not None else None
+
+    @property
+    def mode(self) -> str | None:
+        """Current source mode: 'serial', 'replay', or None when idle."""
+        return self._mode
+
+    @property
+    def is_open(self) -> bool:
+        return self._serial is not None and self._serial.is_open
 
     def send(self, text: str) -> None:
         with self._lock:
@@ -266,7 +278,8 @@ class SerialWorker:
     def _start_log_session(self, mode: str, port: str, replay_path: str | None) -> None:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        self._log_path = LOG_DIR / f"dut-session-{timestamp}.log"
+        prefix = f"{self._name}-" if self._name else ""
+        self._log_path = LOG_DIR / f"dut-session-{prefix}{timestamp}.log"
         self._log_fp = self._log_path.open("a", encoding="utf-8")
         source = replay_path if mode == "replay" else port
         self._log_fp.write(f"# mode={mode} source={source}\n")

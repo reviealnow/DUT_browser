@@ -16,10 +16,13 @@ events tagged with ``dut_id``) and the file-based :class:`AnalyzerService`.
 from __future__ import annotations
 
 import asyncio
+import json
+import re
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.config import SNAPSHOT_FILE
+from app.config import DUTS_FILE, snapshot_file_for
 from app.parser.sysmon_parser import SysMonParser
 from app.serial.serial_worker import SerialWorker
 from app.services.console_buffer import ConsoleBuffer
@@ -28,6 +31,8 @@ from app.websocket.terminal_manager import TerminalManager
 from app.websocket.ws_manager import WebSocketManager
 
 DEFAULT_DUT_ID = "default"
+MAX_DUTS = 16
+_DUT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 
 
 @dataclass
@@ -35,6 +40,7 @@ class DutContext:
     """The live runtime for one DUT."""
 
     dut_id: str
+    label: str
     parser: SysMonParser
     serial_worker: SerialWorker
     snapshot_store: SnapshotStore
@@ -53,8 +59,9 @@ class DutRegistry:
         self.ws_manager = ws_manager
         self._loop = loop
         self._duts: dict[str, DutContext] = {}
+        self._lock = threading.Lock()
 
-    def create_dut(self, dut_id: str, snapshot_file: Path) -> DutContext:
+    def create_dut(self, dut_id: str, label: str | None = None) -> DutContext:
         """Build and register one DUT's pipeline.
 
         Mirrors the original inline wiring from ``main.on_startup``: a per-DUT
@@ -62,7 +69,7 @@ class DutRegistry:
         then broadcasts on the shared WebSocket, tagging each event with
         ``dut_id`` for forward-looking client routing.
         """
-        snapshot_store = SnapshotStore(snapshot_file)
+        snapshot_store = SnapshotStore(snapshot_file_for(dut_id))
         console_buffer = ConsoleBuffer()
         terminal_manager = TerminalManager()
         terminal_manager.bind_loop(self._loop)
@@ -76,11 +83,15 @@ class DutRegistry:
             ws_manager.emit_from_thread(event)
 
         parser = SysMonParser(on_event=on_event)
-        serial_worker = SerialWorker(parser)
+        # Non-default DUTs weave their id into the session-log filename so
+        # concurrent DUTs don't collide; the default keeps the original naming.
+        worker_name = "" if dut_id == DEFAULT_DUT_ID else dut_id
+        serial_worker = SerialWorker(parser, name=worker_name)
         serial_worker.set_terminal_output(terminal_manager.emit_bytes_from_thread)
 
         context = DutContext(
             dut_id=dut_id,
+            label=label or dut_id,
             parser=parser,
             serial_worker=serial_worker,
             snapshot_store=snapshot_store,
@@ -90,12 +101,84 @@ class DutRegistry:
         self._duts[dut_id] = context
         return context
 
+    def register_dut(self, dut_id: str, label: str | None = None) -> DutContext:
+        """Add a new DUT at runtime (validated, deduped, capped) and persist it."""
+        if not _DUT_ID_RE.match(dut_id):
+            raise ValueError("DUT id must match ^[a-z0-9][a-z0-9_-]{0,31}$")
+        with self._lock:
+            if dut_id in self._duts:
+                raise KeyError(f"DUT already exists: {dut_id}")
+            if len(self._duts) >= MAX_DUTS:
+                raise ValueError(f"DUT limit reached ({MAX_DUTS})")
+            context = self.create_dut(dut_id, label=label)
+            self._save_locked()
+        return context
+
+    def remove_dut(self, dut_id: str) -> None:
+        """Stop and drop a DUT (frees its serial port). The default DUT is fixed."""
+        if dut_id == DEFAULT_DUT_ID:
+            raise ValueError("Cannot remove the default DUT")
+        with self._lock:
+            context = self._duts.get(dut_id)
+            if context is None:
+                raise KeyError(f"Unknown DUT: {dut_id}")
+            context.serial_worker.close()
+            del self._duts[dut_id]
+            self._save_locked()
+
     def get(self, dut_id: str) -> DutContext:
         """Return a DUT context or raise ``KeyError`` for an unknown id."""
         return self._duts[dut_id]
 
     def ids(self) -> list[str]:
         return list(self._duts.keys())
+
+    def describe(self) -> list[dict]:
+        """Summary of every DUT for the list endpoint (id, label, serial status)."""
+        out: list[dict] = []
+        for ctx in self._duts.values():
+            worker = ctx.serial_worker
+            out.append(
+                {
+                    "id": ctx.dut_id,
+                    "label": ctx.label,
+                    "mode": worker.mode,
+                    "serial_open": worker.is_open,
+                    "log_path": worker.current_log_path,
+                    "removable": ctx.dut_id != DEFAULT_DUT_ID,
+                }
+            )
+        return out
+
+    def _save_locked(self) -> None:
+        """Persist the non-default DUTs (call holding ``self._lock``)."""
+        entries = [
+            {"id": ctx.dut_id, "label": ctx.label}
+            for ctx in self._duts.values()
+            if ctx.dut_id != DEFAULT_DUT_ID
+        ]
+        try:
+            DUTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            DUTS_FILE.write_text(json.dumps(entries), encoding="utf-8")
+        except OSError:
+            pass  # persistence is best-effort; never break a register/remove
+
+    def load_persisted(self) -> None:
+        """Re-create DUTs saved in ``DUTS_FILE`` (best-effort, skips malformed)."""
+        try:
+            entries = json.loads(DUTS_FILE.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+        if not isinstance(entries, list):
+            return
+        for entry in entries:
+            try:
+                dut_id = entry["id"]
+            except (TypeError, KeyError):
+                continue
+            if not _DUT_ID_RE.match(str(dut_id)) or dut_id in self._duts:
+                continue
+            self.create_dut(dut_id, label=entry.get("label"))
 
 
 def build_default_registry(
@@ -105,5 +188,6 @@ def build_default_registry(
     """Create a registry holding the single default DUT (uses the original
     ``SNAPSHOT_FILE`` so existing captured history keeps backfilling)."""
     registry = DutRegistry(ws_manager=ws_manager, loop=loop)
-    registry.create_dut(DEFAULT_DUT_ID, snapshot_file=SNAPSHOT_FILE)
+    registry.create_dut(DEFAULT_DUT_ID, label="Default")
+    registry.load_persisted()
     return registry
