@@ -112,6 +112,13 @@ export function connectDashboardWebSocket(
       try {
         const event = JSON.parse(message.data) as DashboardEvent;
         if (event && typeof event === "object" && "type" in event) {
+          // The shared /ws carries every DUT's events tagged with dut_id; keep
+          // only this connection's DUT so the delta-base below stays single-DUT.
+          // (Events without a dut_id are treated as a match for back-compat.)
+          const eventDut = (event as { dut_id?: string }).dut_id;
+          if (eventDut && eventDut !== dutId) {
+            return;
+          }
           if (event.type === "snapshot_update") {
             latestSnapshot = event.snapshot;
             onEvent(event);
