@@ -692,6 +692,27 @@ body {
   word-break: break-all;
 }
 
+.logtail {
+  margin: 0;
+  max-height: 320px;
+  overflow: auto;
+  padding: var(--space-3);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink);
+  white-space: pre;
+}
+
+.logtail-status {
+  padding: var(--space-2) 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 /* ---------- Settings ---------- */
 
 .settings-list {

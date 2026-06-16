@@ -1,7 +1,18 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 
-import { getAnalyzerDownloadUrl, getLogs, getSerialLogDownloadUrl, LogEntry, LogList } from "../api/rest";
+import {
+  getAnalyzerDownloadUrl,
+  getLogs,
+  getLogTail,
+  getSerialLogDownloadUrl,
+  LogEntry,
+  LogList,
+} from "../api/rest";
 import { Card, EmptyState } from "./shell/Card";
+
+const TAIL_LINES = 200;
+
+type TailCell = { loading: boolean; lines?: string[]; truncated?: boolean; error?: string };
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -42,6 +53,99 @@ function FileTable({ rows, hrefFor }: { rows: LogEntry[]; hrefFor: (name: string
   );
 }
 
+/** Session-log table where each row expands to lazily peek the log's tail. */
+function SessionLogTable({ rows }: { rows: LogEntry[] }) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [tailByName, setTailByName] = useState<Record<string, TailCell>>({});
+
+  function toggle(name: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) {
+        next.delete(name);
+      } else {
+        next.add(name);
+        // Lazy fetch once per file (cached across collapse/expand).
+        if (!tailByName[name]) {
+          setTailByName((s) => ({ ...s, [name]: { loading: true } }));
+          getLogTail(name, TAIL_LINES)
+            .then((r) =>
+              setTailByName((s) => ({ ...s, [name]: { loading: false, lines: r.lines, truncated: r.truncated } })),
+            )
+            .catch((e) =>
+              setTailByName((s) => ({
+                ...s,
+                [name]: { loading: false, error: e instanceof Error ? e.message : "Failed to load" },
+              })),
+            );
+        }
+      }
+      return next;
+    });
+  }
+
+  return (
+    <table className="filetable">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Size</th>
+          <th>Modified</th>
+          <th aria-label="download" />
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => (
+          <Fragment key={row.name}>
+            <tr>
+              <td className="filetable-name">
+                <button
+                  className="btn"
+                  onClick={() => toggle(row.name)}
+                  title="Peek the last lines of this log"
+                  style={{ padding: "0 6px", marginRight: 6 }}
+                >
+                  {expanded.has(row.name) ? "▾" : "▸"}
+                </button>
+                {row.name}
+              </td>
+              <td>{formatSize(row.size)}</td>
+              <td>{formatTime(row.mtime)}</td>
+              <td>
+                <a className="btn" href={getSerialLogDownloadUrl(row.name)} download style={{ padding: "2px 10px" }}>
+                  Download
+                </a>
+              </td>
+            </tr>
+            {expanded.has(row.name) ? (
+              <tr>
+                <td colSpan={4}>
+                  <LogTailView cell={tailByName[row.name]} />
+                </td>
+              </tr>
+            ) : null}
+          </Fragment>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function LogTailView({ cell }: { cell?: TailCell }) {
+  if (!cell || cell.loading) return <div className="logtail-status">Loading…</div>;
+  if (cell.error) return <div className="logtail-status">Could not load tail: {cell.error}</div>;
+  const lines = cell.lines ?? [];
+  if (lines.length === 0) return <div className="logtail-status">Log is empty.</div>;
+  return (
+    <div>
+      {cell.truncated ? (
+        <div className="logtail-status">Showing the last {lines.length} lines · older lines not shown — download for the full log.</div>
+      ) : null}
+      <pre className="logtail">{lines.join("\n")}</pre>
+    </div>
+  );
+}
+
 export default function DownloadsSection({ query = "" }: { query?: string }) {
   const [data, setData] = useState<LogList | null>(null);
   const [failed, setFailed] = useState(false);
@@ -77,7 +181,7 @@ export default function DownloadsSection({ query = "" }: { query?: string }) {
     <>
       <Card title="Session logs" subtitle="Raw DUT serial logs — download runs the analyzer for long logs">
         {sessions.length > 0 ? (
-          <FileTable rows={sessions} hrefFor={getSerialLogDownloadUrl} />
+          <SessionLogTable rows={sessions} />
         ) : (
           <EmptyState icon="🗂" message={query ? "No matching session logs" : "No session logs yet"} hint="Open a DUT to start recording." />
         )}
