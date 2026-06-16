@@ -713,6 +713,94 @@ body {
   font-size: 13px;
 }
 
+/* ---------- Serial Console connection card ---------- */
+
+.conn-card {
+  margin-bottom: var(--space-4);
+}
+
+.conn-form {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.conn-modes {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.conn-fields {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.conn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.conn-input,
+.conn-port {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: inherit;
+  color: var(--ink);
+  background: var(--panel);
+}
+
+.conn-port {
+  min-width: 240px;
+  flex: 1 1 240px;
+}
+
+.conn-input {
+  max-width: 280px;
+}
+
+.conn-baud {
+  max-width: 110px;
+}
+
+.conn-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.conn-meta {
+  color: var(--muted);
+  font-size: 13px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.conn-error {
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.conn-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--danger-weak);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  color: var(--danger);
+  font-size: 14px;
+}
+
+.conn-banner-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
 /* ---------- Settings ---------- */
 
 .settings-list {
