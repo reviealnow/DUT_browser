@@ -31,6 +31,43 @@ npm run dev
 Open `http://127.0.0.1:5173` (local) or `http://<your-server-ip>:5173` (LAN).
 Vite proxies `/api` and `/ws` to `127.0.0.1:8000`.
 
+### One-command LAN launcher
+
+```bash
+./scripts/start_lan.sh          # dev: backend :8000 + Vite :5173
+./scripts/start_lan.sh --prod   # prod: build the UI, serve UI+API+WS from the backend on :8000
+```
+
+It creates `.venv`, installs backend deps, and (on `--prod`) runs `npm run build`. Overrides:
+`BIND_HOST`, `BACKEND_PORT`, `FRONTEND_PORT` (changing `BACKEND_PORT` in dev also needs the
+Vite proxy target updated).
+
+## Upgrading from a previous version
+
+This is a git-based app (no installer), so updating is **pull → re-run the launcher**:
+
+```bash
+cd /path/to/DUT_browser
+# stop the running instance (Ctrl-C, or kill the uvicorn pid)
+git fetch origin
+git checkout CPU_Plots && git pull --ff-only   # or `git checkout phase-N` to pin a version
+./scripts/start_lan.sh --prod                   # re-installs backend deps + rebuilds the UI
+```
+
+- **Browser:** the build emits hash-named assets, so a normal reload picks up the new UI; hard
+  refresh (Cmd/Ctrl-Shift-R) if anything looks stale. Open WebSockets auto-reconnect, so a
+  backend restart recovers without F5.
+- **No data migration:** the `default` DUT keeps using `logs/snapshots.jsonl`; `logs/duts.json`
+  and per-DUT `logs/snapshots-<id>.jsonl` are created on demand (absent = just the default DUT,
+  exactly like before). Settings (accent / baud / crash keywords) live in browser localStorage.
+  Existing logs/history survive an upgrade.
+- **Dependency changes:** `start_lan.sh` re-runs `pip install` every launch but only runs
+  `npm install` when `node_modules` is missing. If an upgrade changes `frontend/package.json`,
+  refresh once: `rm -rf frontend/node_modules && ./scripts/start_lan.sh --prod`.
+- **Rollback:** each milestone is tagged (`phase-N`) as an anchor — `git checkout phase-<prev>`
+  to run the older version, or `git revert <merge_commit>` to undo a merged change on `CPU_Plots`
+  without rewriting published history.
+
 ## Frontend architecture
 
 ```text
