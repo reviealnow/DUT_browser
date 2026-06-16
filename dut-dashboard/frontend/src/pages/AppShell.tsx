@@ -105,14 +105,10 @@ function renderSection(active: SectionId, monitor: DutMonitorState, search: stri
         </div>
       );
     case "wifi":
-      return (
-        <div style={{ display: "grid", gap: "var(--space-4)" }}>
-          <Card title="Wi-Fi client summary" subtitle="Associated clients by radio">
-            <WifiSummaryBody monitor={monitor} />
-          </Card>
-          <WifiClientsCard />
-        </div>
-      );
+      // Scan-driven: WifiClientsCard auto-scans on entry and shows both the
+      // per-band summary and the detail (one authoritative source). The live
+      // sysMon WifiSummaryBody stays on the Overview card.
+      return <WifiClientsCard />;
     case "logs":
       return (
         <Card title="Logs / Crash events" subtitle="Critical crash + log event detection">

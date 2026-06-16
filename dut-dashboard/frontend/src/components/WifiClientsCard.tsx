@@ -1,4 +1,4 @@
-import { Fragment, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   getWifiClients,
@@ -11,6 +11,11 @@ import {
 import { Card, EmptyState } from "./shell/Card";
 
 const COL_COUNT = 11;
+const BAND_ORDER: Record<string, number> = { "2.4G": 0, "5G": 1, "6G": 2 };
+
+function bandRank(band: string): number {
+  return band in BAND_ORDER ? BAND_ORDER[band] : 99;
+}
 
 function formatBytes(n: number | null): string {
   if (n === null) return "—";
@@ -40,7 +45,7 @@ export default function WifiClientsCard() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [statsByMac, setStatsByMac] = useState<Record<string, StatsCell>>({});
 
-  async function scan() {
+  const scan = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
@@ -50,7 +55,13 @@ export default function WifiClientsCard() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
+
+  // Auto-scan once when the Wi-Fi Clients section is opened (this component
+  // mounts on entry). Manual "Scan clients" stays as a refresh.
+  useEffect(() => {
+    void scan();
+  }, [scan]);
 
   async function kick(client: WifiClientRow) {
     if (!window.confirm(`Disassociate ${client.mac} from ${client.iface}?`)) {
@@ -85,6 +96,20 @@ export default function WifiClientsCard() {
     });
   }
 
+  // Sort by band (2.4→5→6) then strongest signal; per-band counts for the summary.
+  const sortedClients = useMemo(() => {
+    const cs = data?.clients ?? [];
+    return [...cs].sort(
+      (a, b) => bandRank(a.band) - bandRank(b.band) || (b.signal_pct ?? -999) - (a.signal_pct ?? -999),
+    );
+  }, [data]);
+
+  const bandCounts = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const c of data?.clients ?? []) m[c.band] = (m[c.band] ?? 0) + 1;
+    return m;
+  }, [data]);
+
   const action = (
     <button className="btn" onClick={scan} disabled={loading}>
       {loading ? "Scanning…" : "Scan clients"}
@@ -99,8 +124,18 @@ export default function WifiClientsCard() {
       ) : data.clients.length === 0 ? (
         <EmptyState icon="📶" message="No associated clients" hint={`Scanned ${data.vaps.length} VAP(s) at ${data.captured_at}.`} />
       ) : (
+        <>
+        <div className="wifi-summary" style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap", marginBottom: "var(--space-3)" }}>
+          <span className="pill">{data.clients.length} clients</span>
+          {["2.4G", "5G", "6G"].filter((b) => bandCounts[b]).map((b) => (
+            <span key={b} className="pill" style={{ background: "var(--accent-weak)", color: "var(--accent)" }}>
+              {b}: {bandCounts[b]}
+            </span>
+          ))}
+          <span style={{ color: "var(--faint)", fontSize: 12, alignSelf: "center" }}>scanned {data.captured_at}</span>
+        </div>
         <div style={{ overflowX: "auto" }}>
-        <table className="filetable">
+        <table className="filetable wifitable">
           <thead>
             <tr>
               <th>MAC</th>
@@ -117,8 +152,13 @@ export default function WifiClientsCard() {
             </tr>
           </thead>
           <tbody>
-            {data.clients.map((c) => (
+            {sortedClients.map((c, i) => (
               <Fragment key={`${c.iface}-${c.mac}`}>
+                {i === 0 || sortedClients[i - 1].band !== c.band ? (
+                  <tr className="wifi-band-row">
+                    <td colSpan={COL_COUNT}>{c.band} · {bandCounts[c.band]} client{bandCounts[c.band] === 1 ? "" : "s"}</td>
+                  </tr>
+                ) : null}
                 <tr>
                   <td className="filetable-name">
                     <button
@@ -162,6 +202,7 @@ export default function WifiClientsCard() {
           </tbody>
         </table>
         </div>
+        </>
       )}
       {data && data.clients.length > 0 ? (
         <script type="application/json" id="wifi-clients-data" dangerouslySetInnerHTML={{ __html: JSON.stringify(data.clients) }} />
