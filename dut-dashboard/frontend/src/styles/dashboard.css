@@ -645,6 +645,26 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
+/* Wi-Fi clients table: centered header on an on-brand pale-blue row. */
+.wifitable thead th {
+  text-align: center;
+  background: var(--accent-weak);
+  color: var(--accent);
+  padding: var(--space-2) var(--space-3);
+}
+.wifitable td:last-child {
+  text-align: center;
+}
+.wifitable tr.wifi-band-row td {
+  background: var(--accent-weak);
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: left;
+}
+
 .filetable td {
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border);
