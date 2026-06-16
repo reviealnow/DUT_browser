@@ -14,7 +14,7 @@ import { resizeTerminal } from "../api/rest";
  *
  * Offline-first: xterm is bundled locally (no CDN).
  */
-export default function TerminalView() {
+export default function TerminalView({ dutId = DEFAULT_DUT_ID }: { dutId?: string }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -37,7 +37,7 @@ export default function TerminalView() {
     term.focus();
 
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${protocol}://${window.location.host}/ws/term?dut=${DEFAULT_DUT_ID}`);
+    const ws = new WebSocket(`${protocol}://${window.location.host}/ws/term?dut=${dutId}`);
     ws.binaryType = "arraybuffer";
 
     // Send the DUT its terminal size + TERM once connected, so vi/nano render
@@ -90,7 +90,7 @@ export default function TerminalView() {
       ws.close();
       term.dispose();
     };
-  }, []);
+  }, [dutId]);
 
   return (
     <div

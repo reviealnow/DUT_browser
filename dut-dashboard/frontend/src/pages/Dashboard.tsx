@@ -1,5 +1,6 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { DEFAULT_DUT_ID } from "../api/dut";
 import {
   closeSerial,
   enterTerminal,
@@ -26,7 +27,7 @@ function choosePreferredPort(ports: SerialPortInfo[]): string {
   return macosCuPort ? macosCuPort.device : ports[0].device;
 }
 
-export default function Dashboard({ active = true }: { active?: boolean }) {
+export default function Dashboard({ active = true, dutId = DEFAULT_DUT_ID }: { active?: boolean; dutId?: string }) {
   // Console lines come from the single shared WebSocket (useDutMonitor) instead
   // of Dashboard opening its own connection.
   const { lines } = useDutMonitorContext();
@@ -53,24 +54,24 @@ export default function Dashboard({ active = true }: { active?: boolean }) {
       baudrate,
       replay_path: mode === "replay" ? replayPath : undefined,
       replay_interval_ms: replayIntervalMs,
-    });
+    }, dutId);
     const logPath = response.log_path || "";
     const fileName = logPath.split(/[\\/]/).pop() || "";
     setCurrentLogFileName(fileName);
   }
 
   async function handleClose() {
-    await closeSerial();
+    await closeSerial(dutId);
   }
 
   async function handleSend(text: string) {
-    await sendSerial(text);
+    await sendSerial(text, dutId);
   }
 
   async function handleOpenTerminal() {
     setTerminalError("");
     try {
-      await enterTerminal(); // backend switches to raw mode; sysmon monitoring pauses
+      await enterTerminal(dutId); // backend switches to raw mode; sysmon monitoring pauses
       setConsoleView("terminal");
     } catch (error) {
       setTerminalError(error instanceof Error ? error.message : "Failed to open terminal");
@@ -80,7 +81,7 @@ export default function Dashboard({ active = true }: { active?: boolean }) {
   function handleCloseTerminal() {
     // Unmount the terminal first (closes /ws/term), then resume monitoring.
     setConsoleView("monitor");
-    void exitTerminal();
+    void exitTerminal(dutId);
   }
 
   // Dashboard now stays mounted across nav (state persists). When the Serial
@@ -90,9 +91,24 @@ export default function Dashboard({ active = true }: { active?: boolean }) {
   useEffect(() => {
     if (!active && consoleView === "terminal") {
       setConsoleView("monitor");
-      void exitTerminal();
+      void exitTerminal(dutId);
     }
-  }, [active, consoleView]);
+  }, [active, consoleView, dutId]);
+
+  // Switching the selected DUT: leave terminal mode on the DUT we're leaving
+  // (free it) and clear the per-session log name so Download reflects only the
+  // newly-selected DUT's session.
+  const prevDutRef = useRef(dutId);
+  useEffect(() => {
+    if (prevDutRef.current !== dutId) {
+      if (consoleView === "terminal") {
+        setConsoleView("monitor");
+        void exitTerminal(prevDutRef.current);
+      }
+      setCurrentLogFileName("");
+      prevDutRef.current = dutId;
+    }
+  }, [dutId, consoleView]);
 
   // Persist locked critical-crash keywords (Settings) so they survive reloads.
   useEffect(() => {
@@ -100,11 +116,11 @@ export default function Dashboard({ active = true }: { active?: boolean }) {
   }, [lockedCriticalCrashKeywords]);
 
   async function handleRunTop() {
-    await sendSerial("top\n");
+    await sendSerial("top\n", dutId);
   }
 
   async function handleStopCommand() {
-    await sendSerial("\u0003");
+    await sendSerial("\u0003", dutId);
   }
 
   function parseDownloadFileName(contentDisposition: string | null, fallbackName: string): string {
@@ -494,7 +510,7 @@ export default function Dashboard({ active = true }: { active?: boolean }) {
         </div>
         {consoleView === "terminal" ? (
           <Suspense fallback={<div style={{ padding: 16, color: "#666" }}>Loading terminal…</div>}>
-            <TerminalView />
+            <TerminalView dutId={dutId} />
           </Suspense>
         ) : (
           <ConsolePanel

@@ -34,10 +34,9 @@ export default function AppShell() {
   const [active, setActive] = useState<SectionId>("overview");
   const [search, setSearch] = useState("");
   const [selectedDut, setSelectedDut] = useState(DEFAULT_DUT_ID);
-  // The Serial Console (embedded Dashboard, via context) stays on the default DUT
-  // this stage; the monitoring sections + topbar follow the selected DUT.
-  const consoleMonitor = useDutMonitor(DEFAULT_DUT_ID);
-  const sectionMonitor = useDutMonitor(selectedDut);
+  // One monitor for the selected DUT drives everything: the sections, the topbar
+  // status, and the Serial Console (via context) — all follow the switcher.
+  const monitor = useDutMonitor(selectedDut);
   const current = NAV_ITEMS.find((item) => item.id === active) ?? NAV_ITEMS[0];
 
   // Apply the saved accent on load so the theme persists across reloads.
@@ -46,7 +45,7 @@ export default function AppShell() {
   }, []);
 
   return (
-    <DutMonitorProvider value={consoleMonitor}>
+    <DutMonitorProvider value={monitor}>
       <div className="app">
         <Sidebar active={active} onSelect={setActive} />
         <div className="main">
@@ -62,8 +61,8 @@ export default function AppShell() {
             <>
               <DutSwitcher selected={selectedDut} onSelect={setSelectedDut} />
               <ToolbarActions
-                status={sectionMonitor.status}
-                lastEventAgeSec={sectionMonitor.lastEventAgeSec}
+                status={monitor.status}
+                lastEventAgeSec={monitor.lastEventAgeSec}
                 onConnect={() => setActive("console")}
               />
             </>
@@ -72,12 +71,11 @@ export default function AppShell() {
           <main className="content">
             {/* Serial Console stays mounted across nav so the serial session,
                 selected port, log, and terminal state persist; it is only
-                hidden when another section is active. Pinned to the default DUT
-                this stage (Stage 2b makes it per-DUT). */}
+                hidden when another section is active. Follows the selected DUT. */}
             <div className="embed" style={{ display: active === "console" ? "block" : "none" }}>
-              <Dashboard active={active === "console"} />
+              <Dashboard active={active === "console"} dutId={selectedDut} />
             </div>
-            {active !== "console" ? renderSection(active, sectionMonitor, search) : null}
+            {active !== "console" ? renderSection(active, monitor, search) : null}
           </main>
         </div>
       </div>
