@@ -21,6 +21,31 @@ export type SerialPortInfo = {
   hwid: string;
 };
 
+/**
+ * Turn a backend error (thrown by `post`/`get` as `new Error(response.text())`,
+ * whose message is usually a JSON body like `{"detail":"..."}`) into friendly,
+ * user-facing copy. Never surfaces raw JSON.
+ */
+export function humanizeApiError(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error ?? "");
+  let detail = raw;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.detail === "string") {
+      detail = parsed.detail;
+    }
+  } catch {
+    // Not JSON — keep the raw message as the fallback detail.
+  }
+  if (detail.includes("Serial port is not open")) {
+    return "Not connected — select a serial port above and click Open first.";
+  }
+  if (!detail.trim()) {
+    return "Something went wrong. Please try again.";
+  }
+  return detail;
+}
+
 async function post<T>(url: string, body: unknown): Promise<T> {
   const response = await fetch(url, {
     method: "POST",

@@ -6,6 +6,7 @@ import {
   enterTerminal,
   exitTerminal,
   getSerialLogDownloadUrl,
+  humanizeApiError,
   listSerialPorts,
   openSerial,
   sendSerial,
@@ -41,41 +42,63 @@ export default function Dashboard({ active = true, dutId = DEFAULT_DUT_ID }: { a
   const [portsError, setPortsError] = useState("");
   const [currentLogFileName, setCurrentLogFileName] = useState("");
   const [consoleView, setConsoleView] = useState<"monitor" | "terminal">("monitor");
-  const [terminalError, setTerminalError] = useState("");
+  const [isOpen, setIsOpen] = useState(false);
+  const [actionError, setActionError] = useState("");
   const [lastSeenCriticalCrashCount, setLastSeenCriticalCrashCount] = useState(0);
   const [criticalCrashKeywordInput, setCriticalCrashKeywordInput] = useState("");
   const [lockedCriticalCrashKeywords, setLockedCriticalCrashKeywords] = useState<string[]>(loadCrashKeywords);
   const [downloadNotice, setDownloadNotice] = useState<{ message: string; tone: "blue" | "green" } | null>(null);
 
+  // Run an action; on failure show friendly copy (never raw JSON) in the banner.
+  // `silent` suppresses the banner for implicit actions (e.g. a stray Ctrl-C while
+  // the port is closed), which would otherwise be noisy.
+  async function runAction(fn: () => Promise<void>, silent = false): Promise<void> {
+    try {
+      await fn();
+      setActionError("");
+    } catch (error) {
+      if (!silent) {
+        setActionError(humanizeApiError(error));
+      }
+    }
+  }
+
   async function handleOpen() {
-    const response = await openSerial({
-      mode,
-      port,
-      baudrate,
-      replay_path: mode === "replay" ? replayPath : undefined,
-      replay_interval_ms: replayIntervalMs,
-    }, dutId);
-    const logPath = response.log_path || "";
-    const fileName = logPath.split(/[\\/]/).pop() || "";
-    setCurrentLogFileName(fileName);
+    await runAction(async () => {
+      const response = await openSerial({
+        mode,
+        port,
+        baudrate,
+        replay_path: mode === "replay" ? replayPath : undefined,
+        replay_interval_ms: replayIntervalMs,
+      }, dutId);
+      const logPath = response.log_path || "";
+      const fileName = logPath.split(/[\\/]/).pop() || "";
+      setCurrentLogFileName(fileName);
+      setIsOpen(true);
+    });
   }
 
   async function handleClose() {
-    await closeSerial(dutId);
+    await runAction(async () => {
+      await closeSerial(dutId);
+      setIsOpen(false);
+    });
   }
 
-  async function handleSend(text: string) {
-    await sendSerial(text, dutId);
+  async function handleSend(text: string, silent = false) {
+    // A bare Ctrl-C (ETX) arrives from ConsolePanel's global key handler; don't
+    // nag with a banner when the port isn't open. The explicit Stop button (via
+    // handleStopCommand) still warns.
+    const quiet = silent || text === String.fromCharCode(3);
+    await runAction(() => sendSerial(text, dutId).then(() => undefined), quiet);
   }
 
   async function handleOpenTerminal() {
-    setTerminalError("");
-    try {
+    await runAction(async () => {
       await enterTerminal(dutId); // backend switches to raw mode; sysmon monitoring pauses
       setConsoleView("terminal");
-    } catch (error) {
-      setTerminalError(error instanceof Error ? error.message : "Failed to open terminal");
-    }
+    });
   }
 
   function handleCloseTerminal() {
@@ -116,7 +139,7 @@ export default function Dashboard({ active = true, dutId = DEFAULT_DUT_ID }: { a
   }, [lockedCriticalCrashKeywords]);
 
   async function handleRunTop() {
-    await sendSerial("top\n", dutId);
+    await runAction(() => sendSerial("top\n", dutId).then(() => undefined));
   }
 
   async function handleStopCommand() {
@@ -230,124 +253,110 @@ export default function Dashboard({ active = true, dutId = DEFAULT_DUT_ID }: { a
     }
   }, [mode, refreshSerialPorts]);
 
-  const controls = useMemo(
-    () => (
-      <div style={{ border: "1px solid #ddd", padding: 12, marginBottom: 12, position: "relative" }}>
-        <div style={{ position: "absolute", top: 8, right: 8, display: "flex", gap: 8, alignItems: "center" }}>
-          <button
-            onClick={handleClose}
-            style={{
-              width: 28,
-              height: 28,
-              background: "#d32f2f",
-              color: "#fff",
-              border: "1px solid #b71c1c",
-              borderRadius: 6,
-              fontSize: 16,
-              fontWeight: 700,
-              lineHeight: 1,
-              cursor: "pointer",
-            }}
-            aria-label="Close serial connection"
-            title="Close"
-          >
-            X
-          </button>
+  // Connection card — the first, prominent step: every console action needs an
+  // open port. While closed it shows the port chooser; once open it collapses to
+  // a compact status strip so the command/console area below is the focus.
+  const controls = (
+    <div className="card conn-card">
+      <div className="card-head">
+        <div className="card-titles">
+          <div className="card-title">Connection</div>
+          <div className="card-sub">
+            {isOpen ? "Connected — manage the session below" : "Step 1 — select a serial port, then Open"}
+          </div>
         </div>
-        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-          <button onClick={() => setMode("serial")} disabled={mode === "serial"}>
-            Serial Mode
-          </button>
-          <button onClick={() => setMode("replay")} disabled={mode === "replay"}>
-            Replay Mode
-          </button>
-        </div>
+        {isOpen ? (
+          <div className="card-actions">
+            <button
+              type="button"
+              className="btn"
+              style={{ color: "var(--danger)", borderColor: "var(--danger)" }}
+              onClick={() => void handleClose()}
+            >
+              Close connection
+            </button>
+          </div>
+        ) : null}
+      </div>
 
-        {mode === "serial" ? (
-          <div style={{ display: "grid", gap: 8 }}>
-            <div style={{ display: "flex", gap: 8 }}>
-              <select value={port} onChange={(e) => setPort(e.target.value)} style={{ width: 240 }}>
-                <option value="">Select detected serial port</option>
-                {serialPorts.map((serialPort) => (
-                  <option key={serialPort.device} value={serialPort.device}>
-                    {serialPort.description ? `${serialPort.device} (${serialPort.description})` : serialPort.device}
-                  </option>
-                ))}
-              </select>
-              <button type="button" onClick={() => void refreshSerialPorts()} disabled={portsLoading}>
-                {portsLoading ? "Refreshing..." : "Refresh Ports"}
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleOpen()}
-                style={{
-                  background: "#1976d2",
-                  color: "#fff",
-                  border: "1px solid #1565c0",
-                  padding: "6px 12px",
-                  fontSize: 14,
-                  fontWeight: 600,
-                  borderRadius: 6,
-                }}
-              >
+      {isOpen ? (
+        <div className="conn-status">
+          <span className="pill ok">
+            <span className="dot" />
+            Connected
+          </span>
+          <span className="conn-meta">
+            {mode === "serial" ? port || "serial" : `replay · ${replayPath}`}
+            {mode === "serial" && baudrate ? ` · ${baudrate} baud` : ""}
+          </span>
+        </div>
+      ) : (
+        <div className="conn-form">
+          <div className="conn-modes">
+            <button type="button" className="btn" onClick={() => setMode("serial")} disabled={mode === "serial"}>
+              Serial
+            </button>
+            <button type="button" className="btn" onClick={() => setMode("replay")} disabled={mode === "replay"}>
+              Replay
+            </button>
+          </div>
+
+          {mode === "serial" ? (
+            <div className="conn-fields">
+              <div className="conn-row">
+                <select className="conn-port" value={port} onChange={(e) => setPort(e.target.value)}>
+                  <option value="">Select detected serial port</option>
+                  {serialPorts.map((serialPort) => (
+                    <option key={serialPort.device} value={serialPort.device}>
+                      {serialPort.description ? `${serialPort.device} (${serialPort.description})` : serialPort.device}
+                    </option>
+                  ))}
+                </select>
+                <button type="button" className="btn" onClick={() => void refreshSerialPorts()} disabled={portsLoading}>
+                  {portsLoading ? "Refreshing…" : "Refresh"}
+                </button>
+                <button type="button" className="btn primary" onClick={() => void handleOpen()}>
+                  Open
+                </button>
+              </div>
+              <input
+                className="conn-input"
+                value={port}
+                onChange={(e) => setPort(e.target.value)}
+                placeholder="Manual serial port override (optional, e.g. /dev/ttyUSB0)"
+              />
+              <input
+                className="conn-input conn-baud"
+                type="number"
+                value={baudrate}
+                onChange={(e) => setBaudrate(Number(e.target.value || 0))}
+                placeholder="Baudrate"
+              />
+              {portsError ? <div className="conn-error">{portsError}</div> : null}
+            </div>
+          ) : (
+            <div className="conn-row">
+              <input
+                className="conn-input"
+                value={replayPath}
+                onChange={(e) => setReplayPath(e.target.value)}
+                placeholder="Replay file"
+              />
+              <input
+                className="conn-input"
+                type="number"
+                value={replayIntervalMs}
+                onChange={(e) => setReplayIntervalMs(Number(e.target.value || 0))}
+                placeholder="Replay interval ms"
+              />
+              <button type="button" className="btn primary" onClick={() => void handleOpen()}>
                 Open
               </button>
             </div>
-            <input
-              value={port}
-              onChange={(e) => setPort(e.target.value)}
-              placeholder="Manual serial port override (optional, e.g. /dev/ttyUSB0)"
-              style={{ width: 240 }}
-            />
-            <input
-              type="number"
-              value={baudrate}
-              onChange={(e) => setBaudrate(Number(e.target.value || 0))}
-              placeholder="Baudrate"
-              style={{ width: 88 }}
-            />
-            {portsError ? <div style={{ color: "#b00020", fontSize: 12 }}>{portsError}</div> : null}
-          </div>
-        ) : (
-          <div style={{ display: "flex", gap: 8 }}>
-            <input value={replayPath} onChange={(e) => setReplayPath(e.target.value)} placeholder="Replay file" />
-            <input
-              type="number"
-              value={replayIntervalMs}
-              onChange={(e) => setReplayIntervalMs(Number(e.target.value || 0))}
-              placeholder="Replay interval ms"
-            />
-            <button
-              type="button"
-              onClick={() => void handleOpen()}
-              style={{
-                background: "#1976d2",
-                color: "#fff",
-                border: "1px solid #1565c0",
-                padding: "6px 12px",
-                fontSize: 14,
-                fontWeight: 600,
-                borderRadius: 6,
-              }}
-            >
-              Open
-            </button>
-          </div>
-        )}
-      </div>
-    ),
-    [
-      mode,
-      port,
-      baudrate,
-      replayPath,
-      replayIntervalMs,
-      serialPorts,
-      portsLoading,
-      portsError,
-      refreshSerialPorts,
-      currentLogFileName,
-    ],
+          )}
+        </div>
+      )}
+    </div>
   );
 
   const allCriticalCrashLines = useMemo(() => {
@@ -373,6 +382,12 @@ export default function Dashboard({ active = true, dutId = DEFAULT_DUT_ID }: { a
     <div style={{ fontFamily: "sans-serif", maxWidth: 1100, margin: "0 auto", padding: 16 }}>
       <h1 style={{ textAlign: "center" }}>DUT Dashboard - Milestone 3</h1>
       {controls}
+      {actionError ? (
+        <div className="conn-banner" role="alert">
+          <span className="conn-banner-icon" aria-hidden>⚠</span>
+          {actionError}
+        </div>
+      ) : null}
       <div style={{ border: "1px solid #ddd", padding: 12, marginBottom: 12 }}>
         <div
           style={{
@@ -388,7 +403,7 @@ export default function Dashboard({ active = true, dutId = DEFAULT_DUT_ID }: { a
               <button type="button" onClick={() => void handleRunTop()}>
                 Memory Info
               </button>
-              <button type="button" onClick={() => void handleStopCommand()}>
+              <button type="button" onClick={() => void runAction(() => handleStopCommand())}>
                 Stop
               </button>
             </div>
@@ -506,7 +521,6 @@ export default function Dashboard({ active = true, dutId = DEFAULT_DUT_ID }: { a
           {consoleView === "terminal" ? (
             <span style={{ fontSize: 12, color: "#8a4b00" }}>Monitoring paused while in terminal mode.</span>
           ) : null}
-          {terminalError ? <span style={{ fontSize: 12, color: "#b00020" }}>{terminalError}</span> : null}
         </div>
         {consoleView === "terminal" ? (
           <Suspense fallback={<div style={{ padding: 16, color: "#666" }}>Loading terminal…</div>}>
@@ -516,7 +530,7 @@ export default function Dashboard({ active = true, dutId = DEFAULT_DUT_ID }: { a
           <ConsolePanel
             lines={lines}
             onSend={handleSend}
-            onDownloadLog={handleDownloadLog}
+            onDownloadLog={() => void runAction(handleDownloadLog)}
             canDownloadLog={Boolean(currentLogFileName)}
           />
         )}
