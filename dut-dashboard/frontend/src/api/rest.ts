@@ -104,6 +104,13 @@ export async function getLogs(): Promise<LogList> {
   return get<LogList>("/api/logs");
 }
 
+export type LogTail = { name: string; lines: string[]; truncated: boolean };
+
+/** Last `lines` lines of a session log, for an in-place peek in Downloads. */
+export async function getLogTail(name: string, lines = 200): Promise<LogTail> {
+  return get<LogTail>(`/api/logs/tail?name=${encodeURIComponent(name)}&lines=${lines}`);
+}
+
 /** Download URL for an analyzer artifact in logs/analyzer_output/. */
 export function getAnalyzerDownloadUrl(fileName: string): string {
   return `/api/download/${encodeURIComponent(fileName)}`;
