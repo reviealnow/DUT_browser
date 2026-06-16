@@ -158,6 +158,45 @@ def download_file(file_name: str) -> FileResponse:
     return FileResponse(path=file_path, filename=safe_name, media_type="application/octet-stream")
 
 
+_TAIL_CAP_BYTES = 256 * 1024
+
+
+def _tail_lines(path: Path, lines: int, cap: int = _TAIL_CAP_BYTES) -> tuple[list[str], bool]:
+    """Read at most the last `cap` bytes of `path` and return its last `lines`
+    lines plus whether the file was truncated (we did not start at offset 0)."""
+    size = path.stat().st_size
+    start = max(0, size - cap)
+    with path.open("rb") as handle:
+        handle.seek(start)
+        chunk = handle.read()
+    text = chunk.decode("utf-8", errors="replace")
+    parts = text.splitlines()
+    # Drop a partial first line when we did not read from the start.
+    if start > 0 and parts:
+        parts = parts[1:]
+    truncated = start > 0 or len(parts) > lines
+    return parts[-lines:], truncated
+
+
+@app.get("/api/logs/tail")
+def tail_log(name: str, lines: int = 200) -> dict:
+    """Read the last `lines` lines of a session log (dut-session-*.log) for an
+    in-place peek in the Downloads view. Read-only, bounded, session logs only."""
+    safe_name = Path(name).name
+    if safe_name != name:
+        raise HTTPException(status_code=400, detail="Invalid file name")
+    if not (safe_name.startswith("dut-session-") and safe_name.endswith(".log")):
+        raise HTTPException(status_code=400, detail="Not a session log")
+
+    log_path = LOG_DIR / safe_name
+    if not log_path.exists() or not log_path.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    lines = max(1, min(lines, 2000))
+    tail, truncated = _tail_lines(log_path, lines)
+    return {"name": safe_name, "lines": tail, "truncated": truncated}
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket) -> None:
     manager: WebSocketManager = app.state.ws_manager
