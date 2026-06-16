@@ -173,6 +173,26 @@ export async function kickWifiClient(iface: string, mac: string, dutId = DEFAULT
   await post(`/api/serial/wifi/kick?dut=${dutId}`, { iface, mac });
 }
 
+export type WifiClientStats = {
+  tx_bytes: number | null;
+  rx_bytes: number | null;
+  avg_tx_kbps: number | null;
+  avg_rx_kbps: number | null;
+  tx_bytes_1s: number | null;
+  rx_bytes_1s: number | null;
+  band_width: number | null;
+  rx_rssi: number | null;
+  per: number | null;
+  tx_nss: number | null;
+  rx_nss: number | null;
+};
+export type WifiClientStatsResult = { mac: string; stats: WifiClientStats; captured_at: string };
+
+/** On-demand deep stats for one client (apstats). One serial command per call. */
+export async function getWifiClientStats(mac: string, dutId = DEFAULT_DUT_ID): Promise<WifiClientStatsResult> {
+  return get<WifiClientStatsResult>(`/api/wifi/client-stats?dut=${dutId}&mac=${encodeURIComponent(mac)}`);
+}
+
 export type DutInfo = {
   id: string;
   label: string;
