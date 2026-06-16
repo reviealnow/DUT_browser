@@ -45,6 +45,12 @@ def band_for_iface(iface: str) -> str:
     return "6G"
 
 
+def _norm_band(band: str) -> str:
+    """Normalise the firmware's verbose 'Operating band' (e.g. '6GHz', '5 GHz')
+    to the iface-derived form ('2.4G' / '5G' / '6G') so the field is consistent."""
+    return band.strip().upper().replace("GHZ", "G").replace(" ", "")
+
+
 def signal_pct(rssi: int | None) -> int | None:
     """Rough dBm -> 0-100% quality (2*(rssi+100), clamped)."""
     if rssi is None:
@@ -136,5 +142,34 @@ def parse_wlanconfig_list(text: str, iface: str) -> list[dict]:
                 clients[-1]["snr"] = int(snr.group(1))
             band = _BAND_RE.search(line)
             if band:
-                clients[-1]["band"] = band.group(1)
+                clients[-1]["band"] = _norm_band(band.group(1))
     return clients
+
+
+# Per-station `apstats -s -m <MAC>` fields we surface. Each is a `Label = value`
+# line; chainmask (NSS) is a special `tx(N) rx(N)` form handled separately.
+_APSTATS_FIELDS: dict[str, str] = {
+    "tx_bytes": "Tx Data Bytes",
+    "rx_bytes": "Rx Data Bytes",
+    "avg_tx_kbps": "Average Tx Rate (kbps)",
+    "avg_rx_kbps": "Average Rx Rate (kbps)",
+    "tx_bytes_1s": "Tx bytes for last one second",
+    "rx_bytes_1s": "Rx bytes for last one second",
+    "band_width": "Band Width",
+    "rx_rssi": "Rx RSSI",
+    "per": "Last Packet Error Rate (PER)",
+}
+_APSTATS_NSS_RE = re.compile(r"chainmask\s*\(NSS\)\s+tx\((\d+)\)\s+rx\((\d+)\)")
+
+
+def parse_apstats(text: str) -> dict:
+    """Parse `apstats -s -m <MAC>` into per-client deep stats. Missing fields → None
+    (tolerant of firmware variation)."""
+    stats: dict = {}
+    for key, label in _APSTATS_FIELDS.items():
+        m = re.search(re.escape(label) + r"\s*=\s*(-?\d+)", text)
+        stats[key] = int(m.group(1)) if m else None
+    nss = _APSTATS_NSS_RE.search(text)
+    stats["tx_nss"] = int(nss.group(1)) if nss else None
+    stats["rx_nss"] = int(nss.group(2)) if nss else None
+    return stats

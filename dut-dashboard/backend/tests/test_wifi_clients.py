@@ -5,11 +5,26 @@ import unittest
 from app.services.wifi_clients import (
     band_for_iface,
     discover_vaps,
+    parse_apstats,
     parse_wlanconfig_list,
     signal_pct,
     vendor_for_mac,
     width_from_phymode,
 )
+
+# Real `apstats -s -m <MAC>` dump (AP6 840E, trimmed to the fields we surface).
+APSTATS = """Node Level Stats: d6:0d:0f:42:6f:c7 (under VAP ath32)
+Tx Data Bytes                   = 27196107
+Average Tx Rate (kbps)          = 864700
+Average Rx Rate (kbps)          = 1020800
+Last Packet Error Rate (PER)    = 0
+Rx Data Bytes                   = 1473977
+Rx RSSI                         = 38
+Band Width                      = 80
+chainmask (NSS)                 tx(2) rx(2)
+Tx bytes for last one second    = 4163
+Rx bytes for last one second    = 4494
+"""
 
 # Real capture from an AP6 840E (phone on 6 GHz), trimmed verbose tail.
 WLANCONFIG_ATH32 = """wlanconfig ath32 list
@@ -55,7 +70,7 @@ class WifiParseTests(unittest.TestCase):
         self.assertEqual(c["rxnss"], 2)
         self.assertEqual(c["txnss"], 2)
         self.assertEqual(c["snr"], 40)          # from verbose tail
-        self.assertEqual(c["band"], "6GHz")     # verbose overrides iface-derived
+        self.assertEqual(c["band"], "6G")       # verbose '6GHz' normalised to iface form
         self.assertEqual(c["vendor"], "Private (randomized)")  # d6 = locally administered
 
     def test_empty_list_is_no_clients(self) -> None:
@@ -86,6 +101,23 @@ class WifiParseTests(unittest.TestCase):
         self.assertEqual(signal_pct(-30), 100)
         self.assertEqual(signal_pct(-100), 0)
         self.assertIsNone(signal_pct(None))
+
+    def test_parse_apstats_real_dump(self) -> None:
+        s = parse_apstats(APSTATS)
+        self.assertEqual(s["tx_bytes"], 27196107)
+        self.assertEqual(s["rx_bytes"], 1473977)
+        self.assertEqual(s["avg_tx_kbps"], 864700)
+        self.assertEqual(s["avg_rx_kbps"], 1020800)
+        self.assertEqual(s["tx_bytes_1s"], 4163)
+        self.assertEqual(s["rx_bytes_1s"], 4494)
+        self.assertEqual(s["band_width"], 80)
+        self.assertEqual(s["rx_rssi"], 38)
+        self.assertEqual(s["per"], 0)
+        self.assertEqual((s["tx_nss"], s["rx_nss"]), (2, 2))
+
+    def test_parse_apstats_empty_is_all_none(self) -> None:
+        s = parse_apstats("garbage\nno fields here\n")
+        self.assertTrue(all(v is None for v in s.values()))
 
     def test_width_from_phymode(self) -> None:
         self.assertEqual(width_from_phymode("11AXA_HE80"), "80MHz")

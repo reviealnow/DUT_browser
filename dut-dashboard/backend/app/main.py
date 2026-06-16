@@ -1,4 +1,5 @@
 import asyncio
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -12,7 +13,7 @@ from app.api.serial_api import router as serial_router
 from app.config import ANALYZER_OUTPUT_DIR, FRONTEND_DIST, LOG_DIR
 from app.dut.registry import DEFAULT_DUT_ID, DutContext, DutRegistry, build_default_registry
 from app.services.analyzer_service import AnalyzerService
-from app.services.wifi_clients import discover_vaps, parse_wlanconfig_list
+from app.services.wifi_clients import discover_vaps, parse_apstats, parse_wlanconfig_list
 from app.websocket.terminal_manager import TerminalManager
 from app.websocket.ws_manager import WebSocketManager
 
@@ -90,6 +91,27 @@ def get_wifi_clients(dut: str = DEFAULT_DUT_ID) -> dict:
     return {
         "clients": clients,
         "vaps": vaps,
+        "captured_at": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
+_MAC_RE = re.compile(r"^[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}$")
+
+
+@app.get("/api/wifi/client-stats")
+def get_wifi_client_stats(mac: str, dut: str = DEFAULT_DUT_ID) -> dict:
+    """On-demand per-client deep stats via `apstats -s -m <mac>` (Tx/Rx bytes,
+    throughput, channel width, NSS, Rx RSSI, PER). Serial mode only."""
+    if not _MAC_RE.match(mac):
+        raise HTTPException(status_code=400, detail="Invalid MAC")
+    worker = resolve_dut(app, dut).serial_worker
+    try:
+        out = worker.capture_command(f"apstats -s -m {mac}", timeout=6.0)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "mac": mac,
+        "stats": parse_apstats(out),
         "captured_at": datetime.now().isoformat(timespec="seconds"),
     }
 
