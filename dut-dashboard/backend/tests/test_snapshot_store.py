@@ -36,6 +36,25 @@ class SnapshotStoreTests(unittest.TestCase):
         self.assertEqual(len(snaps), 1)
         self.assertEqual(set(snaps[0]["cpu"].keys()), {"0", "1"})  # delta merged onto base
 
+    def test_reconstruct_preserves_and_merges_memory(self) -> None:
+        store = self._store()
+        store.observe(
+            {
+                "type": "snapshot_update",
+                "snapshot": {
+                    "test_count": 1,
+                    "device_ts": "T1",
+                    "cpu": {"0": {"idle": 80.0}},
+                    "memory": {"MemAvailable": 475472, "SUnreclaim": 158908},
+                    "wifi_clients": {},
+                },
+            }
+        )
+        # A later delta updates one memory key; the rest must be preserved.
+        store.observe({"type": "snapshot_delta", "delta": {"device_ts": "T1", "memory": {"MemAvailable": 470000}}})
+        snaps = store.recent(10)
+        self.assertEqual(snaps[0]["memory"], {"MemAvailable": 470000, "SUnreclaim": 158908})
+
     def test_upsert_dedups_by_device_ts(self) -> None:
         store = self._store()
         store.observe(_update(1, "T1", {"0": {"idle": 80.0}}))

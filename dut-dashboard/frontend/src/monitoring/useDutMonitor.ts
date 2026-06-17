@@ -22,6 +22,23 @@ export type CpuHistoryPoint = {
   perCore: Record<string, number>;
 };
 
+/**
+ * Live memory at one snapshot, parsed from the streamed /proc/meminfo (kB).
+ * `effectiveKb` = MemAvailable − SUnreclaim, matching the offline analyzer.
+ * Fields are null when that key was absent from the stream.
+ */
+export type MemorySample = {
+  ts: string;
+  memTotalKb: number | null;
+  memFreeKb: number | null;
+  memAvailableKb: number | null;
+  buffersKb: number | null;
+  cachedKb: number | null;
+  slabKb: number | null;
+  sunreclaimKb: number | null;
+  effectiveKb: number | null;
+};
+
 export type DutMonitorState = {
   /** Backend WebSocket link + DUT stream activity. */
   status: DutStatus;
@@ -35,6 +52,10 @@ export type DutMonitorState = {
   cpuPerCoreBusy: Record<string, number>;
   /** Recent CPU busy% history (one point per snapshot), for the trend chart. */
   cpuHistory: CpuHistoryPoint[];
+  /** Live memory from the latest snapshot's /proc/meminfo. null until one streams. */
+  memoryLive: MemorySample | null;
+  /** Recent live-memory history (one point per snapshot), for the trend chart. */
+  memoryHistory: MemorySample[];
   /** Associated clients summed across radios. null until first wifi update. */
   wifiClientTotal: number | null;
   wifiByRadio: Record<string, number>;
@@ -64,6 +85,7 @@ export function useDutMonitor(dutId: string = DEFAULT_DUT_ID): DutMonitorState {
   const [lines, setLines] = useState<string[]>([]);
   const [snapshot, setSnapshot] = useState<SnapshotPayload | null>(null);
   const [cpuHistory, setCpuHistory] = useState<CpuHistoryPoint[]>([]);
+  const [memoryHistory, setMemoryHistory] = useState<MemorySample[]>([]);
   const [wifiByRadio, setWifiByRadio] = useState<Record<string, number>>({});
   const [wifiSeen, setWifiSeen] = useState(false);
   const [connected, setConnected] = useState(false);
@@ -82,6 +104,13 @@ export function useDutMonitor(dutId: string = DEFAULT_DUT_ID): DutMonitorState {
         setCpuHistory((prev) => {
           const seen = new Set(prev.map((point) => point.ts));
           const additions = backfillHistory.filter((point) => !seen.has(point.ts));
+          return [...additions, ...prev].slice(-MAX_HISTORY);
+        });
+
+        const backfillMemory = snaps.reduce<MemorySample[]>((acc, snap) => upsertMemoryPoint(acc, snap), []);
+        setMemoryHistory((prev) => {
+          const seen = new Set(prev.map((point) => point.ts));
+          const additions = backfillMemory.filter((point) => !seen.has(point.ts));
           return [...additions, ...prev].slice(-MAX_HISTORY);
         });
 
@@ -120,6 +149,7 @@ export function useDutMonitor(dutId: string = DEFAULT_DUT_ID): DutMonitorState {
     setLines([]);
     setSnapshot(null);
     setCpuHistory([]);
+    setMemoryHistory([]);
     setWifiByRadio({});
     setWifiSeen(false);
     lastActivityRef.current = 0;
@@ -153,6 +183,7 @@ export function useDutMonitor(dutId: string = DEFAULT_DUT_ID): DutMonitorState {
           const snap = (event as { snapshot: SnapshotPayload }).snapshot;
           setSnapshot(snap);
           setCpuHistory((prev) => upsertCpuPoint(prev, snap));
+          setMemoryHistory((prev) => upsertMemoryPoint(prev, snap));
           recordActivity();
           return;
         }
@@ -198,6 +229,7 @@ export function useDutMonitor(dutId: string = DEFAULT_DUT_ID): DutMonitorState {
   }, [snapshot]);
 
   const cpu = useMemo(() => cpuFromSnapshot(snapshot), [snapshot]);
+  const memoryLive = useMemo(() => memoryFromSnapshot(snapshot), [snapshot]);
 
   const { crashLines, crashCount } = useMemo(() => {
     const matched = lines.filter((line) => CRITICAL_CRASH_PATTERN.test(line)).slice(-MAX_CRASH_LINES);
@@ -233,6 +265,8 @@ export function useDutMonitor(dutId: string = DEFAULT_DUT_ID): DutMonitorState {
     coreCount: cpu.coreCount,
     cpuPerCoreBusy: cpu.perCore,
     cpuHistory,
+    memoryLive,
+    memoryHistory,
     wifiClientTotal,
     wifiByRadio,
     crashCount,
@@ -269,6 +303,46 @@ function cpuFromSnapshot(snapshot: SnapshotPayload | null): {
     coreCount: entries.length,
     perCore,
   };
+}
+
+// Build a MemorySample from a snapshot's streamed /proc/meminfo. Returns null
+// when no memory keys are present (e.g. snapshots from before live memory, or a
+// DUT that does not dump meminfo) so the card can fall back to post-analysis.
+function memoryFromSnapshot(snapshot: SnapshotPayload | null): MemorySample | null {
+  const mem = snapshot?.memory;
+  if (!mem || Object.keys(mem).length === 0) {
+    return null;
+  }
+  const get = (key: string): number | null => (typeof mem[key] === "number" ? mem[key] : null);
+  const memAvailableKb = get("MemAvailable");
+  const sunreclaimKb = get("SUnreclaim");
+  const effectiveKb =
+    memAvailableKb !== null && sunreclaimKb !== null ? memAvailableKb - sunreclaimKb : memAvailableKb;
+  return {
+    ts: snapshot!.device_ts,
+    memTotalKb: get("MemTotal"),
+    memFreeKb: get("MemFree"),
+    memAvailableKb,
+    buffersKb: get("Buffers"),
+    cachedKb: get("Cached"),
+    slabKb: get("Slab"),
+    sunreclaimKb,
+    effectiveKb,
+  };
+}
+
+// One point per Test Time, mirroring upsertCpuPoint: replace the last point
+// while memory keys stream in for the same device_ts, otherwise append.
+function upsertMemoryPoint(history: MemorySample[], snapshot: SnapshotPayload): MemorySample[] {
+  const sample = memoryFromSnapshot(snapshot);
+  if (sample === null || sample.effectiveKb === null) {
+    return history;
+  }
+  const last = history[history.length - 1];
+  if (last && last.ts === sample.ts) {
+    return [...history.slice(0, -1), sample];
+  }
+  return [...history, sample].slice(-MAX_HISTORY);
 }
 
 // One point per Test Time: replace the last point while cores stream in for the

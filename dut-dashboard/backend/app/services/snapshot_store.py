@@ -161,6 +161,10 @@ def _reconstruct(base: dict, delta: dict) -> dict:
     for core_id, metrics in (delta.get("cpu") or {}).items():
         next_cpu[core_id] = metrics
 
+    next_memory = dict(base.get("memory") or {})
+    for key, value in (delta.get("memory") or {}).items():
+        next_memory[key] = value
+
     next_wifi = dict(base.get("wifi_clients") or {})
     for radio in delta.get("wifi_clients_removed") or []:
         next_wifi.pop(radio, None)
@@ -171,5 +175,6 @@ def _reconstruct(base: dict, delta: dict) -> dict:
         "test_count": delta.get("test_count", base.get("test_count")),
         "device_ts": delta.get("device_ts", base.get("device_ts")),
         "cpu": next_cpu,
+        "memory": next_memory,
         "wifi_clients": next_wifi,
     }
