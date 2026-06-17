@@ -102,8 +102,8 @@ function renderSection(active: SectionId, monitor: DutMonitorState, search: stri
           <Card title="Per-core CPU" subtitle="Current busy % by core">
             <PerCoreCpuBody monitor={monitor} />
           </Card>
-          <Card title="Memory trend" subtitle="From analyzer output (post-analysis)">
-            <MemoryTrendBody />
+          <Card title="Memory trend" subtitle="Effective available — live or post-analysis">
+            <MemoryTrendBody monitor={monitor} />
           </Card>
         </div>
       );
@@ -163,8 +163,8 @@ function OverviewSection({ monitor, selectedDut }: { monitor: DutMonitorState; s
         <Card title="CPU trend" subtitle="Per-core busy % over time">
           <CpuTrendBody monitor={monitor} />
         </Card>
-        <Card title="Memory trend" subtitle="From analyzer output (post-analysis)">
-          <MemoryTrendBody />
+        <Card title="Memory trend" subtitle="Effective available — live or post-analysis">
+          <MemoryTrendBody monitor={monitor} />
         </Card>
         <Card
           title="Wi-Fi client summary"
@@ -227,7 +227,55 @@ function OfflineState() {
 
 const toMb = (kb: number) => (kb / 1024).toFixed(0);
 
-function MemoryTrendBody() {
+function MemoryTrendBody({ monitor }: { monitor: DutMonitorState }) {
+  // Prefer live /proc/meminfo parsed from the stream (updates once per snapshot,
+  // like CPU); fall back to the post-analysis CSV when the DUT isn't streaming
+  // memory or before the first sample arrives.
+  if (monitor.memoryLive && monitor.memoryHistory.length > 0) {
+    return <LiveMemoryBody monitor={monitor} />;
+  }
+  return <PostAnalysisMemoryBody />;
+}
+
+function LiveMemoryBody({ monitor }: { monitor: DutMonitorState }) {
+  const latest = monitor.memoryLive!;
+  const effective = monitor.memoryHistory
+    .map((point) => point.effectiveKb)
+    .filter((value): value is number => value !== null);
+  // Normalise to the series' own range so the trend is visible (Sparkline plots
+  // 0..max); absolute MB values are shown in the footer.
+  const min = Math.min(...effective);
+  const max = Math.max(...effective);
+  const span = max - min || 1;
+  const normalised = effective.map((value) => ((value - min) / span) * 100);
+
+  return (
+    <div className="chart">
+      <div className="chart-figure">
+        <Sparkline values={normalised} max={100} ariaLabel="Live effective available memory trend" />
+      </div>
+      <div className="chart-foot">
+        <div className="chart-metric">
+          {latest.effectiveKb === null ? "—" : toMb(latest.effectiveKb)}
+          <span className="unit">MB effective avail · live</span>
+        </div>
+        <div className="chart-legend">
+          {latest.memAvailableKb !== null ? (
+            <span>
+              <span className="swatch" />
+              MemAvail {toMb(latest.memAvailableKb)} MB
+            </span>
+          ) : null}
+          {latest.slabKb !== null ? <span>Slab {toMb(latest.slabKb)} MB</span> : null}
+          <span style={{ color: "var(--faint)" }}>live · per snapshot</span>
+        </div>
+      </div>
+      <ChartData id="memory-trend-data" data={monitor.memoryHistory} />
+    </div>
+  );
+}
+
+function PostAnalysisMemoryBody() {
   const [series, setSeries] = useState<MemorySeries | null>(null);
   const [failed, setFailed] = useState(false);
 

@@ -13,6 +13,13 @@ class SysMonParser:
         r"^CPU(\d+):\s*([\d.]+)% usr\s+([\d.]+)% sys\s+([\d.]+)% nic\s+([\d.]+)% idle\s+([\d.]+)% io\s+([\d.]+)% irq\s+([\d.]+)%%?\s+sirq\s*$"
     )
     CLIENT_MARKER_RE = re.compile(r"^--- CLIENTS Radio=(2G|5G|6G) ---\s*$")
+    # A /proc/meminfo line, e.g. "MemAvailable:     475472 kB". Streamed inside
+    # the snapshot block, so it is parsed live like CPU per-core.
+    MEMINFO_RE = re.compile(r"^(\w+):\s+(\d+)\s*kB\s*$")
+    # Only the keys the dashboard charts need (mirrors tools/analyzer3.py).
+    MEM_KEYS = frozenset(
+        {"MemTotal", "MemFree", "MemAvailable", "Buffers", "Cached", "Slab", "SReclaimable", "SUnreclaim"}
+    )
     CONSOLE_BATCH_SIZE = 20
     CONSOLE_BATCH_MAX_LATENCY_SEC = 0.05
 
@@ -67,6 +74,7 @@ class SysMonParser:
                 "test_count": int(snap_match.group(1)),
                 "device_ts": snap_match.group(2),
                 "cpu": {},
+                "memory": {},
                 "wifi_clients": {},
             }
             self._pending_clients_radio = None
@@ -88,6 +96,13 @@ class SysMonParser:
 
         cpu_match = self.CPU_RE.match(text)
         if not cpu_match:
+            # /proc/meminfo lines stream inside the snapshot block: record the
+            # keys the charts need into the snapshot and emit a live update, but
+            # still queue the raw line so the Serial Console output is unchanged.
+            mem_match = self.MEMINFO_RE.match(text)
+            if mem_match and mem_match.group(1) in self.MEM_KEYS:
+                self._current_snapshot["memory"][mem_match.group(1)] = int(mem_match.group(2))
+                self._emit_snapshot_update()
             self._queue_console_line(text)
             return
 
@@ -235,6 +250,17 @@ class SysMonParser:
         removed_cpu = sorted(set(previous_cpu.keys()) - set(current_cpu.keys()))
         if removed_cpu:
             delta["cpu_removed"] = removed_cpu
+
+        # Memory keys are a fixed set that only changes value, never disappears,
+        # so a "removed" list (like cpu_removed) is unnecessary.
+        previous_mem = previous.get("memory") if isinstance(previous.get("memory"), dict) else {}
+        current_mem = current.get("memory") if isinstance(current.get("memory"), dict) else {}
+        changed_mem: dict = {}
+        for key, value in current_mem.items():
+            if previous_mem.get(key) != value:
+                changed_mem[key] = value
+        if changed_mem:
+            delta["memory"] = changed_mem
 
         previous_wifi = previous.get("wifi_clients") if isinstance(previous.get("wifi_clients"), dict) else {}
         current_wifi = current.get("wifi_clients") if isinstance(current.get("wifi_clients"), dict) else {}

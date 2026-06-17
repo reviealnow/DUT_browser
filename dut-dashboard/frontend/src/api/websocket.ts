@@ -18,10 +18,14 @@ export type WifiClient = {
   [key: string]: unknown;
 };
 
+/** Selected /proc/meminfo keys (kB), streamed live inside each snapshot. */
+export type MemoryInfo = Record<string, number>;
+
 export type SnapshotPayload = {
   test_count: number;
   device_ts: string;
   cpu: Record<string, CpuCore>;
+  memory?: MemoryInfo;
   wifi_clients?: Record<string, { total_size: number; clients: WifiClient[] }>;
 };
 
@@ -30,6 +34,7 @@ export type SnapshotDelta = {
   device_ts?: string;
   cpu?: Record<string, CpuCore>;
   cpu_removed?: string[];
+  memory?: MemoryInfo;
   wifi_clients?: Record<string, { total_size: number; clients: WifiClient[] }>;
   wifi_clients_removed?: string[];
 };
@@ -173,6 +178,11 @@ function applySnapshotDelta(base: SnapshotPayload, delta: SnapshotDelta): Snapsh
     Object.assign(nextCpu, delta.cpu);
   }
 
+  const nextMemory = { ...(base.memory ?? {}) };
+  if (delta.memory) {
+    Object.assign(nextMemory, delta.memory);
+  }
+
   const nextWifi = { ...(base.wifi_clients ?? {}) };
   if (delta.wifi_clients_removed) {
     for (const radio of delta.wifi_clients_removed) {
@@ -187,6 +197,7 @@ function applySnapshotDelta(base: SnapshotPayload, delta: SnapshotDelta): Snapsh
     test_count: delta.test_count ?? base.test_count,
     device_ts: delta.device_ts ?? base.device_ts,
     cpu: nextCpu,
+    memory: nextMemory,
     wifi_clients: nextWifi,
   };
 }
