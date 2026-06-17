@@ -275,7 +275,7 @@ function MemoryTrendBody() {
       <div className="chart-foot">
         <div className="chart-metric">
           {toMb(latest.effectiveKb)}
-          <span className="unit">MB effective avail</span>
+          <span className="unit">MB effective avail · post-analysis</span>
         </div>
         <div className="chart-legend">
           <span>
@@ -283,7 +283,10 @@ function MemoryTrendBody() {
             MemAvail {toMb(latest.memAvailableKb)} MB
           </span>
           <span>Slab {toMb(latest.slabKb)} MB</span>
-          <button type="button" className="btn" style={{ padding: "2px 8px" }} onClick={load}>
+          {series.generated_at ? (
+            <span style={{ color: "var(--faint)" }}>as of {series.generated_at}</span>
+          ) : null}
+          <button type="button" className="btn" style={{ padding: "2px 8px" }} onClick={load} title="Refresh from analyzer output">
             ↻
           </button>
         </div>
