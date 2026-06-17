@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { getMemory, MemorySeries } from "../api/rest";
+import { getMemory, MemorySeries, WifiClientsResult } from "../api/rest";
 import ChartData from "../components/charts/ChartData";
 import Sparkline from "../components/charts/Sparkline";
 import DownloadsSection from "../components/DownloadsSection";
@@ -15,6 +15,7 @@ import Topbar from "../components/shell/Topbar";
 import { NAV_ITEMS, SectionId } from "../components/shell/navigation";
 import { DutMonitorProvider } from "../monitoring/DutMonitorContext";
 import { DutMonitorState, DutStatus, useDutMonitor } from "../monitoring/useDutMonitor";
+import { useWifiScan, wifiScanForDut, WifiScanProvider } from "../monitoring/WifiScanContext";
 import Dashboard from "./Dashboard";
 
 const PHASE3_HINT = "Trend charts and live views arrive in Phase 3.";
@@ -46,6 +47,7 @@ export default function AppShell() {
 
   return (
     <DutMonitorProvider value={monitor}>
+      <WifiScanProvider>
       <div className="app">
         <Sidebar active={active} onSelect={setActive} />
         <div className="main">
@@ -75,18 +77,19 @@ export default function AppShell() {
             <div className="embed" style={{ display: active === "console" ? "block" : "none" }}>
               <Dashboard active={active === "console"} dutId={selectedDut} />
             </div>
-            {active !== "console" ? renderSection(active, monitor, search) : null}
+            {active !== "console" ? renderSection(active, monitor, search, selectedDut) : null}
           </main>
         </div>
       </div>
+      </WifiScanProvider>
     </DutMonitorProvider>
   );
 }
 
-function renderSection(active: SectionId, monitor: DutMonitorState, search: string) {
+function renderSection(active: SectionId, monitor: DutMonitorState, search: string, selectedDut: string) {
   switch (active) {
     case "overview":
-      return <OverviewSection monitor={monitor} />;
+      return <OverviewSection monitor={monitor} selectedDut={selectedDut} />;
     case "console":
       // Rendered separately (always mounted) so its session/state persists.
       return null;
@@ -108,7 +111,7 @@ function renderSection(active: SectionId, monitor: DutMonitorState, search: stri
       // Scan-driven: WifiClientsCard auto-scans on entry and shows both the
       // per-band summary and the detail (one authoritative source). The live
       // sysMon WifiSummaryBody stays on the Overview card.
-      return <WifiClientsCard />;
+      return <WifiClientsCard dutId={selectedDut} />;
     case "logs":
       return (
         <Card title="Logs / Crash events" subtitle="Critical crash + log event detection">
@@ -124,15 +127,28 @@ function renderSection(active: SectionId, monitor: DutMonitorState, search: stri
   }
 }
 
-function OverviewSection({ monitor }: { monitor: DutMonitorState }) {
+function OverviewSection({ monitor, selectedDut }: { monitor: DutMonitorState; selectedDut: string }) {
   const statusMeta = STATUS_META[monitor.status];
   const cpuValue = monitor.cpuBusyPct === null ? undefined : `${monitor.cpuBusyPct}%`;
   const cpuSub =
     monitor.cpuBusyPct === null
       ? "Awaiting snapshot"
       : `idle ${monitor.cpuIdlePct}% · ${monitor.coreCount} core${monitor.coreCount === 1 ? "" : "s"}`;
-  const wifiValue = monitor.wifiClientTotal === null ? undefined : String(monitor.wifiClientTotal);
-  const wifiSub = monitor.wifiClientTotal === null ? "Awaiting clients" : radioBreakdown(monitor.wifiByRadio);
+
+  // Wi-Fi Clients reflects the real wlanconfig scan (clients.length, per band)
+  // from the shared cache — not the passive sysMon total, which reads "—" on
+  // many APs. The scan is on-demand: triggered by the "Scan" button below or by
+  // entering the Wi-Fi section; never background-polled.
+  const wifi = useWifiScan();
+  const { result: wifiScan, loading: wifiLoading, error: wifiError } = wifiScanForDut(wifi, selectedDut);
+  const wifiValue = wifiScan ? String(wifiScan.clients.length) : undefined;
+  const wifiSub = wifiScan
+    ? wifiBandSummary(wifiScan)
+    : wifiLoading
+    ? "Scanning…"
+    : wifiError
+    ? "Needs open serial"
+    : "Press Scan to count";
 
   return (
     <>
@@ -150,8 +166,16 @@ function OverviewSection({ monitor }: { monitor: DutMonitorState }) {
         <Card title="Memory trend" subtitle="From analyzer output (post-analysis)">
           <MemoryTrendBody />
         </Card>
-        <Card title="Wi-Fi client summary" subtitle="Clients per radio">
-          <WifiSummaryBody monitor={monitor} />
+        <Card
+          title="Wi-Fi client summary"
+          subtitle="Associated clients per band (wlanconfig)"
+          actions={
+            <button type="button" className="btn" onClick={() => void wifi.scan(selectedDut)} disabled={wifiLoading}>
+              {wifiLoading ? "Scanning…" : "Scan"}
+            </button>
+          }
+        >
+          <WifiSummaryBody result={wifiScan} loading={wifiLoading} error={wifiError} status={monitor.status} />
         </Card>
         <Card title="Critical crash / log events" subtitle="Live keyword detection">
           <CrashEventsBody monitor={monitor} />
@@ -333,21 +357,72 @@ function PerCoreCpuBody({ monitor }: { monitor: DutMonitorState }) {
   );
 }
 
-function WifiSummaryBody({ monitor }: { monitor: DutMonitorState }) {
-  const entries = Object.entries(monitor.wifiByRadio).sort(([a], [b]) => a.localeCompare(b));
-  if (monitor.status === "offline" && entries.length === 0) {
-    return <OfflineState />;
+const WIFI_BAND_ORDER: Record<string, number> = { "2.4G": 0, "5G": 1, "6G": 2 };
+
+/** Per-band client counts from a scan result, in 2.4→5→6 (then other) order. */
+function wifiBandCounts(result: WifiClientsResult): [string, number][] {
+  const counts: Record<string, number> = {};
+  for (const client of result.clients) {
+    counts[client.band] = (counts[client.band] ?? 0) + 1;
   }
-  if (monitor.wifiClientTotal === null || entries.length === 0) {
-    return <EmptyState icon="📶" message="No associated clients yet" hint="Client counts appear once a snapshot reports radios." />;
+  return Object.entries(counts).sort(
+    ([a], [b]) => (WIFI_BAND_ORDER[a] ?? 99) - (WIFI_BAND_ORDER[b] ?? 99) || a.localeCompare(b),
+  );
+}
+
+/** Compact "2.4G:1 · 6G:1" summary for the KPI sub-line. */
+function wifiBandSummary(result: WifiClientsResult): string {
+  const counts = wifiBandCounts(result);
+  if (counts.length === 0) {
+    return "0 clients";
   }
-  const max = Math.max(1, ...entries.map(([, value]) => value));
+  return counts.map(([band, count]) => `${band}: ${count}`).join(" · ");
+}
+
+/**
+ * Scan-driven Wi-Fi summary: real associated-client counts per band from the
+ * shared `wlanconfig` scan cache (not the passive sysMon total). On-demand only.
+ */
+function WifiSummaryBody({
+  result,
+  loading,
+  error,
+  status,
+}: {
+  result: WifiClientsResult | null;
+  loading: boolean;
+  error: string;
+  status: DutStatus;
+}) {
+  if (result === null) {
+    if (loading) {
+      return <EmptyState icon="📶" message="Scanning clients…" hint="Running wlanconfig on each active VAP." />;
+    }
+    if (error) {
+      return <EmptyState icon="📶" message="No client scan" hint={error} />;
+    }
+    if (status === "offline") {
+      return <OfflineState />;
+    }
+    return <EmptyState icon="📶" message="No scan yet" hint="Press Scan to count associated clients (real DUT serial only)." />;
+  }
+  const bands = wifiBandCounts(result);
+  if (bands.length === 0) {
+    return (
+      <EmptyState
+        icon="📶"
+        message="No associated clients"
+        hint={`Scanned ${result.vaps.length} VAP(s) at ${result.captured_at}.`}
+      />
+    );
+  }
+  const max = Math.max(1, ...bands.map(([, count]) => count));
   return (
     <div className="chart">
       <div className="barrows">
-        {entries.map(([radio, count]) => (
-          <div className="barrow" key={radio}>
-            <div className="barrow-label">{radio}</div>
+        {bands.map(([band, count]) => (
+          <div className="barrow" key={band}>
+            <div className="barrow-label">{band}</div>
             <div className="barrow-track">
               <div className="barrow-fill" style={{ width: `${(count / max) * 100}%` }} />
             </div>
@@ -357,11 +432,11 @@ function WifiSummaryBody({ monitor }: { monitor: DutMonitorState }) {
       </div>
       <div className="chart-foot">
         <div className="chart-metric">
-          {monitor.wifiClientTotal}
-          <span className="unit">clients total</span>
+          {result.clients.length}
+          <span className="unit">clients · scanned {result.captured_at}</span>
         </div>
       </div>
-      <ChartData id="wifi-summary-data" data={monitor.wifiByRadio} />
+      <ChartData id="wifi-summary-data" data={{ bands, captured_at: result.captured_at }} />
     </div>
   );
 }
@@ -455,13 +530,3 @@ const STATUS_META: Record<DutStatus, StatusMeta> = {
   offline: { label: "Offline", sub: "Backend not reachable", pill: "danger" },
 };
 
-function radioBreakdown(byRadio: Record<string, number>): string {
-  const entries = Object.entries(byRadio);
-  if (entries.length === 0) {
-    return "No radios reported";
-  }
-  return entries
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([radio, count]) => `${radio}: ${count}`)
-    .join(" · ");
-}

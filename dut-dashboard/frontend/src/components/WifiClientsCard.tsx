@@ -1,13 +1,14 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 
 import {
-  getWifiClients,
   getWifiClientStats,
+  humanizeApiError,
   kickWifiClient,
   WifiClientRow,
-  WifiClientsResult,
   WifiClientStats,
 } from "../api/rest";
+import { DEFAULT_DUT_ID } from "../api/dut";
+import { useWifiScan, wifiScanForDut } from "../monitoring/WifiScanContext";
 import { Card, EmptyState } from "./shell/Card";
 
 const COL_COUNT = 11;
@@ -38,40 +39,40 @@ type StatsCell = { loading: boolean; error?: string; stats?: WifiClientStats };
  * deep stats via `apstats -s -m <MAC>` (one serial command per client) — Tx/Rx
  * bytes, throughput, channel width, NSS, Rx RSSI, PER — cached per MAC.
  */
-export default function WifiClientsCard() {
-  const [data, setData] = useState<WifiClientsResult | null>(null);
-  const [loading, setLoading] = useState(false);
+export default function WifiClientsCard({ dutId = DEFAULT_DUT_ID }: { dutId?: string }) {
+  // Scan result/loading/error come from the shared cache so the Wi-Fi section
+  // and the Overview reuse one RPC instead of each firing their own.
+  const wifi = useWifiScan();
+  const { result: data, error: scanError, loading } = wifiScanForDut(wifi, dutId);
   const [error, setError] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [statsByMac, setStatsByMac] = useState<Record<string, StatsCell>>({});
 
-  const scan = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      setData(await getWifiClients());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Scan failed");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const scan = useCallback(() => wifi.scan(dutId), [wifi, dutId]);
 
-  // Auto-scan once when the Wi-Fi Clients section is opened (this component
-  // mounts on entry). Manual "Scan clients" stays as a refresh.
+  // Auto-scan when the section opens or the selected DUT changes — but reuse an
+  // existing SUCCESSFUL scan for this DUT instead of re-firing the serial RPC
+  // (e.g. one already run from the Overview). A cached error still retries on
+  // entry; a scan in flight is left alone. Manual "Scan clients" always refreshes.
   useEffect(() => {
-    void scan();
-  }, [scan]);
+    if (wifi.dutId !== dutId || (wifi.result === null && !wifi.loading)) {
+      void wifi.scan(dutId);
+    }
+    // Intentionally keyed on dutId only: the effect runs once per mount / DUT
+    // switch (not on every cache change, which would loop). The guard reads the
+    // latest cache via the captured `wifi`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dutId]);
 
   async function kick(client: WifiClientRow) {
     if (!window.confirm(`Disassociate ${client.mac} from ${client.iface}?`)) {
       return;
     }
     try {
-      await kickWifiClient(client.iface, client.mac);
+      await kickWifiClient(client.iface, client.mac, dutId);
       await scan();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Kick failed");
+      setError(humanizeApiError(e));
     }
   }
 
@@ -85,7 +86,7 @@ export default function WifiClientsCard() {
         // Lazy fetch once per MAC (cached across collapse/expand).
         if (!statsByMac[mac]) {
           setStatsByMac((s) => ({ ...s, [mac]: { loading: true } }));
-          getWifiClientStats(mac)
+          getWifiClientStats(mac, dutId)
             .then((r) => setStatsByMac((s) => ({ ...s, [mac]: { loading: false, stats: r.stats } })))
             .catch((e) =>
               setStatsByMac((s) => ({ ...s, [mac]: { loading: false, error: e instanceof Error ? e.message : "Failed" } })),
@@ -118,7 +119,9 @@ export default function WifiClientsCard() {
 
   return (
     <Card title="Wi-Fi clients (detail)" subtitle="Per-client RF detail via wlanconfig" actions={action}>
-      {error ? <div className="flash" style={{ marginBottom: "var(--space-3)" }}>{error}</div> : null}
+      {error || scanError ? (
+        <div className="flash" style={{ marginBottom: "var(--space-3)" }}>{error || scanError}</div>
+      ) : null}
       {data === null ? (
         <EmptyState icon="📶" message="No scan yet" hint="Open a DUT serial connection, then Scan clients." />
       ) : data.clients.length === 0 ? (
