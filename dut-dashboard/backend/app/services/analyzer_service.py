@@ -1,12 +1,24 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
-from app.config import ANALYZER_OUTPUT_DIR, ANALYZER_SCRIPT
+from app.config import ANALYZER_OUTPUT_DIR, ANALYZER_SCRIPT, LOG_DIR
+
+
+def _concise_error(stderr: str, stdout: str) -> str:
+    """Surface a short, actionable reason from a failed analyzer run instead of
+    dumping its whole multi-line stdout. analyzer3.py prints '[ERROR] ...' lines
+    on failure (e.g. records=0 for a log with no sysmon snapshots)."""
+    combined = f"{stderr}\n{stdout}"
+    errors = [line.strip() for line in combined.splitlines() if "[ERROR]" in line]
+    if errors:
+        return " ".join(errors)
+    return stderr.strip() or stdout.strip() or "analyzer3.py failed"
 
 
 class AnalyzerService:
@@ -26,15 +38,24 @@ class AnalyzerService:
             shutil.copy2(log_file, staged_log)
             shutil.copy2(ANALYZER_SCRIPT, tmp_path / "analyzer3.py")
 
+            # Force a headless matplotlib backend + a writable config dir so the
+            # plot generation works on a server with no display and survives the
+            # first-run font-cache build (mirrors run_analyzer_for_session).
+            env = os.environ.copy()
+            mpl_config_dir = LOG_DIR / ".mplconfig"
+            mpl_config_dir.mkdir(parents=True, exist_ok=True)
+            env["MPLCONFIGDIR"] = str(mpl_config_dir)
+            env["MPLBACKEND"] = "Agg"
+
             completed = subprocess.run(
                 [sys.executable, "analyzer3.py"],
                 cwd=tmp_path,
                 capture_output=True,
                 text=True,
+                env=env,
             )
             if completed.returncode != 0:
-                message = completed.stderr.strip() or completed.stdout.strip() or "analyzer3.py failed"
-                raise RuntimeError(message)
+                raise RuntimeError(_concise_error(completed.stderr, completed.stdout))
 
             generated = [p for p in tmp_path.iterdir() if p.is_file()]
             cpu_candidates = sorted([p for p in generated if p.name.endswith("cpu_usage.csv")])

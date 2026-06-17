@@ -146,6 +146,17 @@ export async function getMemory(limit = 500): Promise<MemorySeries> {
   return get<MemorySeries>(`/api/analyzer/memory?limit=${limit}`);
 }
 
+export type AnalyzeResult = { ok: boolean; files: string[] };
+
+/**
+ * Run the offline analyzer on a saved session log (by name) and publish its
+ * CSV/PNG outputs to logs/analyzer_output/ (browsable in Downloads → Analyzer
+ * outputs). Blocking — the analyzer runs synchronously, a few seconds.
+ */
+export async function analyzeSessionLog(name: string): Promise<AnalyzeResult> {
+  return post<AnalyzeResult>("/api/analyzer/run-session", { name });
+}
+
 /** Switch the serial reader into raw interactive terminal mode (monitoring pauses). */
 export async function enterTerminal(dutId = DEFAULT_DUT_ID): Promise<void> {
   const response = await fetch(`/api/serial/terminal/enter?dut=${dutId}`, { method: "POST" });

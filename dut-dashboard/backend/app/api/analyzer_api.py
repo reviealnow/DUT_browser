@@ -1,9 +1,10 @@
 import csv
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from app.config import ANALYZER_OUTPUT_DIR
+from app.config import ANALYZER_OUTPUT_DIR, LOG_DIR
 
 router = APIRouter(prefix="/api/analyzer", tags=["analyzer"])
 
@@ -12,10 +13,34 @@ class AnalyzerRunRequest(BaseModel):
     log_path: str
 
 
+class AnalyzerRunSessionRequest(BaseModel):
+    name: str
+
+
 @router.post("/run")
 def run_analyzer(body: AnalyzerRunRequest, request: Request) -> dict:
     try:
         return request.app.state.analyzer_service.run(body.log_path)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/run-session")
+def run_analyzer_for_session_log(body: AnalyzerRunSessionRequest, request: Request) -> dict:
+    """Run the offline analyzer on a saved session log, referenced by name, and
+    publish its CSV/PNG outputs to logs/analyzer_output/ (browsable in Downloads
+    → Analyzer outputs). Name-based + validated so no absolute path or traversal
+    reaches the filesystem."""
+    name = body.name
+    if name != Path(name).name or not (name.startswith("dut-session-") and name.endswith(".log")):
+        raise HTTPException(status_code=400, detail="Invalid session log name")
+    path = LOG_DIR / name
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail="Session log not found")
+    try:
+        return request.app.state.analyzer_service.run(str(path))
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
