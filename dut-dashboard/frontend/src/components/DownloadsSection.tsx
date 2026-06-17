@@ -1,10 +1,12 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 
 import {
+  analyzeSessionLog,
   getAnalyzerDownloadUrl,
   getLogs,
   getLogTail,
   getSerialLogDownloadUrl,
+  humanizeApiError,
   LogEntry,
   LogList,
 } from "../api/rest";
@@ -54,9 +56,29 @@ function FileTable({ rows, hrefFor }: { rows: LogEntry[]; hrefFor: (name: string
 }
 
 /** Session-log table where each row expands to lazily peek the log's tail. */
-function SessionLogTable({ rows }: { rows: LogEntry[] }) {
+function SessionLogTable({ rows, onAnalyzed }: { rows: LogEntry[]; onAnalyzed: () => void }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [tailByName, setTailByName] = useState<Record<string, TailCell>>({});
+  const [analyzing, setAnalyzing] = useState<Set<string>>(new Set());
+  const [notice, setNotice] = useState<{ tone: "ok" | "danger"; message: string } | null>(null);
+
+  async function analyze(name: string) {
+    setNotice(null);
+    setAnalyzing((prev) => new Set(prev).add(name));
+    try {
+      const result = await analyzeSessionLog(name);
+      setNotice({ tone: "ok", message: `Analyzed ${name} — ${result.files.length} output file(s) ready below.` });
+      onAnalyzed(); // refresh the Analyzer outputs card
+    } catch (e) {
+      setNotice({ tone: "danger", message: humanizeApiError(e) });
+    } finally {
+      setAnalyzing((prev) => {
+        const next = new Set(prev);
+        next.delete(name);
+        return next;
+      });
+    }
+  }
 
   function toggle(name: string) {
     setExpanded((prev) => {
@@ -85,13 +107,25 @@ function SessionLogTable({ rows }: { rows: LogEntry[] }) {
   }
 
   return (
+    <>
+    {notice ? (
+      <div
+        className="flash"
+        style={{
+          marginBottom: "var(--space-3)",
+          color: notice.tone === "danger" ? "var(--danger)" : "var(--ok)",
+        }}
+      >
+        {notice.message}
+      </div>
+    ) : null}
     <table className="filetable">
       <thead>
         <tr>
           <th>Name</th>
           <th>Size</th>
           <th>Modified</th>
-          <th aria-label="download" />
+          <th aria-label="actions" />
         </tr>
       </thead>
       <tbody>
@@ -112,9 +146,20 @@ function SessionLogTable({ rows }: { rows: LogEntry[] }) {
               <td>{formatSize(row.size)}</td>
               <td>{formatTime(row.mtime)}</td>
               <td>
-                <a className="btn" href={getSerialLogDownloadUrl(row.name)} download style={{ padding: "2px 10px" }}>
-                  Download
-                </a>
+                <div style={{ display: "flex", gap: "var(--space-2)", justifyContent: "flex-end" }}>
+                  <button
+                    className="btn"
+                    onClick={() => analyze(row.name)}
+                    disabled={analyzing.has(row.name)}
+                    title="Run the analyzer on this log → CSV/PNG outputs appear below"
+                    style={{ padding: "2px 10px" }}
+                  >
+                    {analyzing.has(row.name) ? "Analyzing…" : "Analyze"}
+                  </button>
+                  <a className="btn" href={getSerialLogDownloadUrl(row.name)} download style={{ padding: "2px 10px" }}>
+                    Download
+                  </a>
+                </div>
               </td>
             </tr>
             {expanded.has(row.name) ? (
@@ -128,6 +173,7 @@ function SessionLogTable({ rows }: { rows: LogEntry[] }) {
         ))}
       </tbody>
     </table>
+    </>
   );
 }
 
@@ -150,12 +196,16 @@ export default function DownloadsSection({ query = "" }: { query?: string }) {
   const [data, setData] = useState<LogList | null>(null);
   const [failed, setFailed] = useState(false);
 
-  useEffect(() => {
+  const reload = useCallback(() => {
     setFailed(false);
     getLogs()
       .then(setData)
       .catch(() => setFailed(true));
   }, []);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
 
   if (failed) {
     return (
@@ -179,18 +229,18 @@ export default function DownloadsSection({ query = "" }: { query?: string }) {
 
   return (
     <>
-      <Card title="Session logs" subtitle="Raw DUT serial logs — download runs the analyzer for long logs">
+      <Card title="Session logs" subtitle="Raw DUT serial logs — Analyze to publish CSV/PNG below, or Download the bundle">
         {sessions.length > 0 ? (
-          <SessionLogTable rows={sessions} />
+          <SessionLogTable rows={sessions} onAnalyzed={reload} />
         ) : (
           <EmptyState icon="🗂" message={query ? "No matching session logs" : "No session logs yet"} hint="Open a DUT to start recording." />
         )}
       </Card>
-      <Card title="Analyzer outputs" subtitle="CPU/memory CSV + plots from the latest analyzer run">
+      <Card title="Analyzer outputs" subtitle="CPU/memory CSV + plots from the analyzer">
         {artifacts.length > 0 ? (
           <FileTable rows={artifacts} hrefFor={getAnalyzerDownloadUrl} />
         ) : (
-          <EmptyState icon="📊" message={query ? "No matching artifacts" : "No analyzer outputs yet"} hint="Run the analyzer (download a long DUT log)." />
+          <EmptyState icon="📊" message={query ? "No matching artifacts" : "No analyzer outputs yet"} hint="Click Analyze on a session log above to generate these." />
         )}
       </Card>
     </>
