@@ -3,8 +3,10 @@ import { useEffect, useState } from "react";
 import { getMemory, MemorySeries, WifiClientsResult } from "../api/rest";
 import ChartData from "../components/charts/ChartData";
 import Sparkline from "../components/charts/Sparkline";
+import BulletinSection from "../components/BulletinSection";
 import DownloadsSection from "../components/DownloadsSection";
 import DutSwitcher from "../components/DutSwitcher";
+import FilesSection from "../components/FilesSection";
 import SettingsSection from "../components/SettingsSection";
 import WifiClientsCard from "../components/WifiClientsCard";
 import { DEFAULT_DUT_ID } from "../api/dut";
@@ -55,7 +57,7 @@ export default function AppShell() {
             title={current.title}
             subtitle={current.subtitle}
             search={
-              active === "logs" || active === "downloads" ? (
+              active === "logs" || active === "downloads" || active === "files" || active === "bulletin" ? (
                 <SearchBox value={search} onChange={setSearch} />
               ) : undefined
             }
@@ -120,6 +122,10 @@ function renderSection(active: SectionId, monitor: DutMonitorState, search: stri
       );
     case "downloads":
       return <DownloadsSection query={search} />;
+    case "files":
+      return <FilesSection query={search} />;
+    case "bulletin":
+      return <BulletinSection query={search} />;
     case "settings":
       return <SettingsSection />;
     default:
