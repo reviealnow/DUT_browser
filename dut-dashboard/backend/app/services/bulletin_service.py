@@ -1,0 +1,103 @@
+"""Bulletin board: posts with one level of nested replies.
+
+Ported from the LAN File Server. Shared-trust model: no user_id — `author` is
+free text (nullable). Validation limits and the nested-reply assembly are kept.
+"""
+
+from __future__ import annotations
+
+from collections import defaultdict
+
+from app.db.workspace import execute, query_all, query_one
+
+
+POST_TITLE_LIMIT = 120
+POST_BODY_LIMIT = 1000
+COMMENT_BODY_LIMIT = 600
+
+
+def _validate_text(value: str, field_name: str, limit: int) -> str:
+    cleaned = (value or "").strip()
+    if not cleaned:
+        raise ValueError(f"{field_name} is required.")
+    if len(cleaned) > limit:
+        raise ValueError(f"{field_name} must be {limit} characters or fewer.")
+    return cleaned
+
+
+def _clean_author(author: str | None) -> str | None:
+    return author.strip() if author and author.strip() else None
+
+
+def create_post(title: str, body: str, author: str | None = None) -> int:
+    clean_title = _validate_text(title, "Post title", POST_TITLE_LIMIT)
+    clean_body = _validate_text(body, "Post content", POST_BODY_LIMIT)
+    return execute(
+        "INSERT INTO bulletin_posts (title, body, author) VALUES (?, ?, ?)",
+        (clean_title, clean_body, _clean_author(author)),
+    )
+
+
+def create_comment(
+    post_id: int,
+    body: str,
+    author: str | None = None,
+    parent_comment_id: int | None = None,
+) -> int:
+    post = query_one("SELECT id FROM bulletin_posts WHERE id = ?", (post_id,))
+    if post is None:
+        raise ValueError("Post not found.")
+
+    clean_body = _validate_text(body, "Reply", COMMENT_BODY_LIMIT)
+
+    if parent_comment_id is not None:
+        parent = query_one(
+            "SELECT id, post_id FROM bulletin_comments WHERE id = ?",
+            (parent_comment_id,),
+        )
+        if parent is None or parent["post_id"] != post_id:
+            raise ValueError("Reply target not found.")
+
+    return execute(
+        """
+        INSERT INTO bulletin_comments (post_id, parent_comment_id, body, author)
+        VALUES (?, ?, ?, ?)
+        """,
+        (post_id, parent_comment_id, clean_body, _clean_author(author)),
+    )
+
+
+def list_posts() -> list[dict]:
+    posts = query_all(
+        """
+        SELECT id, title, body, author, created_at
+        FROM bulletin_posts
+        ORDER BY created_at DESC, id DESC
+        """
+    )
+    comments = query_all(
+        """
+        SELECT id, post_id, parent_comment_id, body, author, created_at
+        FROM bulletin_comments
+        ORDER BY created_at ASC, id ASC
+        """
+    )
+
+    replies_by_parent: dict[int | None, list[dict]] = defaultdict(list)
+    comments_by_post: dict[int, list[dict]] = defaultdict(list)
+
+    for row in comments:
+        comment = dict(row)
+        comment["replies"] = []
+        replies_by_parent[comment["parent_comment_id"]].append(comment)
+
+    for comment in replies_by_parent[None]:
+        comment["replies"] = replies_by_parent.get(comment["id"], [])
+        comments_by_post[comment["post_id"]].append(comment)
+
+    result = []
+    for row in posts:
+        post = dict(row)
+        post["comments"] = comments_by_post.get(post["id"], [])
+        result.append(post)
+    return result

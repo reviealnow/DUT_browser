@@ -8,9 +8,12 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.analyzer_api import router as analyzer_router
+from app.api.bulletin_api import router as bulletin_router
 from app.api.duts_api import router as duts_router
+from app.api.files_api import router as files_router
 from app.api.serial_api import router as serial_router
-from app.config import ANALYZER_OUTPUT_DIR, FRONTEND_DIST, LOG_DIR
+from app.config import ANALYZER_OUTPUT_DIR, FRONTEND_DIST, LOG_DIR, UPLOAD_DIR
+from app.db.workspace import init_db
 from app.dut.registry import DEFAULT_DUT_ID, DutContext, DutRegistry, build_default_registry
 from app.services.analyzer_service import AnalyzerService
 from app.services.wifi_clients import discover_vaps, parse_apstats, parse_wlanconfig_list
@@ -21,10 +24,17 @@ app = FastAPI(title="DUT Local Monitoring Dashboard")
 app.include_router(serial_router)
 app.include_router(analyzer_router)
 app.include_router(duts_router)
+app.include_router(files_router)
+app.include_router(bulletin_router)
 
 
 @app.on_event("startup")
 async def on_startup() -> None:
+    # Workspace module (file sharing + bulletin): create the SQLite schema and
+    # the upload directory up front so the first request never races them.
+    init_db()
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
     loop = asyncio.get_running_loop()
     ws_manager = WebSocketManager()
     ws_manager.bind_loop(loop)
