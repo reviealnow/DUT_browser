@@ -268,3 +268,111 @@ export async function removeDut(id: string): Promise<void> {
     throw new Error((await response.json().catch(() => ({}))).detail || "Failed to remove DUT");
   }
 }
+
+// ---------------------------------------------------------------------------
+// Workspace: shared files (LAN File Server, shared-trust model — no auth)
+// ---------------------------------------------------------------------------
+
+export type WorkspaceFile = {
+  id: number;
+  filename: string;
+  size: number;
+  uploader: string | null;
+  uploaded_at: string;
+};
+
+export type FilesStats = {
+  total: number;
+  total_size: number;
+  contributors: number;
+  this_week: number;
+  uploads_per_day: { date: string; label: string; count: number }[];
+  files_by_type: { ext: string; count: number; size: number }[];
+  top_uploaders: { uploader: string; count: number }[];
+};
+
+export type FilesList = { files: WorkspaceFile[]; stats: FilesStats };
+
+/** List shared files (newest first) plus KPI aggregates, in one round-trip. */
+export async function getFiles(): Promise<FilesList> {
+  return get<FilesList>("/api/files");
+}
+
+/** Upload a file. `uploader` is the optional free-text display name. */
+export async function uploadFile(file: File, uploader?: string | null): Promise<WorkspaceFile> {
+  const form = new FormData();
+  form.append("file", file);
+  if (uploader) {
+    form.append("uploader", uploader);
+  }
+  const response = await fetch("/api/files", { method: "POST", body: form });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return (await response.json()) as WorkspaceFile;
+}
+
+/** Direct download URL for a shared file (by id). */
+export function getFileDownloadUrl(id: number): string {
+  return `/api/files/${id}/download`;
+}
+
+/** Delete a shared file (no owner check — shared-trust model). */
+export async function deleteFile(id: number): Promise<void> {
+  const response = await fetch(`/api/files/${id}`, { method: "DELETE" });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Workspace: bulletin board (posts with one level of nested replies)
+// ---------------------------------------------------------------------------
+
+export type BulletinComment = {
+  id: number;
+  post_id: number;
+  parent_comment_id: number | null;
+  body: string;
+  author: string | null;
+  created_at: string;
+  replies: BulletinComment[];
+};
+
+export type BulletinPost = {
+  id: number;
+  title: string;
+  body: string;
+  author: string | null;
+  created_at: string;
+  comments: BulletinComment[];
+};
+
+/** List bulletin posts (newest first) with nested comments. */
+export async function getBulletinPosts(): Promise<BulletinPost[]> {
+  const result = await get<{ posts: BulletinPost[] }>("/api/bulletin/posts");
+  return result.posts;
+}
+
+/** Create a bulletin post. `author` is the optional free-text display name. */
+export async function createBulletinPost(
+  title: string,
+  body: string,
+  author?: string | null,
+): Promise<{ id: number }> {
+  return post<{ id: number }>("/api/bulletin/posts", { title, body, author });
+}
+
+/** Add a comment (or threaded reply) to a post. */
+export async function createBulletinComment(
+  postId: number,
+  body: string,
+  author?: string | null,
+  parentCommentId?: number | null,
+): Promise<{ id: number }> {
+  return post<{ id: number }>(`/api/bulletin/posts/${postId}/comments`, {
+    body,
+    author,
+    parent_comment_id: parentCommentId ?? null,
+  });
+}

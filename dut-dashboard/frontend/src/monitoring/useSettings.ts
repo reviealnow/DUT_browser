@@ -10,9 +10,9 @@ export const ACCENT_PRESETS: AccentPreset[] = [
   { name: "Slate", accent: "#475569", weak: "#eef1f5" },
 ];
 
-export type Settings = { accent: string; defaultBaud: number };
+export type Settings = { accent: string; defaultBaud: number; displayName: string };
 
-const DEFAULTS: Settings = { accent: "#1565c0", defaultBaud: 115200 };
+const DEFAULTS: Settings = { accent: "#1565c0", defaultBaud: 115200, displayName: "" };
 const KEY = "dut.settings.v1";
 const CRASH_KEY = "dut.crashKeywords.v1";
 
@@ -24,10 +24,16 @@ export function loadSettings(): Settings {
     return {
       accent: typeof parsed.accent === "string" ? parsed.accent : DEFAULTS.accent,
       defaultBaud: Number.isFinite(parsed.defaultBaud) ? parsed.defaultBaud : DEFAULTS.defaultBaud,
+      displayName: typeof parsed.displayName === "string" ? parsed.displayName : DEFAULTS.displayName,
     };
   } catch {
     return { ...DEFAULTS };
   }
+}
+
+/** The free-text display name used as uploader/author in the Workspace. */
+export function loadDisplayName(): string {
+  return loadSettings().displayName.trim();
 }
 
 /** Apply the accent to the whole dashboard via the design-system CSS vars. */
@@ -80,5 +86,7 @@ export function useSettings() {
 
   const setDefaultBaud = useCallback((defaultBaud: number) => persist({ defaultBaud }), [persist]);
 
-  return { settings, setAccent, setDefaultBaud };
+  const setDisplayName = useCallback((displayName: string) => persist({ displayName }), [persist]);
+
+  return { settings, setAccent, setDefaultBaud, setDisplayName };
 }
