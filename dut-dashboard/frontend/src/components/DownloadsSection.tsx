@@ -3,6 +3,7 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 import {
   analyzeSessionLog,
   getAnalyzerDownloadUrl,
+  getAnalyzerPreviewUrl,
   getLogs,
   getLogTail,
   getSerialLogDownloadUrl,
@@ -26,7 +27,28 @@ function formatTime(iso: string): string {
   return iso.replace("T", " ");
 }
 
+const isPng = (name: string): boolean => name.toLowerCase().endsWith(".png");
+
+/**
+ * Artifact table. PNG rows expand (▸/▾) to a full-width inline plot preview —
+ * the <img> is rendered only on expand, so the image is fetched lazily on first
+ * open. Non-image rows (CSV/TXT) stay Download-only.
+ */
 function FileTable({ rows, hrefFor }: { rows: LogEntry[]; hrefFor: (name: string) => string }) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  function toggle(name: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) {
+        next.delete(name);
+      } else {
+        next.add(name);
+      }
+      return next;
+    });
+  }
+
   return (
     <table className="filetable">
       <thead>
@@ -38,18 +60,42 @@ function FileTable({ rows, hrefFor }: { rows: LogEntry[]; hrefFor: (name: string
         </tr>
       </thead>
       <tbody>
-        {rows.map((row) => (
-          <tr key={row.name}>
-            <td className="filetable-name">{row.name}</td>
-            <td>{formatSize(row.size)}</td>
-            <td>{formatTime(row.mtime)}</td>
-            <td>
-              <a className="btn" href={hrefFor(row.name)} download style={{ padding: "2px 10px" }}>
-                Download
-              </a>
-            </td>
-          </tr>
-        ))}
+        {rows.map((row) => {
+          const png = isPng(row.name);
+          return (
+            <Fragment key={row.name}>
+              <tr>
+                <td className="filetable-name">
+                  {png ? (
+                    <button
+                      className="btn"
+                      onClick={() => toggle(row.name)}
+                      title="Preview plot"
+                      style={{ padding: "0 6px", marginRight: 6 }}
+                    >
+                      {expanded.has(row.name) ? "▾" : "▸"}
+                    </button>
+                  ) : null}
+                  {row.name}
+                </td>
+                <td>{formatSize(row.size)}</td>
+                <td>{formatTime(row.mtime)}</td>
+                <td>
+                  <a className="btn" href={hrefFor(row.name)} download style={{ padding: "2px 10px" }}>
+                    Download
+                  </a>
+                </td>
+              </tr>
+              {png && expanded.has(row.name) ? (
+                <tr>
+                  <td colSpan={4}>
+                    <img className="plot-preview" src={getAnalyzerPreviewUrl(row.name)} alt={row.name} loading="lazy" />
+                  </td>
+                </tr>
+              ) : null}
+            </Fragment>
+          );
+        })}
       </tbody>
     </table>
   );

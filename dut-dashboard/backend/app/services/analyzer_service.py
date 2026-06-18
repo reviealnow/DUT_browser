@@ -10,6 +10,25 @@ from pathlib import Path
 from app.config import ANALYZER_OUTPUT_DIR, ANALYZER_SCRIPT, LOG_DIR
 
 
+_ANALYZER_OUTPUT_SUFFIXES = {".csv", ".png", ".txt"}
+
+
+def _clear_analyzer_outputs(output_dir: Path) -> None:
+    """Remove previously published analyzer artifacts so the directory holds
+    only the current run and cannot grow without bound (analyzer3 emits a fresh
+    timestamp-prefixed set every run). Scoped to the dedicated output dir and the
+    analyzer's own file types only — session logs and snapshots live in LOG_DIR,
+    never here, so they are never touched."""
+    if not output_dir.is_dir():
+        return
+    for item in output_dir.iterdir():
+        if item.is_file() and item.suffix.lower() in _ANALYZER_OUTPUT_SUFFIXES:
+            try:
+                item.unlink()
+            except OSError:
+                pass
+
+
 def _concise_error(stderr: str, stdout: str) -> str:
     """Surface a short, actionable reason from a failed analyzer run instead of
     dumping its whole multi-line stdout. analyzer3.py prints '[ERROR] ...' lines
@@ -66,6 +85,9 @@ class AnalyzerService:
 
             cpu_src = cpu_candidates[-1]
             mem_src = mem_candidates[-1]
+
+            # Keep only this run's outputs so the directory stays bounded.
+            _clear_analyzer_outputs(ANALYZER_OUTPUT_DIR)
 
             cpu_dst = ANALYZER_OUTPUT_DIR / "cpu_usage.csv"
             mem_dst = ANALYZER_OUTPUT_DIR / "memory.csv"
