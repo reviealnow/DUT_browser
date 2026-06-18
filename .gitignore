@@ -16,3 +16,6 @@ dut-dashboard/logs/dut-session-*.log
 dut-dashboard/logs/dut-session-*/
 dut-dashboard/logs/dut-session-*.zip
 dut-dashboard/logs/.mplconfig/
+
+# Workspace module runtime state (SQLite DB + uploaded files)
+dut-dashboard/data/

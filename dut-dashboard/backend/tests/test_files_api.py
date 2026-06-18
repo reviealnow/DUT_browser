@@ -1,0 +1,119 @@
+from __future__ import annotations
+
+import asyncio
+import io
+import tempfile
+import unittest
+from contextlib import ExitStack
+from pathlib import Path
+from unittest.mock import patch
+
+from fastapi import HTTPException, UploadFile
+
+from app.api import files_api
+from app.db import workspace
+from app.services import file_service
+
+
+def _upload(name: str, data: bytes, uploader: str | None = None) -> dict:
+    """Drive the async upload endpoint with an in-memory file, as the router does."""
+    upload = UploadFile(filename=name, file=io.BytesIO(data))
+    return asyncio.run(files_api.upload_file(file=upload, uploader=uploader))
+
+
+class WorkspaceFilesTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._stack = ExitStack()
+        self._dir = Path(self._stack.enter_context(tempfile.TemporaryDirectory()))
+        self._stack.enter_context(patch.object(file_service, "UPLOAD_DIR", self._dir / "uploads"))
+        self._stack.enter_context(patch.object(workspace, "WORKSPACE_DB", self._dir / "workspace.db"))
+        workspace.init_db()
+
+    def tearDown(self) -> None:
+        self._stack.close()
+
+    def test_upload_list_download_delete_roundtrip(self) -> None:
+        created = _upload("report.pdf", b"hello pdf", uploader="amy")
+        self.assertEqual(created["filename"], "report.pdf")
+        self.assertEqual(created["size"], len(b"hello pdf"))
+        self.assertEqual(created["uploader"], "amy")
+
+        listing = files_api.list_files()
+        self.assertEqual(len(listing["files"]), 1)
+        self.assertEqual(listing["stats"]["total"], 1)
+        self.assertEqual(listing["stats"]["total_size"], len(b"hello pdf"))
+        self.assertEqual(listing["stats"]["contributors"], 1)
+
+        response = files_api.download_file(created["id"])
+        self.assertEqual(Path(response.path).read_bytes(), b"hello pdf")
+        self.assertEqual(response.filename, "report.pdf")
+
+        result = files_api.delete_file(created["id"])
+        self.assertTrue(result["ok"])
+        self.assertEqual(files_api.list_files()["files"], [])
+        self.assertFalse(Path(response.path).exists())
+
+    def test_blank_uploader_is_stored_as_null(self) -> None:
+        created = _upload("notes.txt", b"x", uploader="   ")
+        self.assertIsNone(created["uploader"])
+
+    def test_rejects_disallowed_extension(self) -> None:
+        with self.assertRaises(HTTPException) as ctx:
+            _upload("malware.exe", b"x")
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertEqual(files_api.list_files()["files"], [])
+
+    def test_size_cap_rejects_and_cleans_up(self) -> None:
+        with patch.object(file_service, "MAX_UPLOAD_BYTES", 4):
+            with self.assertRaises(HTTPException) as ctx:
+                _upload("big.log", b"way too many bytes")
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertEqual(files_api.list_files()["files"], [])
+        # No orphaned file left on disk.
+        self.assertEqual(list((self._dir / "uploads").glob("*")), [])
+
+    def test_duplicate_names_get_unique_on_disk(self) -> None:
+        first = _upload("dup.csv", b"a")
+        second = _upload("dup.csv", b"bb")
+        self.assertEqual(first["filename"], "dup.csv")
+        self.assertEqual(second["filename"], "dup_1.csv")
+
+    def test_aggregates_group_by_type_and_uploader(self) -> None:
+        _upload("a.csv", b"123", uploader="amy")
+        _upload("b.csv", b"45", uploader="amy")
+        _upload("c.log", b"6", uploader="nelson")
+
+        stats = files_api.list_files()["stats"]
+        self.assertEqual(stats["total"], 3)
+        self.assertEqual(stats["contributors"], 2)
+
+        by_type = {row["ext"]: row for row in stats["files_by_type"]}
+        self.assertEqual(by_type["csv"]["count"], 2)
+        self.assertEqual(by_type["csv"]["size"], 5)
+        self.assertEqual(by_type["log"]["count"], 1)
+
+        top = {row["uploader"]: row["count"] for row in stats["top_uploaders"]}
+        self.assertEqual(top["amy"], 2)
+        self.assertEqual(top["nelson"], 1)
+        # uploads_per_day is zero-filled to 14 days, today carries all 3.
+        self.assertEqual(len(stats["uploads_per_day"]), 14)
+        self.assertEqual(stats["uploads_per_day"][-1]["count"], 3)
+
+    def test_download_missing_file_is_404(self) -> None:
+        with self.assertRaises(HTTPException) as ctx:
+            files_api.download_file(999)
+        self.assertEqual(ctx.exception.status_code, 404)
+
+    def test_download_rejects_path_outside_upload_dir(self) -> None:
+        # A row whose filepath escapes UPLOAD_DIR must not be served.
+        file_id = workspace.execute(
+            "INSERT INTO files (filename, filepath, size, uploader) VALUES (?, ?, ?, ?)",
+            ("passwd", "/etc/passwd", 1, None),
+        )
+        with self.assertRaises(HTTPException) as ctx:
+            files_api.download_file(file_id)
+        self.assertEqual(ctx.exception.status_code, 404)
+
+
+if __name__ == "__main__":
+    unittest.main()

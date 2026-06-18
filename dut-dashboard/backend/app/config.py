@@ -16,6 +16,26 @@ def snapshot_file_for(dut_id: str) -> Path:
 TOOLS_DIR = BASE_DIR / "tools"
 ANALYZER_SCRIPT = TOOLS_DIR / "analyzer3.py"
 ANALYZER_OUTPUT_DIR = LOG_DIR / "analyzer_output"
+
+# Workspace module (LAN file-sharing + bulletin). Shared-trust model: no auth,
+# uploader/author are free text. All runtime state lives under data/ (gitignored).
+DATA_DIR = BASE_DIR / "data"
+WORKSPACE_DB = DATA_DIR / "workspace.db"
+UPLOAD_DIR = DATA_DIR / "uploads"
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
+ALLOWED_EXTENSIONS = {
+    "csv",
+    "gif",
+    "jpeg",
+    "jpg",
+    "json",
+    "log",
+    "pcap",
+    "pcapng",
+    "pdf",
+    "png",
+    "txt",
+}
 # Production build of the frontend (npm run build). Served by the backend at
 # "/" only when it exists; in dev it is absent and Vite serves the UI instead.
 FRONTEND_DIST = BASE_DIR / "frontend" / "dist"
