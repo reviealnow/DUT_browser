@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mockup — LAN File Server integrated into DUT_browser</title>
+<!-- Uses DUT_browser's REAL design system for pixel fidelity -->
+<link rel="stylesheet" href="src/styles/dashboard.css" />
+<style>
+  /* Only the few classes LAN File Server needs that aren't in dashboard.css yet.
+     All values reference the existing tokens so they stay on-brand. */
+  .row-actions { display: flex; gap: var(--space-2); justify-content: flex-end; }
+  .icon-btn {
+    display: inline-grid; place-items: center; width: 30px; height: 30px;
+    padding: 0; border: 1px solid transparent; border-radius: 8px;
+    background: var(--accent-weak); color: var(--accent); cursor: pointer;
+  }
+  .icon-btn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .icon-btn.danger { background: var(--danger-weak); color: var(--danger); }
+  .icon-btn.danger:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
+  .ftype { width: 28px; height: 28px; border-radius: 7px; display: inline-grid; place-items: center;
+           font-size: 10px; font-weight: 800; color: #fff; margin-right: var(--space-2); vertical-align: middle; }
+  .t-pdf{background:#d4453b} .t-pcapng{background:#6b54c6} .t-png{background:#0c7a43} .t-csv{background:#137a4d} .t-log{background:#1565c0}
+  .upload-drop { border: 1.5px dashed var(--border); border-radius: var(--radius); padding: var(--space-5);
+                 text-align: center; color: var(--muted); background: var(--bg); }
+  .note { background: #fffaf0; border: 1px solid #f2e4c4; border-left: 3px solid #e8b73a;
+          border-radius: 10px; padding: var(--space-3); margin-bottom: var(--space-3); }
+  .note:last-child { margin-bottom: 0; }
+  .note h4 { margin: 0 0 var(--space-1); font-size: 13px; color: var(--ink); }
+  .note p { margin: 0; font-size: 12px; color: var(--muted); }
+  .note .meta { margin-top: var(--space-2); font-size: 11px; color: var(--faint); }
+  .ribbon { background:#0e1b33; color:#fff; font-size:12px; padding:6px 12px; }
+  .ribbon b { color:#7fc4ff; }
+</style>
+</head>
+<body>
+  <div class="ribbon">MOCKUP · LAN File Server features (<b>Files</b> + <b>Bulletin</b>) rendered inside DUT_browser's real Luna shell — static, no data wired.</div>
+  <div class="app">
+    <!-- Sidebar: existing nav + two NEW items (Files active) -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">D</div>
+        <div>
+          <div class="brand-name">DUT Console</div>
+          <div class="brand-sub">Lab monitoring</div>
+        </div>
+      </div>
+      <nav class="nav">
+        <div class="nav-section">Monitoring</div>
+        <button class="nav-item" type="button"><span class="nav-ico">▣</span><span>Overview</span></button>
+        <button class="nav-item" type="button"><span class="nav-ico">📈</span><span>CPU / Memory</span></button>
+        <button class="nav-item" type="button"><span class="nav-ico">📶</span><span>Wi-Fi Clients</span></button>
+        <button class="nav-item" type="button"><span class="nav-ico">⚠</span><span>Logs / Crash Events</span></button>
+        <button class="nav-item" type="button"><span class="nav-ico">⌨</span><span>Serial Console</span></button>
+        <button class="nav-item" type="button"><span class="nav-ico">⬇</span><span>Downloads</span></button>
+        <div class="nav-section">Workspace</div>
+        <button class="nav-item active" type="button"><span class="nav-ico">🗂</span><span>Files</span></button>
+        <button class="nav-item" type="button"><span class="nav-ico">📌</span><span>Bulletin</span></button>
+        <div class="nav-section">System</div>
+        <button class="nav-item" type="button"><span class="nav-ico">⚙</span><span>Settings</span></button>
+      </nav>
+    </aside>
+
+    <div class="main">
+      <header class="toolbar">
+        <div class="toolbar-titles">
+          <div class="toolbar-title">Files</div>
+          <div class="toolbar-sub">Shared file workspace</div>
+        </div>
+        <div class="toolbar-spacer"></div>
+        <div class="search"><span aria-hidden>🔍</span><input type="search" placeholder="Filter files…" aria-label="Filter files" /></div>
+        <span class="pill ok"><span class="dot"></span>Streaming</span>
+        <button class="btn primary" type="button">↑ Upload File</button>
+      </header>
+
+      <main class="content">
+        <!-- KPI row (same component as Overview) -->
+        <div class="kpis">
+          <div class="kpi"><div class="kpi-label">Total Files</div><div class="kpi-value">38</div><div class="kpi-sub">in workspace</div></div>
+          <div class="kpi"><div class="kpi-label">Storage Used</div><div class="kpi-value">179.0 MB</div><div class="kpi-sub">across 38 files</div></div>
+          <div class="kpi"><div class="kpi-label">Contributors</div><div class="kpi-value">5</div><div class="kpi-sub">uploaders</div></div>
+          <div class="kpi"><div class="kpi-label">This Week</div><div class="kpi-value">12</div><div class="kpi-sub">new uploads</div></div>
+        </div>
+
+        <div class="grid">
+          <!-- Shared Files table -->
+          <section class="card">
+            <div class="card-head">
+              <div class="card-titles">
+                <div class="card-title">Shared Files</div>
+                <div class="card-sub">38 files · newest first</div>
+              </div>
+              <div class="card-actions"><button class="btn" type="button">Filter</button></div>
+            </div>
+            <div class="card-body">
+              <table class="filetable">
+                <thead><tr><th>Filename</th><th>Size</th><th>Uploader</th><th></th></tr></thead>
+                <tbody>
+                  <tr><td class="filetable-name"><span class="ftype t-pdf">PDF</span>Q2-report.pdf</td><td>2.4 MB</td><td>amy</td>
+                    <td><div class="row-actions"><button class="icon-btn" title="Download">↓</button></div></td></tr>
+                  <tr><td class="filetable-name"><span class="ftype t-pcapng">PCA</span>capture_840E.pcapng</td><td>48.1 MB</td><td>nelson</td>
+                    <td><div class="row-actions"><button class="icon-btn" title="Download">↓</button><button class="icon-btn danger" title="Delete">🗑</button></div></td></tr>
+                  <tr><td class="filetable-name"><span class="ftype t-png">PNG</span>floorplan.png</td><td>880 KB</td><td>chen</td>
+                    <td><div class="row-actions"><button class="icon-btn" title="Download">↓</button></div></td></tr>
+                  <tr><td class="filetable-name"><span class="ftype t-csv">CSV</span>inventory.csv</td><td>312 KB</td><td>amy</td>
+                    <td><div class="row-actions"><button class="icon-btn" title="Download">↓</button></div></td></tr>
+                  <tr><td class="filetable-name"><span class="ftype t-log">LOG</span>debug.log</td><td>54 KB</td><td>nelson</td>
+                    <td><div class="row-actions"><button class="icon-btn" title="Download">↓</button><button class="icon-btn danger" title="Delete">🗑</button></div></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <!-- Upload + Bulletin + Activity stacked on the right -->
+          <section class="card">
+            <div class="card-head"><div class="card-titles"><div class="card-title">Upload</div><div class="card-sub">Max 50 MB · pdf, png, csv, log, pcapng…</div></div></div>
+            <div class="card-body"><div class="upload-drop">Drag a file here or click to browse</div></div>
+          </section>
+
+          <section class="card">
+            <div class="card-head"><div class="card-titles"><div class="card-title">📌 Bulletin</div><div class="card-sub">Pinned notes</div></div><div class="card-actions"><button class="btn" type="button">View all</button></div></div>
+            <div class="card-body">
+              <div class="note"><h4>Server maintenance Fri 6pm</h4><p>Uploads paused ~30 min while we expand storage.</p><div class="meta">nelson · 3 replies</div></div>
+              <div class="note"><h4>Tag firmware builds vX.Y</h4><p>So we can sort releases in the table.</p><div class="meta">amy · 1 reply</div></div>
+            </div>
+          </section>
+
+          <section class="card">
+            <div class="card-head"><div class="card-titles"><div class="card-title">Recent Activity</div><div class="card-sub">Latest across files &amp; bulletin</div></div></div>
+            <div class="card-body">
+              <div class="feed">
+                <div class="feed-item"><span class="feed-dot"></span>lin uploaded <b>capture_840E.pcapng</b> · 2m ago</div>
+                <div class="feed-item"><span class="feed-dot"></span>amy replied on <b>Server maintenance</b> · 1h ago</div>
+                <div class="feed-item"><span class="feed-dot"></span>nelson deleted <b>old-build.zip</b> · 3h ago</div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+  </div>
+</body>
+</html>
