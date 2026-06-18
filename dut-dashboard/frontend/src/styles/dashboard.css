@@ -713,6 +713,16 @@ body {
   font-size: 13px;
 }
 
+.plot-preview {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: var(--space-2) 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
 /* ---------- Serial Console connection card ---------- */
 
 .conn-card {

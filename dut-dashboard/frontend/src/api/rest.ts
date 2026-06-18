@@ -141,6 +141,11 @@ export function getAnalyzerDownloadUrl(fileName: string): string {
   return `/api/download/${encodeURIComponent(fileName)}`;
 }
 
+/** Inline image URL for an analyzer PNG plot (renders in an <img>, not a download). */
+export function getAnalyzerPreviewUrl(fileName: string): string {
+  return `/api/download/preview/${encodeURIComponent(fileName)}`;
+}
+
 /** Parsed memory series from the latest analyzer run (post-analysis only). */
 export async function getMemory(limit = 500): Promise<MemorySeries> {
   return get<MemorySeries>(`/api/analyzer/memory?limit=${limit}`);

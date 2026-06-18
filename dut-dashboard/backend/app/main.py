@@ -158,6 +158,22 @@ def download_file(file_name: str) -> FileResponse:
     return FileResponse(path=file_path, filename=safe_name, media_type="application/octet-stream")
 
 
+@app.get("/api/download/preview/{file_name}")
+def preview_file(file_name: str) -> FileResponse:
+    """Serve an analyzer PNG plot inline (image/png, no attachment) so it can
+    render in an <img> for the Downloads preview. PNG-only, under
+    ANALYZER_OUTPUT_DIR, name validated against traversal."""
+    safe_name = Path(file_name).name
+    if safe_name != file_name or not safe_name.lower().endswith(".png"):
+        raise HTTPException(status_code=400, detail="Invalid preview name")
+
+    file_path = ANALYZER_OUTPUT_DIR / safe_name
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return FileResponse(path=file_path, media_type="image/png")
+
+
 _TAIL_CAP_BYTES = 256 * 1024
 
 
