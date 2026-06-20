@@ -5,11 +5,14 @@ import {
   getFileDownloadUrl,
   getFiles,
   FilesList,
+  FilesStats,
   humanizeApiError,
   uploadFile,
   WorkspaceFile,
 } from "../api/rest";
 import { loadDisplayName } from "../monitoring/useSettings";
+import ChartData from "./charts/ChartData";
+import Sparkline from "./charts/Sparkline";
 import { Card, EmptyState, KpiCard } from "./shell/Card";
 
 function formatSize(bytes: number): string {
@@ -156,6 +159,91 @@ function UploadCard({ onUploaded }: { onUploaded: () => void }) {
   );
 }
 
+function UploadsTrendBody({ stats }: { stats: FilesStats }) {
+  const values = stats.uploads_per_day.map((d) => d.count);
+  const total = values.reduce((sum, c) => sum + c, 0);
+  // Counts are small integers; normalise to the series' own peak so the trend is
+  // visible (Sparkline plots 0..max — the default 100 would flatten it).
+  const max = Math.max(1, ...values);
+  return (
+    <div className="chart">
+      <div className="chart-figure">
+        <Sparkline values={values} max={max} ariaLabel="Uploads per day, last 14 days" />
+      </div>
+      <div className="chart-foot">
+        <div className="chart-metric">
+          {total}
+          <span className="unit">uploads · 14d</span>
+        </div>
+      </div>
+      <ChartData id="uploads-trend-data" data={stats.uploads_per_day} />
+    </div>
+  );
+}
+
+function FilesByTypeBody({ stats }: { stats: FilesStats }) {
+  const rows = stats.files_by_type;
+  if (rows.length === 0) {
+    return <EmptyState icon="🗂" message="No files yet" hint="Upload a file to see a type breakdown." />;
+  }
+  const max = Math.max(1, ...rows.map((r) => r.count));
+  return (
+    <div className="chart">
+      <div className="barrows">
+        {rows.map((row) => (
+          <div className="barrow" key={row.ext}>
+            <div className="barrow-label">{(row.ext || "?").toUpperCase()}</div>
+            <div className="barrow-track">
+              <div className="barrow-fill" style={{ width: `${(row.count / max) * 100}%` }} />
+            </div>
+            <div className="barrow-value">{row.count}</div>
+          </div>
+        ))}
+      </div>
+      <div className="chart-foot">
+        <div className="chart-metric">
+          {rows.length}
+          <span className="unit">type{rows.length === 1 ? "" : "s"}</span>
+        </div>
+      </div>
+      <ChartData id="files-by-type-data" data={rows} />
+    </div>
+  );
+}
+
+function TopUploadersBody({ stats }: { stats: FilesStats }) {
+  const rows = stats.top_uploaders;
+  if (rows.length === 0) {
+    return <EmptyState icon="👤" message="No uploaders yet" hint="Uploads are credited to the contributor name." />;
+  }
+  const max = Math.max(1, ...rows.map((r) => r.count));
+  // Count named contributors only — matches the "Contributors" KPI, which the
+  // backend computes excluding NULL uploaders (shown here as the "—" bucket).
+  const named = rows.filter((r) => r.uploader !== "—").length;
+  return (
+    <div className="chart">
+      <div className="barrows">
+        {rows.map((row) => (
+          <div className="barrow" key={row.uploader}>
+            <div className="barrow-label">{row.uploader}</div>
+            <div className="barrow-track">
+              <div className="barrow-fill" style={{ width: `${(row.count / max) * 100}%` }} />
+            </div>
+            <div className="barrow-value">{row.count}</div>
+          </div>
+        ))}
+      </div>
+      <div className="chart-foot">
+        <div className="chart-metric">
+          {named}
+          <span className="unit">contributor{named === 1 ? "" : "s"}</span>
+        </div>
+      </div>
+      <ChartData id="top-uploaders-data" data={rows} />
+    </div>
+  );
+}
+
 export default function FilesSection({ query = "" }: { query?: string }) {
   const [data, setData] = useState<FilesList | null>(null);
   const [failed, setFailed] = useState(false);
@@ -211,6 +299,18 @@ export default function FilesSection({ query = "" }: { query?: string }) {
         <KpiCard label="Storage Used" value={formatSize(stats.total_size)} sub={`across ${stats.total} files`} />
         <KpiCard label="Contributors" value={String(stats.contributors)} sub="uploaders" />
         <KpiCard label="This Week" value={String(stats.this_week)} sub="new uploads" />
+      </div>
+
+      <div className="grid">
+        <Card className="col-span-2" title="Uploads (14 days)" subtitle="Daily upload activity">
+          <UploadsTrendBody stats={stats} />
+        </Card>
+        <Card title="By file type" subtitle="Files grouped by extension">
+          <FilesByTypeBody stats={stats} />
+        </Card>
+        <Card title="Top uploaders" subtitle="Contributors by file count">
+          <TopUploadersBody stats={stats} />
+        </Card>
       </div>
 
       <div className="grid">
