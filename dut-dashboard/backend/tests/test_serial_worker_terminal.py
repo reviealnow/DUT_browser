@@ -187,6 +187,18 @@ class _AutoFakeSerial(FakeSerial):
             self.feed(b"vap-output-line\n" + m.group(1).encode() + b"\n")
 
 
+class _PromptPrefixFakeSerial(FakeSerial):
+    """Like _AutoFakeSerial but echoes the sentinel behind a shell prompt, e.g.
+    `root@AP:/# __DUTCAP__`, to exercise prompt-prefixed sentinel detection."""
+
+    def write(self, data: bytes) -> None:
+        super().write(data)
+        text = data.decode("utf-8", errors="ignore")
+        m = re.search(r"echo (\S+)", text)
+        if m:
+            self.feed(b"stats-line\nroot@AP:/# " + m.group(1).encode() + b"\n")
+
+
 class CaptureCommandTests(unittest.TestCase):
     def _running_worker(self, fake) -> tuple[SerialWorker, StubParser, threading.Thread]:
         parser = StubParser()
@@ -227,6 +239,55 @@ class CaptureCommandTests(unittest.TestCase):
     def test_capture_requires_serial_open(self) -> None:
         with self.assertRaises(RuntimeError):
             SerialWorker(StubParser()).capture_command("iwconfig")
+
+    def test_concurrent_captures_serialize(self) -> None:
+        # Two captures on separate threads (mirrors a Wi-Fi scan overlapping a
+        # per-client apstats) must both succeed by queueing — never raise
+        # "A capture is already in progress".
+        fake = _AutoFakeSerial()
+        worker, _parser, t = self._running_worker(fake)
+        results: dict[str, object] = {}
+
+        def run(key: str, cmd: str) -> None:
+            try:
+                results[key] = worker.capture_command(cmd, timeout=2.0)
+            except Exception as exc:  # noqa: BLE001 - record for assertion
+                results[key] = exc
+
+        try:
+            a = threading.Thread(target=run, args=("a", "iwconfig"))
+            b = threading.Thread(target=run, args=("b", "apstats -s -m x"))
+            a.start()
+            b.start()
+            a.join(timeout=5.0)
+            b.join(timeout=5.0)
+            self.assertIsInstance(results.get("a"), str)
+            self.assertIsInstance(results.get("b"), str)
+            self.assertIn("vap-output-line", results["a"])  # type: ignore[arg-type]
+            self.assertIn("vap-output-line", results["b"])  # type: ignore[arg-type]
+            self.assertFalse(worker._capture_active)
+        finally:
+            worker._stop_event.set()  # type: ignore[attr-defined]
+            fake.close()
+            t.join(timeout=1.0)
+
+    def test_capture_completes_with_prompt_prefixed_sentinel(self) -> None:
+        # A sentinel echoed behind a shell prompt ("root@AP:/# __DUTCAP__") must
+        # still end the capture promptly instead of waiting out the timeout.
+        fake = _PromptPrefixFakeSerial()
+        worker, _parser, t = self._running_worker(fake)
+        try:
+            start = time.time()
+            out = worker.capture_command("apstats", timeout=2.0)
+            elapsed = time.time() - start
+            self.assertIn("stats-line", out)
+            self.assertNotIn("__DUTCAP", out)         # sentinel stripped
+            self.assertLess(elapsed, 1.5)             # completed, did not time out
+            self.assertFalse(worker._capture_active)
+        finally:
+            worker._stop_event.set()  # type: ignore[attr-defined]
+            fake.close()
+            t.join(timeout=1.0)
 
 
 if __name__ == "__main__":
