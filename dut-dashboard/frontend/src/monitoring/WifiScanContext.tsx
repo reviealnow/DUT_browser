@@ -1,4 +1,4 @@
-import { createContext, ReactNode, useCallback, useContext, useState } from "react";
+import { createContext, ReactNode, useCallback, useContext, useRef, useState } from "react";
 
 import { getWifiClients, humanizeApiError, WifiClientsResult } from "../api/rest";
 
@@ -29,27 +29,40 @@ export function WifiScanProvider({ children }: { children: ReactNode }) {
   const [result, setResult] = useState<WifiClientsResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  // Coalesce concurrent scans for the same DUT into one RPC: an auto-on-entry
+  // effect (double-invoked under StrictMode) plus a manual click would otherwise
+  // fire overlapping serial captures. The single in-flight promise is shared.
+  const inflight = useRef<Map<string, Promise<void>>>(new Map());
 
-  const scan = useCallback(async (target: string) => {
-    setLoading(true);
-    setError("");
-    // Drop a result captured for a different DUT so the UI never shows a stale
-    // count against the wrong DUT while the new scan is in flight.
-    setDutId((prev) => {
-      if (prev !== target) {
-        setResult(null);
-      }
-      return target;
-    });
-    try {
-      const data = await getWifiClients(target);
-      setResult(data);
-    } catch (e) {
-      setResult(null);
-      setError(humanizeApiError(e));
-    } finally {
-      setLoading(false);
+  const scan = useCallback((target: string) => {
+    const existing = inflight.current.get(target);
+    if (existing) {
+      return existing;
     }
+    const run = (async () => {
+      setLoading(true);
+      setError("");
+      // Drop a result captured for a different DUT so the UI never shows a stale
+      // count against the wrong DUT while the new scan is in flight.
+      setDutId((prev) => {
+        if (prev !== target) {
+          setResult(null);
+        }
+        return target;
+      });
+      try {
+        const data = await getWifiClients(target);
+        setResult(data);
+      } catch (e) {
+        setResult(null);
+        setError(humanizeApiError(e));
+      } finally {
+        setLoading(false);
+        inflight.current.delete(target);
+      }
+    })();
+    inflight.current.set(target, run);
+    return run;
   }, []);
 
   return (

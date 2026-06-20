@@ -42,6 +42,10 @@ class SerialWorker:
         self._capture_lines: list[str] = []
         self._capture_sentinel = ""
         self._capture_done = threading.Event()
+        # Serial is a single channel, so concurrent captures (e.g. a Wi-Fi scan
+        # overlapping a per-client apstats, each a sync route on its own thread)
+        # must run one-at-a-time. Callers queue on this gate instead of failing.
+        self._capture_gate = threading.Lock()
 
     def set_terminal_output(self, callback) -> None:
         """Register a callback(bytes) for raw serial output in terminal mode."""
@@ -184,26 +188,32 @@ class SerialWorker:
         Mutually exclusive with terminal mode and with another in-flight capture.
         """
         sentinel = f"__DUTCAP_{int(time.time() * 1000) % 1_000_000:06d}__"
-        with self._lock:
-            if self._mode != "serial" or self._serial is None or not self._serial.is_open:
-                raise RuntimeError("Serial port is not open")
-            if self._terminal:
-                raise RuntimeError("Cannot capture while in terminal mode")
-            if self._capture_active:
-                raise RuntimeError("A capture is already in progress")
-            self._capture_lines = []
-            self._capture_sentinel = sentinel
-            self._capture_done.clear()
-            self._capture_active = True
-            self._serial.write(f"{cmd}; echo {sentinel}\n".encode("utf-8", errors="ignore"))
-            self._serial.flush()
+        # Queue behind any in-flight capture rather than rejecting it: serial is a
+        # single channel and these calls arrive on independent request threads.
+        if not self._capture_gate.acquire(timeout=timeout + 4.0):
+            raise RuntimeError("Serial capture is busy; try again")
+        try:
+            with self._lock:
+                if self._mode != "serial" or self._serial is None or not self._serial.is_open:
+                    raise RuntimeError("Serial port is not open")
+                if self._terminal:
+                    raise RuntimeError("Cannot capture while in terminal mode")
+                self._capture_lines = []
+                self._capture_sentinel = sentinel
+                self._capture_done.clear()
+                self._capture_active = True
+                self._serial.write(f"{cmd}; echo {sentinel}\n".encode("utf-8", errors="ignore"))
+                self._serial.flush()
 
-        self._capture_done.wait(timeout=timeout)
+            self._capture_done.wait(timeout=timeout)
 
-        with self._lock:
-            self._capture_active = False
-            lines = list(self._capture_lines)
-            self._capture_lines = []
+            with self._lock:
+                self._capture_active = False
+                self._capture_sentinel = ""
+                lines = list(self._capture_lines)
+                self._capture_lines = []
+        finally:
+            self._capture_gate.release()
         # Drop the echoed command line and the sentinel line; keep stdout only.
         out: list[str] = []
         for line in lines:
@@ -251,9 +261,12 @@ class SerialWorker:
                 # Divert to the capture buffer instead of the parser (avoid
                 # polluting CPU/crash data with the captured command's output).
                 self._capture_lines.append(decoded)
-                # Match the sentinel only when it is echoed on its own line — not
-                # in the echoed command itself ("<cmd>; echo <sentinel>").
-                if self._capture_sentinel and decoded.strip() == self._capture_sentinel:
+                # Done when the echoed sentinel appears — tolerate a shell prompt
+                # prefix ("root@AP:/# __DUTCAP__") so a prefixed marker still ends
+                # the capture instead of waiting out the full timeout. Exclude the
+                # echoed command line itself ("<cmd>; echo <sentinel>").
+                sentinel = self._capture_sentinel
+                if sentinel and sentinel in decoded and f"echo {sentinel}" not in decoded:
                     self._capture_done.set()
                 continue
             self.parser.feed(decoded)
