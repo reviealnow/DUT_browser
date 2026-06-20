@@ -10,7 +10,7 @@ import {
   uploadFile,
   WorkspaceFile,
 } from "../api/rest";
-import { loadDisplayName } from "../monitoring/useSettings";
+import { useSettings } from "../monitoring/useSettings";
 import ChartData from "./charts/ChartData";
 import Sparkline from "./charts/Sparkline";
 import { Card, EmptyState, KpiCard } from "./shell/Card";
@@ -101,13 +101,17 @@ function UploadCard({ onUploaded }: { onUploaded: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  // There's no login, so the uploader is the free-text display name. Bind it to
+  // the shared Setting (same source as Settings) so it's editable right here at
+  // upload time, persisted, and discoverable — blank uploads still show "—".
+  const { settings, setDisplayName } = useSettings();
 
   const send = useCallback(
     async (file: File) => {
       setBusy(true);
       setError(null);
       try {
-        await uploadFile(file, loadDisplayName() || null);
+        await uploadFile(file, settings.displayName.trim() || null);
         onUploaded();
       } catch (e) {
         setError(humanizeApiError(e));
@@ -115,11 +119,22 @@ function UploadCard({ onUploaded }: { onUploaded: () => void }) {
         setBusy(false);
       }
     },
-    [onUploaded],
+    [onUploaded, settings.displayName],
   );
 
   return (
     <Card title="Upload" subtitle="Max 50 MB · pdf, png, csv, log, pcapng…">
+      <label className="upload-name">
+        <span>Your name</span>
+        <input
+          type="text"
+          value={settings.displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+          placeholder="e.g. nelson — optional, tags the uploader"
+          aria-label="Your name (uploader)"
+          maxLength={40}
+        />
+      </label>
       <div
         className={`upload-drop${dragging ? " dragging" : ""}`}
         role="button"
