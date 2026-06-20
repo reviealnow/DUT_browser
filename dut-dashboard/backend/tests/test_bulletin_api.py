@@ -71,5 +71,31 @@ class BulletinTests(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 400)
 
 
+    def test_delete_post_removes_it_from_list(self) -> None:
+        post = bulletin_api.create_post(PostCreate(title="temp", body="to be removed"))
+        bulletin_api.delete_post(post["id"])
+        self.assertEqual(bulletin_api.list_posts()["posts"], [])
+
+    def test_delete_missing_post_returns_404(self) -> None:
+        with self.assertRaises(HTTPException) as ctx:
+            bulletin_api.delete_post(999)
+        self.assertEqual(ctx.exception.status_code, 404)
+
+    def test_delete_post_cascades_comments(self) -> None:
+        post = bulletin_api.create_post(PostCreate(title="p", body="b"))
+        post_id = post["id"]
+        top = bulletin_api.create_comment(post_id, CommentCreate(body="top"))
+        bulletin_api.create_comment(
+            post_id, CommentCreate(body="reply", parent_comment_id=top["id"])
+        )
+
+        bulletin_api.delete_post(post_id)
+
+        remaining = workspace.query_all(
+            "SELECT id FROM bulletin_comments WHERE post_id = ?", (post_id,)
+        )
+        self.assertEqual(remaining, [])
+
+
 if __name__ == "__main__":
     unittest.main()
