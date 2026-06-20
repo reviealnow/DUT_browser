@@ -5,6 +5,7 @@ import {
   BulletinPost,
   createBulletinComment,
   createBulletinPost,
+  deleteBulletinPost,
   getBulletinPosts,
   humanizeApiError,
 } from "../api/rest";
@@ -151,14 +152,35 @@ function CommentThread({ comment, postId, onReplied }: { comment: BulletinCommen
 function PostCard({ post, onChanged }: { post: BulletinPost; onChanged: () => void }) {
   const [open, setOpen] = useState(false);
   const replies = countReplies(post.comments);
+
+  const onDelete = useCallback(() => {
+    if (!window.confirm(`Delete "${post.title}" and its replies? This cannot be undone.`)) {
+      return;
+    }
+    deleteBulletinPost(post.id)
+      .then(onChanged)
+      .catch(() => onChanged());
+  }, [post.id, post.title, onChanged]);
+
   return (
     <Card
       title={post.title}
       subtitle={`${post.author ?? "—"} · ${formatTime(post.created_at)} · ${replies} ${replies === 1 ? "reply" : "replies"}`}
       actions={
-        <button type="button" className="btn" onClick={() => setOpen((v) => !v)}>
-          {open ? "Hide" : "Open"}
-        </button>
+        <div className="row-actions">
+          <button type="button" className="btn" onClick={() => setOpen((v) => !v)}>
+            {open ? "Hide" : "Open"}
+          </button>
+          <button
+            type="button"
+            className="icon-btn danger"
+            title="Delete note"
+            aria-label={`Delete ${post.title}`}
+            onClick={onDelete}
+          >
+            🗑
+          </button>
+        </div>
       }
     >
       <p style={{ margin: 0, color: "var(--ink)" }}>{post.body}</p>

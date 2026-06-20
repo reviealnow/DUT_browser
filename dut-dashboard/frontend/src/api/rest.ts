@@ -363,6 +363,14 @@ export async function createBulletinPost(
   return post<{ id: number }>("/api/bulletin/posts", { title, body, author });
 }
 
+/** Delete a bulletin post (its comments cascade). No owner check — shared-trust model. */
+export async function deleteBulletinPost(id: number): Promise<void> {
+  const response = await fetch(`/api/bulletin/posts/${id}`, { method: "DELETE" });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+}
+
 /** Add a comment (or threaded reply) to a post. */
 export async function createBulletinComment(
   postId: number,
