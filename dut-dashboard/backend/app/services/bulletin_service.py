@@ -67,6 +67,21 @@ def create_comment(
     )
 
 
+def get_post(post_id: int) -> dict | None:
+    row = query_one(
+        "SELECT id, title, body, author, created_at FROM bulletin_posts WHERE id = ?",
+        (post_id,),
+    )
+    return dict(row) if row is not None else None
+
+
+def delete_post(post_id: int) -> None:
+    """Delete a post; its comments and nested replies cascade via the schema's
+    ``ON DELETE CASCADE`` foreign keys (foreign_keys pragma is enabled per
+    connection)."""
+    execute("DELETE FROM bulletin_posts WHERE id = ?", (post_id,))
+
+
 def list_posts() -> list[dict]:
     posts = query_all(
         """

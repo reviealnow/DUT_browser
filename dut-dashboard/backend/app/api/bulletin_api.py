@@ -36,6 +36,14 @@ def create_post(body: PostCreate) -> dict:
     return {"id": post_id}
 
 
+@router.delete("/posts/{post_id}")
+def delete_post(post_id: int) -> dict:
+    if bulletin_service.get_post(post_id) is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+    bulletin_service.delete_post(post_id)
+    return {"ok": True}
+
+
 @router.post("/posts/{post_id}/comments")
 def create_comment(post_id: int, body: CommentCreate) -> dict:
     try:
