@@ -316,18 +316,9 @@ export default function FilesSection({ query = "" }: { query?: string }) {
         <KpiCard label="This Week" value={String(stats.this_week)} sub="new uploads" />
       </div>
 
-      <div className="grid">
-        <Card className="col-span-2" title="Uploads (14 days)" subtitle="Daily upload activity">
-          <UploadsTrendBody stats={stats} />
-        </Card>
-        <Card title="By file type" subtitle="Files grouped by extension">
-          <FilesByTypeBody stats={stats} />
-        </Card>
-        <Card title="Top uploaders" subtitle="Contributors by file count">
-          <TopUploadersBody stats={stats} />
-        </Card>
-      </div>
-
+      {/* Shared Files + Upload sit directly under the KPIs so uploading and
+          downloading are the first thing the user reaches; the stats charts
+          (analytics) follow below. */}
       <div className="grid">
         <Card title="Shared Files" subtitle={`${data.files.length} files · newest first`}>
           {files.length > 0 ? (
@@ -341,6 +332,18 @@ export default function FilesSection({ query = "" }: { query?: string }) {
           )}
         </Card>
         <UploadCard onUploaded={reload} />
+      </div>
+
+      <div className="grid">
+        <Card className="col-span-2" title="Uploads (14 days)" subtitle="Daily upload activity">
+          <UploadsTrendBody stats={stats} />
+        </Card>
+        <Card title="By file type" subtitle="Files grouped by extension">
+          <FilesByTypeBody stats={stats} />
+        </Card>
+        <Card title="Top uploaders" subtitle="Contributors by file count">
+          <TopUploadersBody stats={stats} />
+        </Card>
       </div>
     </>
   );
