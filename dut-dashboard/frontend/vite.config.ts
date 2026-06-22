@@ -12,4 +12,25 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // Split large third-party libs into their own chunks so the initial
+        // bundle stays small: react-vendor loads on first paint (cacheable),
+        // while codemirror and xterm ride along with the lazy chunks that use
+        // them (Serial Console / Terminal) instead of the main bundle.
+        manualChunks: {
+          "react-vendor": ["react", "react-dom"],
+          codemirror: [
+            "@codemirror/view",
+            "@codemirror/state",
+            "@codemirror/commands",
+            "@uiw/react-codemirror",
+            "@replit/codemirror-vim",
+          ],
+          xterm: ["@xterm/xterm", "@xterm/addon-fit"],
+        },
+      },
+    },
+  },
 });
