@@ -1,14 +1,9 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 
 import { getMemory, MemorySeries, WifiClientsResult } from "../api/rest";
 import ChartData from "../components/charts/ChartData";
 import Sparkline from "../components/charts/Sparkline";
-import BulletinSection from "../components/BulletinSection";
-import DownloadsSection from "../components/DownloadsSection";
 import DutSwitcher from "../components/DutSwitcher";
-import FilesSection from "../components/FilesSection";
-import SettingsSection from "../components/SettingsSection";
-import WifiClientsCard from "../components/WifiClientsCard";
 import { DEFAULT_DUT_ID } from "../api/dut";
 import { applyAccent, loadSettings } from "../monitoring/useSettings";
 import { Card, EmptyState, KpiCard } from "../components/shell/Card";
@@ -18,7 +13,17 @@ import { NAV_ITEMS, SectionId } from "../components/shell/navigation";
 import { DutMonitorProvider } from "../monitoring/DutMonitorContext";
 import { DutMonitorState, DutStatus, useDutMonitor } from "../monitoring/useDutMonitor";
 import { useWifiScan, wifiScanForDut, WifiScanProvider } from "../monitoring/WifiScanContext";
-import Dashboard from "./Dashboard";
+
+// Heavy sections are loaded on demand so the initial bundle only carries the
+// app shell + the default Overview (charts). Each becomes its own async chunk.
+// The Serial Console (Dashboard) pulls in CodeMirror, so deferring it keeps the
+// editor out of first paint; it stays mounted once first opened (see below).
+const BulletinSection = lazy(() => import("../components/BulletinSection"));
+const DownloadsSection = lazy(() => import("../components/DownloadsSection"));
+const FilesSection = lazy(() => import("../components/FilesSection"));
+const SettingsSection = lazy(() => import("../components/SettingsSection"));
+const WifiClientsCard = lazy(() => import("../components/WifiClientsCard"));
+const Dashboard = lazy(() => import("./Dashboard"));
 
 const PHASE3_HINT = "Trend charts and live views arrive in Phase 3.";
 
@@ -41,11 +46,22 @@ export default function AppShell() {
   // status, and the Serial Console (via context) — all follow the switcher.
   const monitor = useDutMonitor(selectedDut);
   const current = NAV_ITEMS.find((item) => item.id === active) ?? NAV_ITEMS[0];
+  // The Serial Console (Dashboard) is lazy-loaded, but must stay mounted once
+  // opened so its serial session, port, and terminal state persist across nav.
+  // Mount it on the first visit to the console, then keep it mounted (hidden
+  // via display:none) — there is no serial session before that first visit.
+  const [consoleLoaded, setConsoleLoaded] = useState(false);
 
   // Apply the saved accent on load so the theme persists across reloads.
   useEffect(() => {
     applyAccent(loadSettings().accent);
   }, []);
+
+  useEffect(() => {
+    if (active === "console") {
+      setConsoleLoaded(true);
+    }
+  }, [active]);
 
   return (
     <DutMonitorProvider value={monitor}>
@@ -75,17 +91,31 @@ export default function AppShell() {
           <main className="content">
             {/* Serial Console stays mounted across nav so the serial session,
                 selected port, log, and terminal state persist; it is only
-                hidden when another section is active. Follows the selected DUT. */}
-            <div className="embed" style={{ display: active === "console" ? "block" : "none" }}>
-              <Dashboard active={active === "console"} dutId={selectedDut} />
-            </div>
-            {active !== "console" ? renderSection(active, monitor, search, selectedDut) : null}
+                hidden when another section is active. Follows the selected DUT.
+                Mounted lazily on first visit (defers the CodeMirror bundle). */}
+            {consoleLoaded ? (
+              <div className="embed" style={{ display: active === "console" ? "block" : "none" }}>
+                <Suspense fallback={<SectionLoading />}>
+                  <Dashboard active={active === "console"} dutId={selectedDut} />
+                </Suspense>
+              </div>
+            ) : null}
+            {active !== "console" ? (
+              <Suspense fallback={<SectionLoading />}>
+                {renderSection(active, monitor, search, selectedDut)}
+              </Suspense>
+            ) : null}
           </main>
         </div>
       </div>
       </WifiScanProvider>
     </DutMonitorProvider>
   );
+}
+
+/** Lightweight placeholder shown while a lazy section chunk loads. */
+function SectionLoading() {
+  return <EmptyState icon="⏳" message="Loading…" />;
 }
 
 function renderSection(active: SectionId, monitor: DutMonitorState, search: string, selectedDut: string) {
