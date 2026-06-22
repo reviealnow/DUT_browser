@@ -25,6 +25,15 @@ BIND_HOST="${BIND_HOST:-0.0.0.0}"
 BACKEND_PORT="${BACKEND_PORT:-8000}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"
 
+# Stamp a deploy version so the in-app "new version available" banner can detect
+# a redeploy. `git describe` only changes when new commits/tags land, so a plain
+# restart does not nag users. Override by pre-setting DUT_APP_VERSION yourself.
+if [ -z "${DUT_APP_VERSION:-}" ]; then
+  DUT_APP_VERSION="$(git -C "$ROOT_DIR" describe --tags --always 2>/dev/null || echo dev)"
+fi
+export DUT_APP_VERSION
+echo "[start_lan] version: $DUT_APP_VERSION"
+
 PROD=0
 for arg in "$@"; do
   case "$arg" in

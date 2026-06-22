@@ -384,3 +384,10 @@ export async function createBulletinComment(
     parent_comment_id: parentCommentId ?? null,
   });
 }
+
+export type VersionInfo = { version: string; built_at: string };
+
+/** Current backend build version, used to detect a redeploy from an open tab. */
+export async function getVersion(): Promise<VersionInfo> {
+  return get<VersionInfo>("/api/version");
+}
