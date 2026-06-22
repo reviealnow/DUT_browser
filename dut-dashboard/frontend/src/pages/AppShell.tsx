@@ -10,6 +10,7 @@ import { Card, EmptyState, KpiCard } from "../components/shell/Card";
 import Sidebar from "../components/shell/Sidebar";
 import Topbar from "../components/shell/Topbar";
 import { NAV_ITEMS, SectionId } from "../components/shell/navigation";
+import { useAppVersion } from "../monitoring/useAppVersion";
 import { DutMonitorProvider } from "../monitoring/DutMonitorContext";
 import { DutMonitorState, DutStatus, useDutMonitor } from "../monitoring/useDutMonitor";
 import { useWifiScan, wifiScanForDut, WifiScanProvider } from "../monitoring/WifiScanContext";
@@ -51,6 +52,8 @@ export default function AppShell() {
   // Mount it on the first visit to the console, then keep it mounted (hidden
   // via display:none) — there is no serial session before that first visit.
   const [consoleLoaded, setConsoleLoaded] = useState(false);
+  // Detect a backend redeploy from this open tab and offer a reload.
+  const { updateAvailable, dismiss } = useAppVersion();
 
   // Apply the saved accent on load so the theme persists across reloads.
   useEffect(() => {
@@ -88,6 +91,9 @@ export default function AppShell() {
             </>
           }
           />
+          {updateAvailable ? (
+            <UpdateBanner onReload={() => window.location.reload()} onDismiss={dismiss} />
+          ) : null}
           <main className="content">
             {/* Serial Console stays mounted across nav so the serial session,
                 selected port, log, and terminal state persist; it is only
@@ -116,6 +122,27 @@ export default function AppShell() {
 /** Lightweight placeholder shown while a lazy section chunk loads. */
 function SectionLoading() {
   return <EmptyState icon="⏳" message="Loading…" />;
+}
+
+/** Top banner shown when the backend has been redeployed under an open tab. */
+function UpdateBanner({ onReload, onDismiss }: { onReload: () => void; onDismiss: () => void }) {
+  return (
+    <div className="update-banner" role="status">
+      <span className="pill warn">
+        <span className="dot" />
+        New version available
+      </span>
+      <span className="update-banner-text">A newer dashboard was deployed — reload to get the latest.</span>
+      <span className="update-banner-actions">
+        <button type="button" className="btn primary" onClick={onReload}>
+          Reload
+        </button>
+        <button type="button" className="btn" onClick={onDismiss} aria-label="Dismiss update notice">
+          ✕
+        </button>
+      </span>
+    </div>
+  );
 }
 
 function renderSection(active: SectionId, monitor: DutMonitorState, search: string, selectedDut: string) {

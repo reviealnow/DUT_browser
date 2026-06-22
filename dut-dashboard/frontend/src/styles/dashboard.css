@@ -270,6 +270,28 @@ body {
   color: var(--muted);
 }
 
+/* ---------- Update banner ---------- */
+
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-5);
+  background: var(--warn-weak);
+  border-bottom: 1px solid var(--border);
+}
+
+.update-banner-text {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.update-banner-actions {
+  margin-left: auto;
+  display: flex;
+  gap: var(--space-2);
+}
+
 /* ---------- Buttons ---------- */
 
 .btn {

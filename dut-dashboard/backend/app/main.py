@@ -1,5 +1,7 @@
 import asyncio
+import os
 import re
+import subprocess
 from datetime import datetime
 from pathlib import Path
 
@@ -58,6 +60,43 @@ def resolve_dut(app_, dut_id: str) -> DutContext:
 @app.get("/health")
 def health() -> dict:
     return {"ok": True, "phase": "milestone-4"}
+
+
+def _resolve_version() -> str:
+    """Resolve the running build version, preferring an explicit deploy stamp.
+
+    `DUT_APP_VERSION` (set by start_lan.sh at deploy) wins; otherwise fall back to
+    `git describe` so a dev checkout still reports something useful; "dev" if even
+    that is unavailable. Called once at import — never per request."""
+    env = os.environ.get("DUT_APP_VERSION", "").strip()
+    if env:
+        return env
+    try:
+        result = subprocess.run(
+            ["git", "describe", "--tags", "--always"],
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+            cwd=Path(__file__).resolve().parent,
+        )
+        described = result.stdout.strip()
+        if result.returncode == 0 and described:
+            return described
+    except Exception:
+        return "dev"
+    return "dev"
+
+
+# Resolved once at module import (no per-request shell-out). The frontend records
+# this on first load and polls /api/version to detect a redeploy.
+APP_VERSION = _resolve_version()
+BUILT_AT = os.environ.get("DUT_BUILT_AT", "").strip() or datetime.now().isoformat(timespec="seconds")
+
+
+@app.get("/api/version")
+def get_version() -> dict:
+    """Current build version + build time, so an open SPA can detect a redeploy."""
+    return {"version": APP_VERSION, "built_at": BUILT_AT}
 
 
 @app.get("/api/snapshots")
