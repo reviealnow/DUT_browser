@@ -986,6 +986,17 @@ body {
   flex: 1; min-width: 0; padding: 6px 10px; border: 1px solid var(--border);
   border-radius: 8px; font: inherit; color: var(--ink); background: var(--panel);
 }
+
+/* Per-author colour pill (Bulletin) — deterministic colour set inline; same
+   author always gets the same hue (see monitoring/authorColor.ts). */
+.author-tag {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-weight: 700;
+  line-height: 1.5;
+  white-space: nowrap;
+}
 .note {
   background: #fffaf0; border: 1px solid #f2e4c4; border-left: 3px solid #e8b73a;
   border-radius: 10px; padding: var(--space-3); margin-bottom: var(--space-3);
