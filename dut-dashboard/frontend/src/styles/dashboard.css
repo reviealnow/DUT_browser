@@ -974,3 +974,29 @@ body {
   border: 0; background: none; padding: 0; cursor: pointer;
   color: var(--accent); font: inherit; text-decoration: underline;
 }
+
+/* ---------- Fleet overview (Phase 37) ---------- */
+.fleet-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4);
+}
+.fleet-card {
+  text-align: left;
+  font: inherit;
+  color: var(--ink);
+  cursor: pointer;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.fleet-card:hover { border-color: var(--accent); box-shadow: var(--shadow-lg, var(--shadow)); }
+.fleet-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.fleet-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.fleet-card-titles { display: flex; flex-direction: column; min-width: 0; }
+.fleet-card-cpu { display: flex; flex-direction: column; gap: var(--space-1); }

@@ -20,6 +20,7 @@ import { useWifiScan, wifiScanForDut, WifiScanProvider } from "../monitoring/Wif
 // The Serial Console (Dashboard) pulls in CodeMirror, so deferring it keeps the
 // editor out of first paint; it stays mounted once first opened (see below).
 const BulletinSection = lazy(() => import("../components/BulletinSection"));
+const FleetSection = lazy(() => import("../components/FleetSection"));
 const DownloadsSection = lazy(() => import("../components/DownloadsSection"));
 const FilesSection = lazy(() => import("../components/FilesSection"));
 const SettingsSection = lazy(() => import("../components/SettingsSection"));
@@ -108,7 +109,10 @@ export default function AppShell() {
             ) : null}
             {active !== "console" ? (
               <Suspense fallback={<SectionLoading />}>
-                {renderSection(active, monitor, search, selectedDut)}
+                {renderSection(active, monitor, search, selectedDut, (id) => {
+                  setSelectedDut(id);
+                  setActive("overview");
+                })}
               </Suspense>
             ) : null}
           </main>
@@ -145,10 +149,18 @@ function UpdateBanner({ onReload, onDismiss }: { onReload: () => void; onDismiss
   );
 }
 
-function renderSection(active: SectionId, monitor: DutMonitorState, search: string, selectedDut: string) {
+function renderSection(
+  active: SectionId,
+  monitor: DutMonitorState,
+  search: string,
+  selectedDut: string,
+  onOpenDut: (dutId: string) => void,
+) {
   switch (active) {
     case "overview":
       return <OverviewSection monitor={monitor} selectedDut={selectedDut} />;
+    case "fleet":
+      return <FleetSection onOpenDut={onOpenDut} />;
     case "console":
       // Rendered separately (always mounted) so its session/state persists.
       return null;

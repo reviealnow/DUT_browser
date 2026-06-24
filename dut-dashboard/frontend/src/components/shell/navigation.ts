@@ -1,5 +1,6 @@
 export type SectionId =
   | "overview"
+  | "fleet"
   | "cpu"
   | "wifi"
   | "logs"
@@ -24,6 +25,7 @@ export type NavItem = {
 // into Monitoring / Workspace / System (see mockup_lanfs_integration.html).
 export const NAV_ITEMS: NavItem[] = [
   { id: "overview", label: "Overview", icon: "▣", title: "Overview", subtitle: "Live DUT monitoring summary", group: "Monitoring" },
+  { id: "fleet", label: "Fleet", icon: "▦", title: "Fleet", subtitle: "All registered DUTs at a glance", group: "Monitoring" },
   { id: "cpu", label: "CPU / Memory", icon: "📈", title: "CPU / Memory", subtitle: "Per-core CPU and memory trends", group: "Monitoring" },
   { id: "wifi", label: "Wi-Fi Clients", icon: "📶", title: "Wi-Fi Clients", subtitle: "Associated clients by radio", group: "Monitoring" },
   { id: "logs", label: "Logs / Crash Events", icon: "⚠", title: "Logs / Crash Events", subtitle: "Critical crash and log event detection", group: "Monitoring" },

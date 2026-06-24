@@ -276,7 +276,7 @@ export function useDutMonitor(dutId: string = DEFAULT_DUT_ID): DutMonitorState {
   };
 }
 
-function cpuFromSnapshot(snapshot: SnapshotPayload | null): {
+export function cpuFromSnapshot(snapshot: SnapshotPayload | null): {
   cpuBusyPct: number | null;
   cpuIdlePct: number | null;
   coreCount: number;

@@ -167,7 +167,84 @@ export function connectDashboardWebSocket(
   };
 }
 
-function applySnapshotDelta(base: SnapshotPayload, delta: SnapshotDelta): SnapshotPayload {
+/**
+ * Fleet variant: a single self-reconnecting socket that does NOT filter by
+ * dut_id and forwards every event raw (including `snapshot_delta`). The shared
+ * `/ws` already broadcasts every DUT's events tagged with `dut_id`, so one
+ * connection feeds the whole fleet; the caller demuxes by `dut_id` and keeps a
+ * per-DUT delta base (see useFleetMonitor). The single-DUT
+ * `connectDashboardWebSocket` above is intentionally left untouched.
+ */
+export type FleetSocketHandlers = {
+  onEvent: (event: DashboardEvent & { dut_id?: string }) => void;
+  onOpen?: () => void;
+  onClose?: () => void;
+};
+
+export function connectFleetWebSocket(handlers: FleetSocketHandlers): DashboardSocket {
+  const { onEvent, onOpen, onClose } = handlers;
+  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+  const url = `${protocol}://${window.location.host}/ws`;
+
+  let ws: WebSocket | null = null;
+  let closedByCaller = false;
+  let reconnectTimer: number | null = null;
+  let attempt = 0;
+
+  const scheduleReconnect = () => {
+    if (closedByCaller) {
+      return;
+    }
+    const delay = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** attempt);
+    const jitter = Math.random() * 0.3 * delay;
+    attempt += 1;
+    reconnectTimer = window.setTimeout(open, delay + jitter);
+  };
+
+  function open() {
+    const socket = new WebSocket(url);
+    ws = socket;
+
+    socket.onopen = () => {
+      attempt = 0;
+      onOpen?.();
+    };
+
+    socket.onmessage = (message: MessageEvent<string>) => {
+      try {
+        const event = JSON.parse(message.data) as DashboardEvent & { dut_id?: string };
+        if (event && typeof event === "object" && "type" in event) {
+          onEvent(event);
+        }
+      } catch {
+        // Ignore malformed messages.
+      }
+    };
+
+    socket.onclose = () => {
+      onClose?.();
+      scheduleReconnect();
+    };
+
+    socket.onerror = () => {
+      socket.close(); // triggers onclose -> reconnect
+    };
+  }
+
+  open();
+
+  return {
+    close: () => {
+      closedByCaller = true;
+      if (reconnectTimer !== null) {
+        window.clearTimeout(reconnectTimer);
+      }
+      ws?.close();
+    },
+  };
+}
+
+export function applySnapshotDelta(base: SnapshotPayload, delta: SnapshotDelta): SnapshotPayload {
   const nextCpu = { ...base.cpu };
   if (delta.cpu_removed) {
     for (const coreId of delta.cpu_removed) {
