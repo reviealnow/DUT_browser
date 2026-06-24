@@ -714,6 +714,24 @@ body {
   word-break: break-all;
 }
 
+/* Session logs grow fast: cap the list to ~5 rows and scroll for older.
+   The header stays pinned so columns are readable while scrolling. */
+.logscroll {
+  max-height: 264px;
+  overflow-y: auto;
+}
+.logscroll .filetable thead th {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  z-index: 1;
+}
+.logscroll-note {
+  color: var(--faint);
+  font-size: 12px;
+  margin-bottom: var(--space-2);
+}
+
 .logtail {
   margin: 0;
   max-height: 320px;
@@ -961,6 +979,12 @@ body {
 .upload-name > input {
   padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px;
   font: inherit; color: var(--ink); background: var(--panel);
+}
+.posting-as { display: flex; align-items: center; gap: var(--space-2); }
+.posting-as > span { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.posting-as > input {
+  flex: 1; min-width: 0; padding: 6px 10px; border: 1px solid var(--border);
+  border-radius: 8px; font: inherit; color: var(--ink); background: var(--panel);
 }
 .note {
   background: #fffaf0; border: 1px solid #f2e4c4; border-left: 3px solid #e8b73a;

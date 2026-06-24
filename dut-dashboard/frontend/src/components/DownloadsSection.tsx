@@ -14,6 +14,8 @@ import {
 import { Card, EmptyState } from "./shell/Card";
 
 const TAIL_LINES = 200;
+// Session logs accumulate fast; cap the visible height to ~5 rows and scroll for older.
+const VISIBLE_SESSION_ROWS = 5;
 
 type TailCell = { loading: boolean; lines?: string[]; truncated?: boolean; error?: string };
 
@@ -165,6 +167,10 @@ function SessionLogTable({ rows, onAnalyzed }: { rows: LogEntry[]; onAnalyzed: (
         {notice.message}
       </div>
     ) : null}
+    {rows.length > VISIBLE_SESSION_ROWS ? (
+      <div className="logscroll-note">Showing newest first — scroll for older ({rows.length} total).</div>
+    ) : null}
+    <div className="logscroll">
     <table className="filetable">
       <thead>
         <tr>
@@ -219,6 +225,7 @@ function SessionLogTable({ rows, onAnalyzed }: { rows: LogEntry[]; onAnalyzed: (
         ))}
       </tbody>
     </table>
+    </div>
     </>
   );
 }

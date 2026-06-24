@@ -5,7 +5,7 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -97,6 +97,28 @@ BUILT_AT = os.environ.get("DUT_BUILT_AT", "").strip() or datetime.now().isoforma
 def get_version() -> dict:
     """Current build version + build time, so an open SPA can detect a redeploy."""
     return {"version": APP_VERSION, "built_at": BUILT_AT}
+
+
+def _suggested_name(ip: str) -> str:
+    """A friendly default display name derived from the caller's LAN IP.
+
+    `Guest-<last-octet>` for a dotted IPv4 (e.g. 192.168.30.164 -> Guest-164),
+    else the raw host (covers IPv6 / unknown). Lets the Workspace pre-fill an
+    identity nobody has to type, while staying overridable.
+    """
+    octets = ip.split(".")
+    if len(octets) == 4 and octets[-1].isdigit():
+        return f"Guest-{octets[-1]}"
+    return f"Guest-{ip}" if ip else "Guest"
+
+
+@app.get("/api/whoami")
+def whoami(request: Request) -> dict:
+    """The caller's IP + a suggested display name, so the Workspace can pre-fill an
+    identity. Behind the dev vite proxy this is 127.0.0.1; on the LAN/prod single
+    port it is the real client IP."""
+    ip = request.client.host if request.client else ""
+    return {"ip": ip, "name": _suggested_name(ip)}
 
 
 @app.get("/api/snapshots")

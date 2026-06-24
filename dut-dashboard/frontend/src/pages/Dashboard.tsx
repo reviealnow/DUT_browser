@@ -35,6 +35,9 @@ export default function Dashboard({ active = true, dutId = DEFAULT_DUT_ID }: { a
   const [mode, setMode] = useState<"serial" | "replay">("serial");
   const [port, setPort] = useState(DEFAULT_SERIAL_PORT);
   const [baudrate, setBaudrate] = useState(() => loadSettings().defaultBaud);
+  // Free-text label that names this DUT's session log (dut-session-<label>-<ts>.log)
+  // so logs from different DUTs are identifiable. Required to Open in serial mode.
+  const [dutLabel, setDutLabel] = useState("");
   const [replayPath, setReplayPath] = useState("logs/sample.log");
   const [replayIntervalMs, setReplayIntervalMs] = useState(100);
   const [serialPorts, setSerialPorts] = useState<SerialPortInfo[]>([]);
@@ -71,6 +74,7 @@ export default function Dashboard({ active = true, dutId = DEFAULT_DUT_ID }: { a
         baudrate,
         replay_path: mode === "replay" ? replayPath : undefined,
         replay_interval_ms: replayIntervalMs,
+        session_label: dutLabel.trim() || undefined,
       }, dutId);
       const logPath = response.log_path || "";
       const fileName = logPath.split(/[\\/]/).pop() || "";
@@ -315,10 +319,24 @@ export default function Dashboard({ active = true, dutId = DEFAULT_DUT_ID }: { a
                 <button type="button" className="btn" onClick={() => void refreshSerialPorts()} disabled={portsLoading}>
                   {portsLoading ? "Refreshing…" : "Refresh"}
                 </button>
-                <button type="button" className="btn primary" onClick={() => void handleOpen()}>
+                <button
+                  type="button"
+                  className="btn primary"
+                  onClick={() => void handleOpen()}
+                  disabled={!dutLabel.trim()}
+                  title={dutLabel.trim() ? "Open the serial session" : "Enter a DUT label first"}
+                >
                   Open
                 </button>
               </div>
+              <input
+                className="conn-input"
+                value={dutLabel}
+                onChange={(e) => setDutLabel(e.target.value)}
+                placeholder="DUT label — names the log, e.g. AP6420E (required)"
+                aria-label="DUT label"
+                maxLength={40}
+              />
               <input
                 className="conn-input"
                 value={port}

@@ -7,6 +7,8 @@ export type OpenSerialParams = {
   mode?: "serial" | "replay";
   replay_path?: string;
   replay_interval_ms?: number;
+  /** Free-text DUT label woven into the session-log filename (sanitized backend-side). */
+  session_label?: string;
 };
 
 export type OpenSerialResponse = {
@@ -390,4 +392,11 @@ export type VersionInfo = { version: string; built_at: string };
 /** Current backend build version, used to detect a redeploy from an open tab. */
 export async function getVersion(): Promise<VersionInfo> {
   return get<VersionInfo>("/api/version");
+}
+
+export type WhoAmI = { ip: string; name: string };
+
+/** The caller's IP + a suggested display name, used to pre-fill Workspace identity. */
+export async function getWhoami(): Promise<WhoAmI> {
+  return get<WhoAmI>("/api/whoami");
 }

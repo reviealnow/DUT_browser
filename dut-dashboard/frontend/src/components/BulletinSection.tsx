@@ -9,8 +9,10 @@ import {
   getBulletinPosts,
   humanizeApiError,
 } from "../api/rest";
-import { loadDisplayName } from "../monitoring/useSettings";
+import { useIdentity } from "../monitoring/useSettings";
 import { Card, EmptyState } from "./shell/Card";
+
+type Identity = ReturnType<typeof useIdentity>;
 
 function formatTime(iso: string): string {
   return iso.replace("T", " ");
@@ -20,7 +22,24 @@ function countReplies(comments: BulletinComment[]): number {
   return comments.reduce((total, c) => total + 1 + countReplies(c.replies), 0);
 }
 
-function NewPostCard({ onPosted }: { onPosted: () => void }) {
+/** Shared, editable "Posting as <name>" identity field (IP-default, persisted). */
+function PostingAs({ identity }: { identity: Identity }) {
+  return (
+    <label className="posting-as">
+      <span>Posting as</span>
+      <input
+        type="text"
+        value={identity.displayName}
+        onChange={(e) => identity.setDisplayName(e.target.value)}
+        placeholder={identity.suggested || "your name"}
+        aria-label="Your display name"
+        maxLength={40}
+      />
+    </label>
+  );
+}
+
+function NewPostCard({ onPosted, identity }: { onPosted: () => void; identity: Identity }) {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
@@ -30,7 +49,7 @@ function NewPostCard({ onPosted }: { onPosted: () => void }) {
     setBusy(true);
     setError(null);
     try {
-      await createBulletinPost(title, body, loadDisplayName() || null);
+      await createBulletinPost(title, body, identity.effectiveName || null);
       setTitle("");
       setBody("");
       onPosted();
@@ -39,13 +58,15 @@ function NewPostCard({ onPosted }: { onPosted: () => void }) {
     } finally {
       setBusy(false);
     }
-  }, [title, body, onPosted]);
+  }, [title, body, identity.effectiveName, onPosted]);
 
-  const canPost = title.trim().length > 0 && body.trim().length > 0 && !busy;
+  const canPost =
+    title.trim().length > 0 && body.trim().length > 0 && identity.effectiveName.length > 0 && !busy;
 
   return (
     <Card title="New note" subtitle="Pin a note to the board">
       <div style={{ display: "grid", gap: "var(--space-3)" }}>
+        <PostingAs identity={identity} />
         <input
           type="text"
           value={title}
@@ -73,16 +94,28 @@ function NewPostCard({ onPosted }: { onPosted: () => void }) {
   );
 }
 
-function ReplyBox({ postId, parentId, onReplied }: { postId: number; parentId?: number; onReplied: () => void }) {
+function ReplyBox({
+  postId,
+  parentId,
+  onReplied,
+  identity,
+}: {
+  postId: number;
+  parentId?: number;
+  onReplied: () => void;
+  identity: Identity;
+}) {
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const canReply = body.trim().length > 0 && identity.effectiveName.length > 0 && !busy;
 
   const submit = useCallback(async () => {
     setBusy(true);
     setError(null);
     try {
-      await createBulletinComment(postId, body, loadDisplayName() || null, parentId ?? null);
+      await createBulletinComment(postId, body, identity.effectiveName || null, parentId ?? null);
       setBody("");
       onReplied();
     } catch (e) {
@@ -90,29 +123,42 @@ function ReplyBox({ postId, parentId, onReplied }: { postId: number; parentId?: 
     } finally {
       setBusy(false);
     }
-  }, [postId, parentId, body, onReplied]);
+  }, [postId, parentId, body, identity.effectiveName, onReplied]);
 
   return (
-    <div style={{ display: "flex", gap: "var(--space-2)", marginTop: "var(--space-2)" }}>
-      <input
-        type="text"
-        value={body}
-        onChange={(e) => setBody(e.target.value)}
-        onKeyDown={(e) => e.key === "Enter" && body.trim() && !busy && void submit()}
-        placeholder={parentId ? "Reply…" : "Add a reply…"}
-        aria-label="Reply"
-        maxLength={600}
-        style={{ flex: 1 }}
-      />
-      <button type="button" className="btn" disabled={!body.trim() || busy} onClick={() => void submit()}>
-        {busy ? "…" : "Reply"}
-      </button>
-      {error ? <span className="flash" style={{ color: "var(--danger)" }}>{error}</span> : null}
+    <div style={{ display: "grid", gap: "var(--space-2)", marginTop: "var(--space-2)" }}>
+      <PostingAs identity={identity} />
+      <div style={{ display: "flex", gap: "var(--space-2)" }}>
+        <input
+          type="text"
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && canReply && void submit()}
+          placeholder={parentId ? "Reply…" : "Add a reply…"}
+          aria-label="Reply"
+          maxLength={600}
+          style={{ flex: 1 }}
+        />
+        <button type="button" className="btn" disabled={!canReply} onClick={() => void submit()}>
+          {busy ? "…" : "Reply"}
+        </button>
+        {error ? <span className="flash" style={{ color: "var(--danger)" }}>{error}</span> : null}
+      </div>
     </div>
   );
 }
 
-function CommentThread({ comment, postId, onReplied }: { comment: BulletinComment; postId: number; onReplied: () => void }) {
+function CommentThread({
+  comment,
+  postId,
+  onReplied,
+  identity,
+}: {
+  comment: BulletinComment;
+  postId: number;
+  onReplied: () => void;
+  identity: Identity;
+}) {
   const [replying, setReplying] = useState(false);
   return (
     <div className="note" style={{ marginBottom: "var(--space-2)" }}>
@@ -127,6 +173,7 @@ function CommentThread({ comment, postId, onReplied }: { comment: BulletinCommen
         <ReplyBox
           postId={postId}
           parentId={comment.id}
+          identity={identity}
           onReplied={() => {
             setReplying(false);
             onReplied();
@@ -149,7 +196,7 @@ function CommentThread({ comment, postId, onReplied }: { comment: BulletinCommen
   );
 }
 
-function PostCard({ post, onChanged }: { post: BulletinPost; onChanged: () => void }) {
+function PostCard({ post, onChanged, identity }: { post: BulletinPost; onChanged: () => void; identity: Identity }) {
   const [open, setOpen] = useState(false);
   const replies = countReplies(post.comments);
 
@@ -187,9 +234,9 @@ function PostCard({ post, onChanged }: { post: BulletinPost; onChanged: () => vo
       {open ? (
         <div style={{ marginTop: "var(--space-3)" }}>
           {post.comments.map((comment) => (
-            <CommentThread key={comment.id} comment={comment} postId={post.id} onReplied={onChanged} />
+            <CommentThread key={comment.id} comment={comment} postId={post.id} onReplied={onChanged} identity={identity} />
           ))}
-          <ReplyBox postId={post.id} onReplied={onChanged} />
+          <ReplyBox postId={post.id} onReplied={onChanged} identity={identity} />
         </div>
       ) : null}
     </Card>
@@ -199,6 +246,7 @@ function PostCard({ post, onChanged }: { post: BulletinPost; onChanged: () => vo
 export default function BulletinSection({ query = "" }: { query?: string }) {
   const [posts, setPosts] = useState<BulletinPost[] | null>(null);
   const [failed, setFailed] = useState(false);
+  const identity = useIdentity();
 
   const reload = useCallback(() => {
     setFailed(false);
@@ -218,7 +266,7 @@ export default function BulletinSection({ query = "" }: { query?: string }) {
 
   return (
     <>
-      <NewPostCard onPosted={reload} />
+      <NewPostCard onPosted={reload} identity={identity} />
       {failed ? (
         <Card title="Bulletin" subtitle="Pinned notes">
           <EmptyState icon="📌" message="Could not load posts" hint="Is the backend reachable?" />
@@ -236,7 +284,7 @@ export default function BulletinSection({ query = "" }: { query?: string }) {
           />
         </Card>
       ) : (
-        visible.map((post) => <PostCard key={post.id} post={post} onChanged={reload} />)
+        visible.map((post) => <PostCard key={post.id} post={post} onChanged={reload} identity={identity} />)
       )}
     </>
   );
