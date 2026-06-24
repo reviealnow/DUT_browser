@@ -9,10 +9,22 @@ import {
   getBulletinPosts,
   humanizeApiError,
 } from "../api/rest";
+import { authorColor } from "../monitoring/authorColor";
 import { useIdentity } from "../monitoring/useSettings";
 import { Card, EmptyState } from "./shell/Card";
 
 type Identity = ReturnType<typeof useIdentity>;
+
+/** A coloured name pill — same author always gets the same colour (see authorColor). */
+function AuthorTag({ name }: { name: string | null }) {
+  const label = (name ?? "").trim() || "—";
+  const { bg, fg } = authorColor(name);
+  return (
+    <span className="author-tag" style={{ background: bg, color: fg }}>
+      {label}
+    </span>
+  );
+}
 
 function formatTime(iso: string): string {
   return iso.replace("T", " ");
@@ -35,6 +47,7 @@ function PostingAs({ identity }: { identity: Identity }) {
         aria-label="Your display name"
         maxLength={40}
       />
+      {identity.effectiveName ? <AuthorTag name={identity.effectiveName} /> : null}
     </label>
   );
 }
@@ -164,7 +177,7 @@ function CommentThread({
     <div className="note" style={{ marginBottom: "var(--space-2)" }}>
       <p>{comment.body}</p>
       <div className="meta">
-        {comment.author ?? "—"} · {formatTime(comment.created_at)} ·{" "}
+        <AuthorTag name={comment.author} /> · {formatTime(comment.created_at)} ·{" "}
         <button type="button" className="linklike" onClick={() => setReplying((v) => !v)}>
           Reply
         </button>
@@ -186,7 +199,7 @@ function CommentThread({
             <div className="note" key={reply.id} style={{ marginBottom: "var(--space-2)" }}>
               <p>{reply.body}</p>
               <div className="meta">
-                {reply.author ?? "—"} · {formatTime(reply.created_at)}
+                <AuthorTag name={reply.author} /> · {formatTime(reply.created_at)}
               </div>
             </div>
           ))}
@@ -212,7 +225,12 @@ function PostCard({ post, onChanged, identity }: { post: BulletinPost; onChanged
   return (
     <Card
       title={post.title}
-      subtitle={`${post.author ?? "—"} · ${formatTime(post.created_at)} · ${replies} ${replies === 1 ? "reply" : "replies"}`}
+      subtitle={
+        <>
+          <AuthorTag name={post.author} /> · {formatTime(post.created_at)} · {replies}{" "}
+          {replies === 1 ? "reply" : "replies"}
+        </>
+      }
       actions={
         <div className="row-actions">
           <button type="button" className="btn" onClick={() => setOpen((v) => !v)}>
