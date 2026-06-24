@@ -10,7 +10,7 @@ import {
   uploadFile,
   WorkspaceFile,
 } from "../api/rest";
-import { useSettings } from "../monitoring/useSettings";
+import { useIdentity } from "../monitoring/useSettings";
 import ChartData from "./charts/ChartData";
 import Sparkline from "./charts/Sparkline";
 import { Card, EmptyState, KpiCard } from "./shell/Card";
@@ -101,17 +101,21 @@ function UploadCard({ onUploaded }: { onUploaded: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
-  // There's no login, so the uploader is the free-text display name. Bind it to
-  // the shared Setting (same source as Settings) so it's editable right here at
-  // upload time, persisted, and discoverable — blank uploads still show "—".
-  const { settings, setDisplayName } = useSettings();
+  // There's no login, so the uploader is the free-text display name. It defaults
+  // to an IP-derived suggestion (useIdentity), is editable right here at upload
+  // time, persisted, and shared with Bulletin + Settings; a name is required.
+  const { displayName, suggested, effectiveName, setDisplayName } = useIdentity();
 
   const send = useCallback(
     async (file: File) => {
+      if (!effectiveName) {
+        setError("Enter your name first.");
+        return;
+      }
       setBusy(true);
       setError(null);
       try {
-        await uploadFile(file, settings.displayName.trim() || null);
+        await uploadFile(file, effectiveName);
         onUploaded();
       } catch (e) {
         setError(humanizeApiError(e));
@@ -119,7 +123,7 @@ function UploadCard({ onUploaded }: { onUploaded: () => void }) {
         setBusy(false);
       }
     },
-    [onUploaded, settings.displayName],
+    [onUploaded, effectiveName],
   );
 
   return (
@@ -128,9 +132,9 @@ function UploadCard({ onUploaded }: { onUploaded: () => void }) {
         <span>Your name</span>
         <input
           type="text"
-          value={settings.displayName}
+          value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
-          placeholder="e.g. nelson — optional, tags the uploader"
+          placeholder={suggested || "e.g. nelson — tags the uploader"}
           aria-label="Your name (uploader)"
           maxLength={40}
         />

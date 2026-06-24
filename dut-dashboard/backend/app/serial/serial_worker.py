@@ -15,6 +15,22 @@ from app.parser.sysmon_parser import SysMonParser
 # Allowlist for the TERM value written to the DUT shell (shell-injection guard).
 _TERM_PATTERN = re.compile(r"^[A-Za-z0-9.-]+$")
 
+# Characters NOT allowed in a user-supplied session label (it becomes a filename).
+_LABEL_STRIP = re.compile(r"[^A-Za-z0-9._-]")
+_LABEL_MAX = 40
+
+
+def sanitize_session_label(label: str | None) -> str:
+    """Reduce a free-text DUT label to a filename-safe token (or "").
+
+    The label is woven into the session-log filename, so the backend is the
+    trust boundary: keep only ``[A-Za-z0-9._-]`` and cap the length. Returns ""
+    when nothing usable remains (caller falls back to the per-DUT name).
+    """
+    if not label:
+        return ""
+    return _LABEL_STRIP.sub("", label)[:_LABEL_MAX]
+
 
 class SerialWorker:
     _FSYNC_INTERVAL_SEC = 180
@@ -58,9 +74,11 @@ class SerialWorker:
         mode: str = "serial",
         replay_path: str | None = None,
         replay_interval_ms: int = 100,
+        session_label: str | None = None,
     ) -> None:
         self.close()
         self.parser.reset()
+        label = sanitize_session_label(session_label)
 
         with self._lock:
             self._stop_event.clear()
@@ -70,7 +88,7 @@ class SerialWorker:
                 replay_file = Path(replay_path)
                 if not replay_file.exists() or not replay_file.is_file():
                     raise RuntimeError(f"Replay file not found: {replay_path}")
-                self._start_log_session(mode=mode, port=port, replay_path=str(replay_file))
+                self._start_log_session(mode=mode, port=port, replay_path=str(replay_file), label=label)
                 self._mode = "replay"
                 self._thread = threading.Thread(
                     target=self._replay_loop,
@@ -81,7 +99,7 @@ class SerialWorker:
                 return
 
             self._serial = serial.Serial(port=port, baudrate=baudrate, timeout=1)
-            self._start_log_session(mode=mode, port=port, replay_path=replay_path)
+            self._start_log_session(mode=mode, port=port, replay_path=replay_path, label=label)
             self._mode = "serial"
             self._thread = threading.Thread(target=self.read_loop, daemon=True)
             self._thread.start()
@@ -288,10 +306,16 @@ class SerialWorker:
                 self._thread = None
             self._close_log_session()
 
-    def _start_log_session(self, mode: str, port: str, replay_path: str | None) -> None:
+    def _start_log_session(
+        self, mode: str, port: str, replay_path: str | None, label: str = ""
+    ) -> None:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        prefix = f"{self._name}-" if self._name else ""
+        # A user-supplied (sanitized) label names the log for this DUT; otherwise
+        # keep the per-DUT name prefix ("" for the default DUT → original naming).
+        # The "dut-session-" prefix is preserved so /api/logs + /api/logs/tail match.
+        token = label or self._name
+        prefix = f"{token}-" if token else ""
         self._log_path = LOG_DIR / f"dut-session-{prefix}{timestamp}.log"
         self._log_fp = self._log_path.open("a", encoding="utf-8")
         source = replay_path if mode == "replay" else port

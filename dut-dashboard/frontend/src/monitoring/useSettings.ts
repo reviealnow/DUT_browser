@@ -1,4 +1,6 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+
+import { getWhoami } from "../api/rest";
 
 export type AccentPreset = { name: string; accent: string; weak: string };
 
@@ -89,4 +91,48 @@ export function useSettings() {
   const setDisplayName = useCallback((displayName: string) => persist({ displayName }), [persist]);
 
   return { settings, setAccent, setDefaultBaud, setDisplayName };
+}
+
+/**
+ * Workspace identity: the shared display name with an IP-derived default.
+ *
+ * Fetches `/api/whoami` once for a suggested name (e.g. `Guest-164`) so a user who
+ * never opened Settings still has a sensible, non-empty identity. The explicit
+ * `displayName` (persisted, shared with Files + Settings) wins when set;
+ * `effectiveName` is what callers should record as uploader/author.
+ */
+export function useIdentity() {
+  const [displayName, setName] = useState<string>(() => loadDisplayName());
+  const [suggested, setSuggested] = useState<string>("");
+
+  useEffect(() => {
+    let cancelled = false;
+    getWhoami()
+      .then((who) => {
+        if (!cancelled) {
+          setSuggested(who.name);
+        }
+      })
+      .catch(() => {
+        // Offline / dev: no suggestion — the user can still type a name.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const setDisplayName = useCallback((next: string) => {
+    setName(next);
+    try {
+      const raw = localStorage.getItem(KEY);
+      const parsed = raw ? JSON.parse(raw) : {};
+      localStorage.setItem(KEY, JSON.stringify({ ...DEFAULTS, ...parsed, displayName: next }));
+    } catch {
+      // ignore (private mode / quota)
+    }
+  }, []);
+
+  const effectiveName = (displayName.trim() || suggested).trim();
+
+  return { displayName, suggested, effectiveName, setDisplayName };
 }

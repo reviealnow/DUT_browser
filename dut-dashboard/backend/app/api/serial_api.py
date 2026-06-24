@@ -36,6 +36,8 @@ class SerialOpenRequest(BaseModel):
     mode: Literal["serial", "replay"] = "serial"
     replay_path: str | None = None
     replay_interval_ms: int = 100
+    # Free-text DUT label woven into the session-log filename (sanitized backend-side).
+    session_label: str | None = None
 
 
 class SerialSendRequest(BaseModel):
@@ -216,6 +218,7 @@ def open_serial(body: SerialOpenRequest, request: Request, dut: str = DEFAULT_DU
             mode=body.mode,
             replay_path=body.replay_path,
             replay_interval_ms=body.replay_interval_ms,
+            session_label=body.session_label,
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
