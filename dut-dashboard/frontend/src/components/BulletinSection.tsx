@@ -9,22 +9,11 @@ import {
   getBulletinPosts,
   humanizeApiError,
 } from "../api/rest";
-import { authorColor } from "../monitoring/authorColor";
 import { useIdentity } from "../monitoring/useSettings";
+import AuthorTag from "./AuthorTag";
 import { Card, EmptyState } from "./shell/Card";
 
 type Identity = ReturnType<typeof useIdentity>;
-
-/** A coloured name pill — same author always gets the same colour (see authorColor). */
-function AuthorTag({ name }: { name: string | null }) {
-  const label = (name ?? "").trim() || "—";
-  const { bg, fg } = authorColor(name);
-  return (
-    <span className="author-tag" style={{ background: bg, color: fg }}>
-      {label}
-    </span>
-  );
-}
 
 function formatTime(iso: string): string {
   return iso.replace("T", " ");
