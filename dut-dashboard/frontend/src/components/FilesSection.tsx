@@ -11,6 +11,7 @@ import {
   WorkspaceFile,
 } from "../api/rest";
 import { useIdentity } from "../monitoring/useSettings";
+import AuthorTag from "./AuthorTag";
 import ChartData from "./charts/ChartData";
 import Sparkline from "./charts/Sparkline";
 import { Card, EmptyState, KpiCard } from "./shell/Card";
@@ -66,7 +67,7 @@ function SharedFilesTable({ rows, onDelete }: { rows: WorkspaceFile[]; onDelete:
               {row.filename}
             </td>
             <td>{formatSize(row.size)}</td>
-            <td>{row.uploader ?? "—"}</td>
+            <td><AuthorTag name={row.uploader} /></td>
             <td>
               <div className="row-actions">
                 <a
@@ -138,6 +139,7 @@ function UploadCard({ onUploaded }: { onUploaded: () => void }) {
           aria-label="Your name (uploader)"
           maxLength={40}
         />
+        {effectiveName ? <AuthorTag name={effectiveName} /> : null}
       </label>
       <div
         className={`upload-drop${dragging ? " dragging" : ""}`}
@@ -244,7 +246,7 @@ function TopUploadersBody({ stats }: { stats: FilesStats }) {
       <div className="barrows">
         {rows.map((row) => (
           <div className="barrow" key={row.uploader}>
-            <div className="barrow-label">{row.uploader}</div>
+            <div className="barrow-label"><AuthorTag name={row.uploader} /></div>
             <div className="barrow-track">
               <div className="barrow-fill" style={{ width: `${(row.count / max) * 100}%` }} />
             </div>
