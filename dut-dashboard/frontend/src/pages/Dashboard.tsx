@@ -15,9 +15,9 @@ import {
 import ConsolePanel from "../components/ConsolePanel";
 // Lazy-loaded so the xterm.js bundle only loads when the terminal is opened.
 const TerminalView = lazy(() => import("../components/TerminalView"));
-import { CRITICAL_CRASH_PATTERN } from "../monitoring/crash";
 import { useDutMonitorContext } from "../monitoring/DutMonitorContext";
-import { loadCrashKeywords, loadSettings, saveCrashKeywords } from "../monitoring/useSettings";
+import { useCrashKeywords } from "../monitoring/useCrashKeywords";
+import { loadSettings } from "../monitoring/useSettings";
 const DEFAULT_SERIAL_PORT = "/dev/ttyUSB0";
 
 function choosePreferredPort(ports: SerialPortInfo[]): string {
@@ -49,7 +49,7 @@ export default function Dashboard({ active = true, dutId = DEFAULT_DUT_ID }: { a
   const [actionError, setActionError] = useState("");
   const [lastSeenCriticalCrashCount, setLastSeenCriticalCrashCount] = useState(0);
   const [criticalCrashKeywordInput, setCriticalCrashKeywordInput] = useState("");
-  const [lockedCriticalCrashKeywords, setLockedCriticalCrashKeywords] = useState<string[]>(loadCrashKeywords);
+  const { keywords: lockedCriticalCrashKeywords, pattern: crashPattern, saving: keywordSaving, saveKeywords } = useCrashKeywords();
   const [downloadNotice, setDownloadNotice] = useState<{ message: string; tone: "blue" | "green" } | null>(null);
 
   // Run an action; on failure show friendly copy (never raw JSON) in the banner.
@@ -137,10 +137,6 @@ export default function Dashboard({ active = true, dutId = DEFAULT_DUT_ID }: { a
     }
   }, [dutId, consoleView]);
 
-  // Persist locked critical-crash keywords (Settings) so they survive reloads.
-  useEffect(() => {
-    saveCrashKeywords(lockedCriticalCrashKeywords);
-  }, [lockedCriticalCrashKeywords]);
 
   async function handleRunTop() {
     await runAction(() => sendSerial("top\n", dutId).then(() => undefined));
@@ -208,22 +204,17 @@ export default function Dashboard({ active = true, dutId = DEFAULT_DUT_ID }: { a
 
   function handleLockCriticalCrashKeyword() {
     const keyword = criticalCrashKeywordInput.trim();
-    if (!keyword) {
+    if (!keyword) return;
+    if (lockedCriticalCrashKeywords.some((k) => k.toLowerCase() === keyword.toLowerCase())) {
+      setCriticalCrashKeywordInput("");
       return;
     }
-    setLockedCriticalCrashKeywords((prev) => {
-      if (prev.some((item) => item.toLowerCase() === keyword.toLowerCase())) {
-        return prev;
-      }
-      return [...prev, keyword];
-    });
+    void saveKeywords([...lockedCriticalCrashKeywords, keyword]);
     setCriticalCrashKeywordInput("");
   }
 
   function handleRemoveCriticalCrashKeyword(keywordToRemove: string) {
-    setLockedCriticalCrashKeywords((prev) =>
-      prev.filter((item) => item.toLowerCase() !== keywordToRemove.toLowerCase()),
-    );
+    void saveKeywords(lockedCriticalCrashKeywords.filter((k) => k.toLowerCase() !== keywordToRemove.toLowerCase()));
   }
 
   const refreshSerialPorts = useCallback(async () => {
@@ -378,14 +369,8 @@ export default function Dashboard({ active = true, dutId = DEFAULT_DUT_ID }: { a
   );
 
   const allCriticalCrashLines = useMemo(() => {
-    return lines.filter((line) => {
-      if (CRITICAL_CRASH_PATTERN.test(line)) {
-        return true;
-      }
-      const lowerCasedLine = line.toLowerCase();
-      return lockedCriticalCrashKeywords.some((keyword) => lowerCasedLine.includes(keyword.toLowerCase()));
-    });
-  }, [lines, lockedCriticalCrashKeywords]);
+    return lines.filter((line) => crashPattern.test(line));
+  }, [lines, crashPattern]);
 
   const newCriticalCrashCount = Math.max(0, allCriticalCrashLines.length - lastSeenCriticalCrashCount);
   const criticalCrashRows = useMemo(() => {
@@ -466,7 +451,7 @@ export default function Dashboard({ active = true, dutId = DEFAULT_DUT_ID }: { a
                 placeholder="Lock in critical crash keyword"
                 style={{ minWidth: 220, flex: "1 1 220px" }}
               />
-              <button type="button" onClick={handleLockCriticalCrashKeyword}>
+              <button type="button" onClick={handleLockCriticalCrashKeyword} disabled={keywordSaving}>
                 Lock in
               </button>
             </div>

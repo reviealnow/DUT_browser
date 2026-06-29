@@ -400,3 +400,21 @@ export type WhoAmI = { ip: string; name: string };
 export async function getWhoami(): Promise<WhoAmI> {
   return get<WhoAmI>("/api/whoami");
 }
+
+export type CrashKeywordsResponse = { keywords: string[] };
+
+export async function getCrashKeywords(): Promise<string[]> {
+  const r = await get<CrashKeywordsResponse>("/api/settings/crash-keywords");
+  return r.keywords;
+}
+
+export async function putCrashKeywords(keywords: string[]): Promise<string[]> {
+  const r = await fetch("/api/settings/crash-keywords", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ keywords }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  const data: CrashKeywordsResponse = await r.json();
+  return data.keywords;
+}
