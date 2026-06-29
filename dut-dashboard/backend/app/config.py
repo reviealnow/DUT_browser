@@ -36,6 +36,11 @@ ALLOWED_EXTENSIONS = {
     "png",
     "txt",
 }
+# Host-side Wi-Fi survey (Source B for SSID capability reconciliation).
+# Set SURVEY_WIFI_IFACE=wlan0 (or similar) to enable; absent → available:false.
+import os as _os
+SURVEY_WIFI_IFACE: str | None = _os.getenv("SURVEY_WIFI_IFACE")
+
 # Production build of the frontend (npm run build). Served by the backend at
 # "/" only when it exists; in dev it is absent and Vite serves the UI instead.
 FRONTEND_DIST = BASE_DIR / "frontend" / "dist"

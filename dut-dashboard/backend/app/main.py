@@ -20,6 +20,7 @@ from app.db.workspace import init_db
 from app.dut.registry import DEFAULT_DUT_ID, DutContext, DutRegistry, build_default_registry
 from app.services.analyzer_service import AnalyzerService
 from app.services.wifi_clients import discover_vaps, get_ssid_capabilities, parse_apstats, parse_wlanconfig_list
+from app.services.wifi_survey import get_wifi_survey
 from app.websocket.terminal_manager import TerminalManager
 from app.websocket.ws_manager import WebSocketManager
 
@@ -187,6 +188,13 @@ def get_wifi_client_stats(mac: str, dut: str = DEFAULT_DUT_ID) -> dict:
         "stats": parse_apstats(out),
         "captured_at": datetime.now().isoformat(timespec="seconds"),
     }
+
+
+@app.get("/api/wifi/survey")
+def wifi_survey() -> dict:
+    """Host-side on-demand Wi-Fi scan (iw / nmcli). Requires SURVEY_WIFI_IFACE env var.
+    Returns available:false when the host has no suitable interface or permission."""
+    return get_wifi_survey()
 
 
 @app.get("/api/wifi/capabilities")
