@@ -418,3 +418,85 @@ export async function putCrashKeywords(keywords: string[]): Promise<string[]> {
   const data: CrashKeywordsResponse = await r.json();
   return data.keywords;
 }
+
+// ---------------------------------------------------------------------------
+// SSID Capability
+// ---------------------------------------------------------------------------
+
+export type SsidCapability = {
+  iface: string;
+  bssid: string | null;
+  ssid: string | null;
+  band: string | null;
+  freq_mhz: number | null;
+  channel: number | null;
+  channel_width: string | null;
+  generation: string | null;
+  security: string | null;
+  category: string | null;
+  akm: string[];
+  pairwise_cipher: string[];
+  group_mgmt_cipher: string | null;
+  pmf: string | null;
+  dot11k: boolean | null;
+  dot11v: boolean | null;
+  dot11r: boolean | null;
+};
+
+export type SsidCapabilityResult = {
+  ssids: SsidCapability[];
+  captured_at: string;
+};
+
+export type CapabilityDiff = {
+  field: string;
+  label: string;
+  config: unknown;
+  observed: unknown;
+};
+
+export type CapabilityRow = {
+  iface: string;
+  bssid: string | null;
+  ssid: string | null;
+  band: string | null;
+  freq_mhz: number | null;
+  channel: number | null;
+  channel_width: string | null;
+  config_generation: string | null;
+  config_security: string | null;
+  config_pmf: string | null;
+  config_dot11k: boolean | null;
+  config_dot11v: boolean | null;
+  config_dot11r: boolean | null;
+  observed_generation: string | null;
+  observed_security: string | null;
+  observed_pmf: string | null;
+  observed_dot11k: boolean | null;
+  observed_dot11v: boolean | null;
+  observed_dot11r: boolean | null;
+  observed_signal_dbm: number | null;
+  match: boolean;
+  diffs: CapabilityDiff[];
+  caveat: string | null;
+};
+
+export type CapabilityReport = {
+  available_b: boolean;
+  scannable_bands: string[];
+  captured_at_a: string;
+  captured_at_b: string | null;
+  rows: CapabilityRow[];
+};
+
+export async function getSsidCapabilities(dutId = DEFAULT_DUT_ID): Promise<SsidCapabilityResult> {
+  return get<SsidCapabilityResult>(`/api/wifi/capabilities?dut=${dutId}`);
+}
+
+export async function getWifiSurvey(): Promise<{ available: boolean; bss: unknown[]; reason?: string }> {
+  return get<{ available: boolean; bss: unknown[]; reason?: string }>("/api/wifi/survey");
+}
+
+export async function getCapabilityReport(dutId = DEFAULT_DUT_ID): Promise<CapabilityReport> {
+  return get<CapabilityReport>(`/api/wifi/capability-report?dut=${dutId}`);
+}

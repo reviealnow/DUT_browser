@@ -25,6 +25,7 @@ const DownloadsSection = lazy(() => import("../components/DownloadsSection"));
 const FilesSection = lazy(() => import("../components/FilesSection"));
 const SettingsSection = lazy(() => import("../components/SettingsSection"));
 const WifiClientsCard = lazy(() => import("../components/WifiClientsCard"));
+const SsidCapabilityCard = lazy(() => import("../components/SsidCapabilityCard"));
 const Dashboard = lazy(() => import("./Dashboard"));
 
 const PHASE3_HINT = "Trend charts and live views arrive in Phase 3.";
@@ -183,6 +184,8 @@ function renderSection(
       // per-band summary and the detail (one authoritative source). The live
       // sysMon WifiSummaryBody stays on the Overview card.
       return <WifiClientsCard dutId={selectedDut} />;
+    case "ssid":
+      return <SsidCapabilityCard dutId={selectedDut} />;
     case "logs":
       return (
         <Card title="Logs / Crash events" subtitle="Critical crash + log event detection">
