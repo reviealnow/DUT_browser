@@ -1084,3 +1084,25 @@ body {
 }
 .fleet-card-titles { display: flex; flex-direction: column; min-width: 0; }
 .fleet-card-cpu { display: flex; flex-direction: column; gap: var(--space-1); }
+
+/* SSID Capability Card */
+.cap-body { display: flex; flex-direction: column; gap: var(--space-4); }
+.cap-summary { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.cap-ts { font-size: 0.75rem; color: var(--muted); margin-left: auto; }
+.cap-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
+.cap-table th, .cap-table td { padding: var(--space-1) var(--space-2); text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.cap-table th { font-weight: 600; background: var(--surface); position: sticky; top: 0; }
+.cap-row { cursor: pointer; transition: background 0.1s; }
+.cap-row:hover { background: var(--surface); }
+.cap-row--ok td:first-child { border-left: 3px solid var(--ok, #22c55e); }
+.cap-row--diff td:first-child { border-left: 3px solid var(--warn, #f59e0b); }
+.cap-row--miss td:first-child { border-left: 3px solid var(--danger, #ef4444); }
+.cap-iface { font-family: monospace; font-size: 0.8rem; }
+.cap-ssid { max-width: 14ch; overflow: hidden; text-overflow: ellipsis; }
+.cap-expand td { background: var(--surface); }
+.cap-detail { padding: var(--space-3) var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); }
+.cap-diffs { display: flex; flex-direction: column; gap: var(--space-2); }
+.diff-table { border-collapse: collapse; font-size: 0.8rem; }
+.diff-table th, .diff-table td { padding: var(--space-1) var(--space-2); border: 1px solid var(--border); }
+.diff-config { color: var(--ok, #16a34a); }
+.diff-observed { color: var(--warn, #b45309); }

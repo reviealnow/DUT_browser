@@ -19,7 +19,9 @@ from app.config import ANALYZER_OUTPUT_DIR, FRONTEND_DIST, LOG_DIR, UPLOAD_DIR
 from app.db.workspace import init_db
 from app.dut.registry import DEFAULT_DUT_ID, DutContext, DutRegistry, build_default_registry
 from app.services.analyzer_service import AnalyzerService
-from app.services.wifi_clients import discover_vaps, parse_apstats, parse_wlanconfig_list
+from app.services.capability_report import build_capability_report
+from app.services.wifi_clients import discover_vaps, get_ssid_capabilities, parse_apstats, parse_wlanconfig_list
+from app.services.wifi_survey import get_wifi_survey
 from app.websocket.terminal_manager import TerminalManager
 from app.websocket.ws_manager import WebSocketManager
 
@@ -187,6 +189,48 @@ def get_wifi_client_stats(mac: str, dut: str = DEFAULT_DUT_ID) -> dict:
         "stats": parse_apstats(out),
         "captured_at": datetime.now().isoformat(timespec="seconds"),
     }
+
+
+@app.get("/api/wifi/survey")
+def wifi_survey() -> dict:
+    """Host-side on-demand Wi-Fi scan (iw / nmcli). Requires SURVEY_WIFI_IFACE env var.
+    Returns available:false when the host has no suitable interface or permission."""
+    return get_wifi_survey()
+
+
+@app.get("/api/wifi/capabilities")
+def get_wifi_capabilities(dut: str = DEFAULT_DUT_ID) -> dict:
+    """On-demand per-VAP SSID capability: iw dev (BSSID/freq) + iwconfig (generation)
+    + /etc/hostapd*.conf (security/PMF/k/v/r). Serial mode only."""
+    worker = resolve_dut(app, dut).serial_worker
+    try:
+        caps = get_ssid_capabilities(worker)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "ssids": caps,
+        "captured_at": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
+@app.get("/api/wifi/capability-report")
+def get_wifi_capability_report(dut: str = DEFAULT_DUT_ID) -> dict:
+    """Reconcile DUT SSID config (Source A: serial) vs host-side scan (Source B: iw/nmcli).
+
+    Source A requires an open serial connection; Source B requires SURVEY_WIFI_IFACE.
+    Both failures are surfaced in the response without raising (available_b=false or
+    an HTTP 400 for Source A serial errors).
+    """
+    worker = resolve_dut(app, dut).serial_worker
+    try:
+        ssids = get_ssid_capabilities(worker)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    survey = get_wifi_survey()
+    captured_at_a = datetime.now().isoformat(timespec="seconds")
+    report = build_capability_report(ssids, survey)
+    report["captured_at_a"] = captured_at_a
+    return report
 
 
 @app.get("/api/logs")
