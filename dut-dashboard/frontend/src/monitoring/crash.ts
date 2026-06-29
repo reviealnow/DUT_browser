@@ -1,16 +1,19 @@
-// Built-in critical-crash keyword pattern.
-// Mirrors CRITICAL_CRASH_PATTERN in pages/Dashboard.tsx (kept in sync by hand
-// for now; Dashboard keeps its own copy plus user-locked keywords). The KPI
-// counts only these built-in critical matches.
-export const CRITICAL_CRASH_PATTERN =
-  /\b(kernel panic|q6 crash|watchdog(?:\s+reset|\s+bite|\s+timeout)?)\b/i;
+export const DEFAULT_CRASH_KEYWORDS = ["kernel panic", "q6 crash", "watchdog"];
 
-export function countCrashLines(lines: string[]): number {
+// Built-in fallback pattern used before the backend responds.
+export const CRITICAL_CRASH_PATTERN = buildCrashPattern(DEFAULT_CRASH_KEYWORDS);
+
+export function buildCrashPattern(keywords: string[]): RegExp {
+  if (keywords.length === 0) return /(?!)/; // never matches
+  const alts = keywords.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  return new RegExp(`(?:${alts})`, "i");
+}
+
+export function countCrashLines(lines: string[], pattern?: RegExp): number {
+  const re = pattern ?? CRITICAL_CRASH_PATTERN;
   let count = 0;
   for (const line of lines) {
-    if (CRITICAL_CRASH_PATTERN.test(line)) {
-      count += 1;
-    }
+    if (re.test(line)) count += 1;
   }
   return count;
 }

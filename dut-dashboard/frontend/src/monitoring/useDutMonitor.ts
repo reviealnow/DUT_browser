@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_DUT_ID } from "../api/dut";
 import { getConsoleTail, getSnapshots } from "../api/rest";
 import { connectDashboardWebSocket, SnapshotPayload } from "../api/websocket";
-import { CRITICAL_CRASH_PATTERN } from "./crash";
+import { useCrashKeywords } from "./useCrashKeywords";
 
 const MAX_LINES = 1000;
 const MAX_CRASH_LINES = 200;
@@ -82,6 +82,7 @@ export type DutMonitorState = {
  * `crashLines`.
  */
 export function useDutMonitor(dutId: string = DEFAULT_DUT_ID): DutMonitorState {
+  const { pattern: crashPattern } = useCrashKeywords();
   const [lines, setLines] = useState<string[]>([]);
   const [snapshot, setSnapshot] = useState<SnapshotPayload | null>(null);
   const [cpuHistory, setCpuHistory] = useState<CpuHistoryPoint[]>([]);
@@ -232,9 +233,9 @@ export function useDutMonitor(dutId: string = DEFAULT_DUT_ID): DutMonitorState {
   const memoryLive = useMemo(() => memoryFromSnapshot(snapshot), [snapshot]);
 
   const { crashLines, crashCount } = useMemo(() => {
-    const matched = lines.filter((line) => CRITICAL_CRASH_PATTERN.test(line)).slice(-MAX_CRASH_LINES);
+    const matched = lines.filter((line) => crashPattern.test(line)).slice(-MAX_CRASH_LINES);
     return { crashLines: matched, crashCount: matched.length };
-  }, [lines]);
+  }, [lines, crashPattern]);
 
   const wifiClientTotal = useMemo(() => {
     if (!wifiSeen) {

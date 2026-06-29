@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { getDuts, getSnapshots } from "../api/rest";
 import { applySnapshotDelta, connectFleetWebSocket, SnapshotPayload } from "../api/websocket";
-import { CRITICAL_CRASH_PATTERN } from "./crash";
+import { useCrashKeywords } from "./useCrashKeywords";
 import { cpuFromSnapshot, DutStatus } from "./useDutMonitor";
 
 // Mirror the single-DUT monitor's activity windows so a DUT reads "streaming"
@@ -38,6 +38,7 @@ export type FleetEntry = {
  * only when it is being looked at.
  */
 export function useFleetMonitor(): FleetEntry[] {
+  const { pattern: crashPattern } = useCrashKeywords();
   // Registry order + labels for every registered DUT (cards show even with no stream).
   const [duts, setDuts] = useState<{ id: string; label: string }[]>([]);
   const [connected, setConnected] = useState(false);
@@ -112,7 +113,7 @@ export function useFleetMonitor(): FleetEntry[] {
           return;
         }
         if (event.type === "console_line" && typeof event.text === "string") {
-          if (CRITICAL_CRASH_PATTERN.test(event.text)) {
+          if (crashPattern.test(event.text)) {
             crashRef.current.set(dutId, (crashRef.current.get(dutId) ?? 0) + 1);
           }
           recordActivity(dutId);
@@ -121,7 +122,7 @@ export function useFleetMonitor(): FleetEntry[] {
         if (event.type === "console_line_batch" && Array.isArray(event.lines)) {
           let matched = 0;
           for (const line of event.lines) {
-            if (typeof line === "string" && CRITICAL_CRASH_PATTERN.test(line)) {
+            if (typeof line === "string" && crashPattern.test(line)) {
               matched += 1;
             }
           }
@@ -141,7 +142,7 @@ export function useFleetMonitor(): FleetEntry[] {
       window.clearInterval(interval);
       socket.close();
     };
-  }, []);
+  }, [crashPattern]);
 
   // Derive the view rows on each tick from the registry order + live refs.
   return duts.map(({ id, label }) => {

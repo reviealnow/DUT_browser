@@ -54,6 +54,14 @@ CREATE TABLE IF NOT EXISTS bulletin_comments (
 """
 
 
+SETTINGS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+"""
+
+
 def _db_path() -> Path:
     return WORKSPACE_DB
 
@@ -76,6 +84,7 @@ def init_db() -> None:
         conn.execute(FILES_SCHEMA)
         conn.execute(BULLETIN_POSTS_SCHEMA)
         conn.execute(BULLETIN_COMMENTS_SCHEMA)
+        conn.execute(SETTINGS_SCHEMA)
         conn.commit()
 
 
