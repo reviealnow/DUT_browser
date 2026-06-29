@@ -1,13 +1,18 @@
-"""Parse Wi-Fi client detail from on-demand DUT console captures.
+"""Parse Wi-Fi client detail and per-VAP SSID capability from on-demand DUT
+console captures.
 
-Two console sources (QCA/Atheros AP, verified on a real AP6 840E):
+Wi-Fi clients — two console sources (QCA/Atheros AP, verified on AP6 840E):
   * ``iwconfig``            -> active VAPs (athN Master + ESSID + channel).
-  * ``wlanconfig <vap> list`` -> the association table (one row per client) plus
-    a verbose key:value tail (SNR, operating band, max phymode).
+  * ``wlanconfig <vap> list`` -> association table + verbose tail (SNR, phymode).
 
-The association row is whitespace-delimited but has many columns, some empty, and
-a MODE field that itself contains spaces — so we extract the wanted fields with
-targeted regexes (tolerant of misses) rather than positional column slicing.
+SSID capability — three console sources (verified on AP6 840E, 2026-06):
+  * ``iw dev``              -> BSSID (addr), SSID, freq_MHz, channel, width.
+  * ``iwconfig``            -> IEEE mode token (e.g. 802.11axa) for generation.
+  * ``for f in /etc/hostapd*.conf; do printf '====CONF====%s\\n' "$f"; cat "$f"; done``
+                            -> wpa_key_mgmt / ieee80211w / ieee80211k /
+                               bss_transition / mobility_domain / ciphers.
+
+All captures are on-demand serial RPCs; never background-poll.
 """
 
 from __future__ import annotations
@@ -173,3 +178,249 @@ def parse_apstats(text: str) -> dict:
     stats["tx_nss"] = int(nss.group(1)) if nss else None
     stats["rx_nss"] = int(nss.group(2)) if nss else None
     return stats
+
+
+# ---------------------------------------------------------------------------
+# SSID capability parsers (verified on AP6 840E, 2026-06)
+# ---------------------------------------------------------------------------
+
+# `iw dev` block anchors.  Match any Interface line; only athX are kept.
+_IW_IFACE_RE = re.compile(r"^\s+Interface\s+(\S+)\s*$")
+_IW_ADDR_RE = re.compile(r"^\s+addr\s+([0-9a-f:]{17})\s*$")
+_IW_SSID_RE = re.compile(r"^\s+ssid\s+(.+?)\s*$")
+_IW_CHAN_RE = re.compile(r"^\s+channel\s+(\d+)\s+\((\d+)\s+MHz\),\s+width:\s+(\d+)\s+MHz")
+_IW_TYPE_RE = re.compile(r"^\s+type\s+(\S+)\s*$")
+
+# `iwconfig` IEEE mode per interface (athN    IEEE 802.11axa  ESSID:...)
+_IWCONF_MODE_RE = re.compile(r"^(ath\d+)\s+IEEE\s+(802\.\d+\S+)")
+
+# hostapd conf dump sentinel produced by the shell loop.
+_CONF_SEP_RE = re.compile(r"^====CONF====(.+?)\s*$")
+_CONF_FIELD_RE = re.compile(r"^([a-zA-Z0-9_]+)=(.*)$")
+
+
+def _parse_iw_dev(text: str) -> dict[str, dict]:
+    """Parse `iw dev` output into {iface: {bssid, ssid, freq_mhz, channel, width_mhz}}.
+    Only athX interfaces in AP type with an SSID are included."""
+    result: dict[str, dict] = {}
+    current_iface: str | None = None
+    current: dict = {}
+
+    def _flush() -> None:
+        if (
+            current_iface
+            and re.match(r"ath\d+$", current_iface)
+            and current.get("ssid")
+            and current.get("iface_type") == "AP"
+        ):
+            result[current_iface] = {k: v for k, v in current.items() if k != "iface_type"}
+
+    for line in text.splitlines():
+        m_iface = _IW_IFACE_RE.match(line)
+        if m_iface:
+            _flush()
+            current_iface = m_iface.group(1)
+            current = {}
+            continue
+        if current_iface is None:
+            continue
+        if (m := _IW_ADDR_RE.match(line)):
+            current["bssid"] = m.group(1)
+        elif (m := _IW_SSID_RE.match(line)):
+            current["ssid"] = m.group(1)
+        elif (m := _IW_TYPE_RE.match(line)):
+            current["iface_type"] = m.group(1)
+        elif (m := _IW_CHAN_RE.match(line)):
+            current["channel"] = int(m.group(1))
+            current["freq_mhz"] = int(m.group(2))
+            current["width_mhz"] = int(m.group(3))
+    _flush()
+    return result
+
+
+def _parse_iwconfig_modes(text: str) -> dict[str, str]:
+    """Parse `iwconfig` output into {iface: ieee_mode_token} e.g. {'ath8': '802.11axa'}."""
+    modes: dict[str, str] = {}
+    for line in text.splitlines():
+        m = _IWCONF_MODE_RE.match(line)
+        if m:
+            modes[m.group(1)] = m.group(2)
+    return modes
+
+
+def _parse_hostapd_confs(text: str) -> dict[str, dict]:
+    """Parse the shell-loop dump of all /etc/hostapd*.conf files.
+
+    Expected input produced by:
+        for f in /etc/hostapd*.conf; do printf '====CONF====%s\\n' "$f"; cat "$f"; done
+
+    Returns {iface: {wpa_key_mgmt: list[str], wpa_pairwise: list[str],
+    group_mgmt_cipher: str|None, ieee80211w: int, ieee80211k: bool,
+    bss_transition: bool, dot11r: bool}}.
+    """
+    result: dict[str, dict] = {}
+    current: dict[str, str] = {}
+
+    def _flush_conf(fields: dict[str, str]) -> None:
+        iface = fields.get("interface", "").strip()
+        if not iface:
+            return
+        def _bool(key: str) -> bool:
+            return fields.get(key, "0").strip() == "1"
+        def _int(key: str, default: int = 0) -> int:
+            try:
+                return int(fields.get(key, str(default)).strip())
+            except ValueError:
+                return default
+        akm = [k.strip() for k in fields.get("wpa_key_mgmt", "").split() if k.strip()]
+        pairwise = [k.strip() for k in fields.get("wpa_pairwise", "").split() if k.strip()]
+        has_ft = any(k.startswith("FT-") for k in akm)
+        has_mobility = bool(fields.get("mobility_domain", "").strip())
+        dot11r = has_ft or has_mobility or _bool("ft_psk_generate_local") or _bool("ft_over_ds")
+        result[iface] = {
+            "wpa": _int("wpa"),
+            "wpa_key_mgmt": akm,
+            "wpa_pairwise": pairwise,
+            "group_mgmt_cipher": fields.get("group_mgmt_cipher", "").strip() or None,
+            "ieee80211w": _int("ieee80211w"),
+            "ieee80211k": _bool("ieee80211k"),
+            "bss_transition": _bool("bss_transition"),
+            "dot11r": dot11r,
+        }
+
+    for line in text.splitlines():
+        m_sep = _CONF_SEP_RE.match(line)
+        if m_sep:
+            _flush_conf(current)
+            current = {}
+            continue
+        m_field = _CONF_FIELD_RE.match(line.strip())
+        if m_field and not line.strip().startswith("#"):
+            current[m_field.group(1)] = m_field.group(2)
+    _flush_conf(current)
+    return result
+
+
+def _derive_generation(ieee_token: str, freq_mhz: int | None) -> str | None:
+    """Map iwconfig IEEE token + freq to a Wi-Fi generation label."""
+    t = ieee_token.lower()
+    if "be" in t:
+        return "Wi-Fi 7"
+    if "ax" in t:
+        if freq_mhz and freq_mhz >= 5945:
+            return "Wi-Fi 6E"
+        return "Wi-Fi 6"
+    if "ac" in t:
+        return "Wi-Fi 5"
+    if "n" in t or "ht" in t:
+        return "Wi-Fi 4"
+    return None
+
+
+def _classify_security(
+    akm_list: list[str], ieee80211w: int
+) -> tuple[str, str | None, str]:
+    """Return (security_label, category, pmf_label) from hostapd fields."""
+    has_sae = any(k in ("SAE", "FT-SAE") for k in akm_list)
+    has_psk = any(k in ("WPA-PSK", "FT-PSK") for k in akm_list)
+    has_suite_b = "WPA-EAP-SUITE-B-192" in akm_list
+    has_eap = any(k.startswith("WPA-EAP") or k == "IEEE8021X" for k in akm_list)
+
+    if has_suite_b:
+        security, category = "WPA3-Enterprise-192", "enterprise"
+    elif has_eap:
+        security, category = "WPA2-Enterprise", "enterprise"
+    elif has_sae and has_psk:
+        security, category = "WPA2/WPA3-Personal", "personal"
+    elif has_sae:
+        security, category = "WPA3-Personal", "personal"
+    elif has_psk:
+        security, category = "WPA2-Personal", "personal"
+    else:
+        security, category = "Open", None
+
+    pmf = {0: "disabled", 1: "optional", 2: "required"}.get(ieee80211w, "disabled")
+    return security, category, pmf
+
+
+def _band_from_freq(freq_mhz: int | None) -> str | None:
+    if freq_mhz is None:
+        return None
+    if freq_mhz >= 5945:
+        return "6GHz"
+    if freq_mhz >= 4900:
+        return "5GHz"
+    return "2.4GHz"
+
+
+def get_ssid_capabilities(
+    worker: "object",  # SerialWorker — avoids a circular import
+) -> list[dict]:
+    """Gather per-VAP SSID capability from three on-demand serial captures.
+
+    Returns a list of SsidCapability dicts; missing fields are None (tolerant).
+    Raises RuntimeError (passed through) only when the serial port is not open.
+    """
+    from app.serial.serial_worker import SerialWorker  # local import avoids circular
+
+    assert isinstance(worker, SerialWorker)
+
+    # --- Capture 1: iw dev (BSSID / SSID / freq / channel / width) ---
+    iw_text = worker.capture_command("iw dev", timeout=6.0)
+    iw_vaps = _parse_iw_dev(iw_text)
+
+    # --- Capture 2: iwconfig (IEEE mode token for generation) ---
+    try:
+        iwc_text = worker.capture_command("iwconfig", timeout=8.0)
+    except RuntimeError:
+        iwc_text = ""
+    iwc_modes = _parse_iwconfig_modes(iwc_text)
+
+    # --- Capture 3: hostapd conf dump (security / PMF / k/v/r) ---
+    conf_cmd = r"for f in /etc/hostapd*.conf; do printf '====CONF====%s\n' \"$f\"; cat \"$f\"; done"
+    try:
+        conf_text = worker.capture_command(conf_cmd, timeout=10.0)
+    except RuntimeError:
+        conf_text = ""
+    conf_map = _parse_hostapd_confs(conf_text)
+
+    capabilities: list[dict] = []
+    for iface, vap in iw_vaps.items():
+        freq_mhz: int | None = vap.get("freq_mhz")
+        ieee_token: str = iwc_modes.get(iface, "")
+        conf: dict = conf_map.get(iface, {})
+
+        akm_list: list[str] = conf.get("wpa_key_mgmt", [])
+        ieee80211w: int = conf.get("ieee80211w", 0)
+        security, category, pmf = _classify_security(akm_list, ieee80211w)
+
+        gen = _derive_generation(ieee_token, freq_mhz) if ieee_token else None
+
+        capabilities.append({
+            "iface": iface,
+            "bssid": vap.get("bssid"),
+            "ssid": vap.get("ssid"),
+            "band": _band_from_freq(freq_mhz),
+            "freq_mhz": freq_mhz,
+            "channel": vap.get("channel"),
+            "channel_width": f"{vap['width_mhz']} MHz" if vap.get("width_mhz") else None,
+            "generation": gen,
+            "security": security,
+            "category": category,
+            "akm": akm_list,
+            "pairwise_cipher": conf.get("wpa_pairwise", []),
+            "group_mgmt_cipher": conf.get("group_mgmt_cipher"),
+            "pmf": pmf,
+            "dot11k": conf.get("ieee80211k", False) or None if conf else None,
+            "dot11v": conf.get("bss_transition", False) or None if conf else None,
+            "dot11r": conf.get("dot11r", False) or None if conf else None,
+        })
+
+    # Sort by band (2.4 → 5 → 6) then iface number for consistent ordering.
+    def _sort_key(c: dict) -> tuple[int, int]:
+        freq = c.get("freq_mhz") or 0
+        n = int(re.search(r"\d+", c["iface"]).group()) if re.search(r"\d+", c["iface"]) else 0  # type: ignore[union-attr]
+        return (0 if freq < 4900 else 1 if freq < 5945 else 2, n)
+
+    capabilities.sort(key=_sort_key)
+    return capabilities
