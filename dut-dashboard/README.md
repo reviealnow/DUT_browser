@@ -143,7 +143,7 @@ backend/app/
 ├── parser/sysmon_parser.py SysMonParser: snapshots / CPU / wifi clients / batched console
 ├── services/
 │   ├── analyzer_service.py runs analyzer3.py → cpu_usage.csv / memory.csv
-│   └── snapshot_store.py   JSONL store (no-op placeholder — see Roadmap)
+│   └── snapshot_store.py   bounded JSONL snapshot ring; persists + backfills on connect
 └── websocket/ws_manager.py broadcasts events to all /ws clients (thread→loop bridge)
 ```
 
@@ -152,10 +152,15 @@ writes each to `logs/dut-session-*.log`, and feeds them to `SysMonParser`. The
 parser emits events through `WebSocketManager.emit_from_thread`, which bridges
 to the asyncio loop and broadcasts to every `/ws` client.
 
-**Snapshots are ephemeral.** `SnapshotStore.append()` is currently a no-op, so
-nothing is persisted to `logs/snapshots.jsonl`. The only durable artifact is the
-raw session log; structured CPU/memory is re-derived offline by `analyzer3.py`.
-(Persistence + on-connect backfill are on the Roadmap.)
+**Snapshots are persisted.** `SnapshotStore.observe()` reconstructs full
+snapshots from the parser's `snapshot_update` / `snapshot_delta` events, keeps a
+bounded in-memory ring (latest 500, keyed by `device_ts`), and appends finalized
+snapshots to `logs/snapshots.jsonl` (per-DUT: `logs/snapshots-<id>.jsonl`) so
+history survives a backend restart. The file is bounded — `_compact_locked()`
+rewrites it from the deduped ring at startup and periodically. On startup
+`_load_tail()` reloads recent history, so `recent()` can backfill a freshly
+connected `/ws` client instantly. The raw session log remains the source for
+offline CPU/memory re-derivation by `analyzer3.py`.
 
 ## WebSocket event contracts (`/ws`)
 
