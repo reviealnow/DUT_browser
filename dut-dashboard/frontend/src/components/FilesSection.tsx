@@ -170,7 +170,13 @@ function UploadCard({ onUploaded }: { onUploaded: () => void }) {
           if (file) void send(file);
         }}
       >
-        {busy ? "Uploading…" : "Drag a file here or click to browse"}
+        <div className="upload-drop-icon" aria-hidden="true">
+          ⬆
+        </div>
+        <div className="upload-drop-main">
+          {busy ? "Uploading…" : "Drag a file here, or click to browse"}
+        </div>
+        <div className="upload-drop-hint">Max 50 MB · pdf, png, csv, log, pcapng…</div>
       </div>
       <input
         ref={inputRef}
