@@ -244,14 +244,16 @@ function FilesByTypeBody({ stats }: { stats: FilesStats }) {
 }
 
 function TopUploadersBody({ stats }: { stats: FilesStats }) {
-  const rows = stats.top_uploaders;
+  // Drop the anonymous "—" bucket: it's not a contributor, and when most uploads
+  // are anonymous it dwarfs every named bar to invisibility. Named-only also
+  // matches the "Contributors" KPI (backend excludes NULL uploaders) and the
+  // foot count below.
+  const rows = stats.top_uploaders.filter((r) => r.uploader !== "—");
   if (rows.length === 0) {
-    return <EmptyState icon="👤" message="No uploaders yet" hint="Uploads are credited to the contributor name." />;
+    return <EmptyState icon="👤" message="No named uploaders yet" hint="Set your name on upload to be credited here." />;
   }
   const max = Math.max(1, ...rows.map((r) => r.count));
-  // Count named contributors only — matches the "Contributors" KPI, which the
-  // backend computes excluding NULL uploaders (shown here as the "—" bucket).
-  const named = rows.filter((r) => r.uploader !== "—").length;
+  const named = rows.length;
   return (
     <div className="chart">
       <div className="barrows">
