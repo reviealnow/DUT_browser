@@ -345,22 +345,22 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  padding: var(--space-5);
+  padding: var(--space-3) var(--space-4);
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-1);
 }
 
 .kpi-label {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 
 .kpi-value {
-  font-size: 28px;
+  font-size: 22px;
   font-weight: 700;
   line-height: 1.1;
 }
@@ -714,8 +714,8 @@ body {
   word-break: break-all;
 }
 
-/* Session logs grow fast: cap the list to ~5 rows and scroll for older.
-   The header stays pinned so columns are readable while scrolling. */
+/* Session logs and shared files grow fast: cap the list to ~5 rows and scroll
+   for older. The header stays pinned so columns are readable while scrolling. */
 .logscroll {
   max-height: 264px;
   overflow-y: auto;

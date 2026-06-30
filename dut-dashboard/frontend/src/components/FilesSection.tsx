@@ -48,52 +48,63 @@ function FileTypeChip({ name }: { name: string }) {
   return <span className={`ftype ${FTYPE_CLASS[ext] ?? ""}`}>{label}</span>;
 }
 
+// Shared files accumulate like session logs; cap the visible height to ~5 rows
+// and scroll for older. All rows stay in the DOM so search/filter still works.
+const VISIBLE_FILE_ROWS = 5;
+
 function SharedFilesTable({ rows, onDelete }: { rows: WorkspaceFile[]; onDelete: (file: WorkspaceFile) => void }) {
   return (
-    <table className="filetable">
-      <thead>
-        <tr>
-          <th>Filename</th>
-          <th>Size</th>
-          <th>Uploader</th>
-          <th aria-label="actions" />
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => (
-          <tr key={row.id}>
-            <td className="filetable-name">
-              <FileTypeChip name={row.filename} />
-              {row.filename}
-            </td>
-            <td>{formatSize(row.size)}</td>
-            <td><AuthorTag name={row.uploader} /></td>
-            <td>
-              <div className="row-actions">
-                <a
-                  className="icon-btn"
-                  href={getFileDownloadUrl(row.id)}
-                  download={row.filename}
-                  title="Download"
-                  aria-label={`Download ${row.filename}`}
-                >
-                  ↓
-                </a>
-                <button
-                  type="button"
-                  className="icon-btn danger"
-                  title="Delete"
-                  aria-label={`Delete ${row.filename}`}
-                  onClick={() => onDelete(row)}
-                >
-                  🗑
-                </button>
-              </div>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <>
+      {rows.length > VISIBLE_FILE_ROWS ? (
+        <div className="logscroll-note">Showing newest first — scroll for older ({rows.length} total).</div>
+      ) : null}
+      <div className="logscroll">
+        <table className="filetable">
+          <thead>
+            <tr>
+              <th>Filename</th>
+              <th>Size</th>
+              <th>Uploader</th>
+              <th aria-label="actions" />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.id}>
+                <td className="filetable-name">
+                  <FileTypeChip name={row.filename} />
+                  {row.filename}
+                </td>
+                <td>{formatSize(row.size)}</td>
+                <td><AuthorTag name={row.uploader} /></td>
+                <td>
+                  <div className="row-actions">
+                    <a
+                      className="icon-btn"
+                      href={getFileDownloadUrl(row.id)}
+                      download={row.filename}
+                      title="Download"
+                      aria-label={`Download ${row.filename}`}
+                    >
+                      ↓
+                    </a>
+                    <button
+                      type="button"
+                      className="icon-btn danger"
+                      title="Delete"
+                      aria-label={`Delete ${row.filename}`}
+                      onClick={() => onDelete(row)}
+                    >
+                      🗑
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 
@@ -233,14 +244,16 @@ function FilesByTypeBody({ stats }: { stats: FilesStats }) {
 }
 
 function TopUploadersBody({ stats }: { stats: FilesStats }) {
-  const rows = stats.top_uploaders;
+  // Drop the anonymous "—" bucket: it's not a contributor, and when most uploads
+  // are anonymous it dwarfs every named bar to invisibility. Named-only also
+  // matches the "Contributors" KPI (backend excludes NULL uploaders) and the
+  // foot count below.
+  const rows = stats.top_uploaders.filter((r) => r.uploader !== "—");
   if (rows.length === 0) {
-    return <EmptyState icon="👤" message="No uploaders yet" hint="Uploads are credited to the contributor name." />;
+    return <EmptyState icon="👤" message="No named uploaders yet" hint="Set your name on upload to be credited here." />;
   }
   const max = Math.max(1, ...rows.map((r) => r.count));
-  // Count named contributors only — matches the "Contributors" KPI, which the
-  // backend computes excluding NULL uploaders (shown here as the "—" bucket).
-  const named = rows.filter((r) => r.uploader !== "—").length;
+  const named = rows.length;
   return (
     <div className="chart">
       <div className="barrows">
