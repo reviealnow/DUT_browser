@@ -48,52 +48,63 @@ function FileTypeChip({ name }: { name: string }) {
   return <span className={`ftype ${FTYPE_CLASS[ext] ?? ""}`}>{label}</span>;
 }
 
+// Shared files accumulate like session logs; cap the visible height to ~5 rows
+// and scroll for older. All rows stay in the DOM so search/filter still works.
+const VISIBLE_FILE_ROWS = 5;
+
 function SharedFilesTable({ rows, onDelete }: { rows: WorkspaceFile[]; onDelete: (file: WorkspaceFile) => void }) {
   return (
-    <table className="filetable">
-      <thead>
-        <tr>
-          <th>Filename</th>
-          <th>Size</th>
-          <th>Uploader</th>
-          <th aria-label="actions" />
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => (
-          <tr key={row.id}>
-            <td className="filetable-name">
-              <FileTypeChip name={row.filename} />
-              {row.filename}
-            </td>
-            <td>{formatSize(row.size)}</td>
-            <td><AuthorTag name={row.uploader} /></td>
-            <td>
-              <div className="row-actions">
-                <a
-                  className="icon-btn"
-                  href={getFileDownloadUrl(row.id)}
-                  download={row.filename}
-                  title="Download"
-                  aria-label={`Download ${row.filename}`}
-                >
-                  ↓
-                </a>
-                <button
-                  type="button"
-                  className="icon-btn danger"
-                  title="Delete"
-                  aria-label={`Delete ${row.filename}`}
-                  onClick={() => onDelete(row)}
-                >
-                  🗑
-                </button>
-              </div>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <>
+      {rows.length > VISIBLE_FILE_ROWS ? (
+        <div className="logscroll-note">Showing newest first — scroll for older ({rows.length} total).</div>
+      ) : null}
+      <div className="logscroll">
+        <table className="filetable">
+          <thead>
+            <tr>
+              <th>Filename</th>
+              <th>Size</th>
+              <th>Uploader</th>
+              <th aria-label="actions" />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.id}>
+                <td className="filetable-name">
+                  <FileTypeChip name={row.filename} />
+                  {row.filename}
+                </td>
+                <td>{formatSize(row.size)}</td>
+                <td><AuthorTag name={row.uploader} /></td>
+                <td>
+                  <div className="row-actions">
+                    <a
+                      className="icon-btn"
+                      href={getFileDownloadUrl(row.id)}
+                      download={row.filename}
+                      title="Download"
+                      aria-label={`Download ${row.filename}`}
+                    >
+                      ↓
+                    </a>
+                    <button
+                      type="button"
+                      className="icon-btn danger"
+                      title="Delete"
+                      aria-label={`Delete ${row.filename}`}
+                      onClick={() => onDelete(row)}
+                    >
+                      🗑
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 
