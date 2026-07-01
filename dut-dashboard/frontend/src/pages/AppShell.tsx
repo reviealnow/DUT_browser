@@ -26,6 +26,7 @@ const FilesSection = lazy(() => import("../components/FilesSection"));
 const SettingsSection = lazy(() => import("../components/SettingsSection"));
 const WifiClientsCard = lazy(() => import("../components/WifiClientsCard"));
 const SsidCapabilityCard = lazy(() => import("../components/SsidCapabilityCard"));
+const SiteSurveyCard = lazy(() => import("../components/SiteSurveyCard"));
 const Dashboard = lazy(() => import("./Dashboard"));
 
 const PHASE3_HINT = "Trend charts and live views arrive in Phase 3.";
@@ -186,6 +187,8 @@ function renderSection(
       return <WifiClientsCard dutId={selectedDut} />;
     case "ssid":
       return <SsidCapabilityCard dutId={selectedDut} />;
+    case "sitesurvey":
+      return <SiteSurveyCard dutId={selectedDut} />;
     case "logs":
       return (
         <Card title="Logs / Crash events" subtitle="Critical crash + log event detection">
