@@ -16,6 +16,29 @@ function bandRank(band: string | null): number {
   return band !== null && band in BAND_ORDER ? BAND_ORDER[band] : 99;
 }
 
+// 2.4GHz always shows the full channel 1-13 grid (including empty channels —
+// "nothing here" is exactly what you want to see when picking a clear one).
+// 5/6GHz have hundreds of possible channels, so only ones actually seen in the
+// scan (plus the current channel) are shown, ascending.
+const ALL_24G_CHANNELS = Array.from({ length: 13 }, (_, i) => i + 1);
+
+/** Raw neighbor (SSID) count per channel for one band — NOT the signal-weighted
+ * occupancy score used for the recommendation pill. This is the plain "how many
+ * APs are on this channel" number so the user can read the jam themselves. */
+function channelCounts(neighbors: ObservedNeighbor[], band: string, currentChannel: number): [number, number][] {
+  const counts = new Map<number, number>();
+  for (const n of neighbors) {
+    if (n.band === band && n.channel !== null) {
+      counts.set(n.channel, (counts.get(n.channel) ?? 0) + 1);
+    }
+  }
+  const channels =
+    band === "2.4GHz"
+      ? ALL_24G_CHANNELS
+      : Array.from(new Set([...counts.keys(), currentChannel])).sort((a, b) => a - b);
+  return channels.map((ch) => [ch, counts.get(ch) ?? 0]);
+}
+
 /**
  * DUT-side site survey + per-band channel recommendation. Auto-runs on
  * section entry / DUT switch, mirrors WifiClientsCard's idiom (Card + Scan
@@ -94,6 +117,12 @@ export default function SiteSurveyCard({ dutId = DEFAULT_DUT_ID }: { dutId?: str
             <span style={{ color: "var(--faint)", fontSize: 12, alignSelf: "center" }}>scanned {data.captured_at}</span>
           </div>
 
+          <div className="grid" style={{ marginBottom: "var(--space-4)" }}>
+            {data.recommendations.map((rec) => (
+              <ChannelUsageChart key={rec.band} rec={rec} neighbors={data.neighbors} />
+            ))}
+          </div>
+
           {data.neighbors.length === 0 ? (
             <EmptyState icon="📶" message="No neighboring APs detected" hint={`Scanned ${data.survey_vaps.length} VAP(s).`} />
           ) : (
@@ -145,6 +174,55 @@ function RecommendationPill({ rec }: { rec: ChannelRecommendation }) {
       {optimal ? "✓" : "⚠"} {rec.band}: ch {rec.current_channel}
       {optimal ? "" : ` → ${rec.recommended_channel}`}
     </span>
+  );
+}
+
+/** Per-band bar chart of raw SSID count per channel, so the user can eyeball
+ * the jam and pick a channel themselves rather than only trusting the
+ * recommendation pill above. The current channel's bar is called out. */
+function ChannelUsageChart({ rec, neighbors }: { rec: ChannelRecommendation; neighbors: ObservedNeighbor[] }) {
+  const counts = useMemo(
+    () => channelCounts(neighbors, rec.band, rec.current_channel),
+    [neighbors, rec.band, rec.current_channel],
+  );
+  const max = Math.max(1, ...counts.map(([, c]) => c));
+
+  return (
+    <div className="chart">
+      <div style={{ fontWeight: 600, fontSize: 13, marginBottom: "var(--space-2)" }}>
+        {rec.band} channel usage <span style={{ color: "var(--faint)", fontWeight: 400 }}>(SSIDs per channel)</span>
+      </div>
+      <div className="barrows">
+        {counts.map(([ch, count]) => {
+          const isCurrent = ch === rec.current_channel;
+          const isRecommended = ch === rec.recommended_channel && !isCurrent;
+          return (
+            <div className="barrow" key={ch}>
+              <div className="barrow-label">
+                Ch {ch}
+                {isCurrent ? " •" : ""}
+              </div>
+              <div className="barrow-track">
+                <div
+                  className="barrow-fill"
+                  style={{
+                    width: `${(count / max) * 100}%`,
+                    background: isCurrent ? "var(--warn)" : isRecommended ? "var(--ok)" : undefined,
+                  }}
+                />
+              </div>
+              <div className="barrow-value">{count}</div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ display: "flex", gap: "var(--space-3)", fontSize: 11, color: "var(--faint)", marginTop: "var(--space-2)" }}>
+        <span>🟠 current (ch {rec.current_channel})</span>
+        {rec.recommended_channel !== rec.current_channel ? (
+          <span>🟢 recommended (ch {rec.recommended_channel})</span>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
