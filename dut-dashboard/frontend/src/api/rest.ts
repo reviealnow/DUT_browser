@@ -500,3 +500,55 @@ export async function getWifiSurvey(): Promise<{ available: boolean; bss: unknow
 export async function getCapabilityReport(dutId = DEFAULT_DUT_ID): Promise<CapabilityReport> {
   return get<CapabilityReport>(`/api/wifi/capability-report?dut=${dutId}`);
 }
+
+// ---------------------------------------------------------------------------
+// Site Survey / Channel Recommendation
+// ---------------------------------------------------------------------------
+
+export type SurveyVap = { iface: string; ssid: string; band: string; channel: number | null; mode: string | null };
+
+export type ObservedNeighbor = {
+  iface: string;
+  bssid: string;
+  ssid: string | null;
+  band: string | null;
+  freq_mhz: number | null;
+  channel: number | null;
+  signal_dbm: number | null;
+  generation: string | null;
+  security: string | null;
+  category: string | null;
+  pmf: string | null;
+};
+
+export type SiteSurveyResult = {
+  vaps: SurveyVap[];
+  neighbors: ObservedNeighbor[];
+  captured_at: string;
+};
+
+export type ChannelRecommendation = {
+  band: string;
+  iface: string;
+  current_channel: number;
+  recommended_channel: number;
+  score: number;
+  occupancy: Record<string, number>;
+  reasoning: string;
+  caveat: string | null;
+};
+
+export type ChannelRecommendationResult = {
+  recommendations: ChannelRecommendation[];
+  neighbors: ObservedNeighbor[];
+  survey_vaps: SurveyVap[];
+  captured_at: string;
+};
+
+export async function getSiteSurvey(dutId = DEFAULT_DUT_ID): Promise<SiteSurveyResult> {
+  return get<SiteSurveyResult>(`/api/wifi/site-survey?dut=${dutId}`);
+}
+
+export async function getChannelRecommendation(dutId = DEFAULT_DUT_ID): Promise<ChannelRecommendationResult> {
+  return get<ChannelRecommendationResult>(`/api/wifi/channel-recommendation?dut=${dutId}`);
+}

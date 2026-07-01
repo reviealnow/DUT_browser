@@ -20,6 +20,7 @@ from app.db.workspace import init_db
 from app.dut.registry import DEFAULT_DUT_ID, DutContext, DutRegistry, build_default_registry
 from app.services.analyzer_service import AnalyzerService
 from app.services.capability_report import build_capability_report
+from app.services.site_survey import channel_recommendation, get_site_survey
 from app.services.wifi_clients import discover_vaps, get_ssid_capabilities, parse_apstats, parse_wlanconfig_list
 from app.services.wifi_survey import get_wifi_survey
 from app.websocket.terminal_manager import TerminalManager
@@ -231,6 +232,39 @@ def get_wifi_capability_report(dut: str = DEFAULT_DUT_ID) -> dict:
     report = build_capability_report(ssids, survey)
     report["captured_at_a"] = captured_at_a
     return report
+
+
+@app.get("/api/wifi/site-survey")
+def get_wifi_site_survey(dut: str = DEFAULT_DUT_ID) -> dict:
+    """On-demand DUT-side neighbor scan: `iw dev <vap> scan` per active VAP.
+    Serial mode only; off-channel scans are slower than other captures."""
+    worker = resolve_dut(app, dut).serial_worker
+    try:
+        return get_site_survey(worker)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/wifi/channel-recommendation")
+def get_wifi_channel_recommendation(dut: str = DEFAULT_DUT_ID) -> dict:
+    """Recommend the least-occupied channel per band from the DUT's own site
+    survey, reconciled against its own SSID config (current channel per band).
+    Also echoes the raw survey (neighbors/vaps) so the frontend can render both
+    the recommendation and the underlying table from a single scan — a second
+    call to /api/wifi/site-survey would re-run the (slow, off-channel) scan.
+    Serial mode only; both captures happen on this request (no caching)."""
+    worker = resolve_dut(app, dut).serial_worker
+    try:
+        own_vaps = get_ssid_capabilities(worker)
+        survey = get_site_survey(worker)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "recommendations": channel_recommendation(survey["neighbors"], own_vaps),
+        "neighbors": survey["neighbors"],
+        "survey_vaps": survey["vaps"],
+        "captured_at": survey["captured_at"],
+    }
 
 
 @app.get("/api/logs")
