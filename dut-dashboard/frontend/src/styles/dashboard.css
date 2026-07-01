@@ -1104,10 +1104,7 @@ body {
 .cap-body { display: flex; flex-direction: column; gap: var(--space-4); }
 .cap-summary { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
 .cap-ts { font-size: 0.75rem; color: var(--muted); margin-left: auto; }
-.cap-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
-.cap-table th, .cap-table td { padding: var(--space-1) var(--space-2); text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
-.cap-table th { font-weight: 600; background: var(--surface); position: sticky; top: 0; }
-.cap-row { cursor: pointer; transition: background 0.1s; }
+.cap-row { transition: background 0.1s; }
 .cap-row:hover { background: var(--surface); }
 .cap-row--ok td:first-child { border-left: 3px solid var(--ok, #22c55e); }
 .cap-row--diff td:first-child { border-left: 3px solid var(--warn, #f59e0b); }
