@@ -5,7 +5,7 @@ import threading
 import time
 import unittest
 
-from app.serial.serial_worker import SerialWorker
+from app.serial.serial_worker import SerialWorker, _gate_wait_seconds
 
 
 class StubParser:
@@ -197,6 +197,20 @@ class _PromptPrefixFakeSerial(FakeSerial):
         m = re.search(r"echo (\S+)", text)
         if m:
             self.feed(b"stats-line\nroot@AP:/# " + m.group(1).encode() + b"\n")
+
+
+class GateWaitFloorTests(unittest.TestCase):
+    """Regression test for the "site survey starves other wifi captures" bug:
+    a short caller's gate-wait must be long enough to queue behind a much
+    longer in-flight capture (e.g. site_survey's ~70s multi-VAP scan) instead
+    of failing "busy" well before the long one finishes."""
+
+    def test_short_timeout_gets_generous_floor(self) -> None:
+        self.assertEqual(_gate_wait_seconds(6.0), 90.0)
+        self.assertEqual(_gate_wait_seconds(0.3), 90.0)
+
+    def test_longer_timeout_than_floor_is_respected(self) -> None:
+        self.assertEqual(_gate_wait_seconds(120.0), 124.0)
 
 
 class CaptureCommandTests(unittest.TestCase):
