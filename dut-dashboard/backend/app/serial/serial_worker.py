@@ -19,6 +19,18 @@ _TERM_PATTERN = re.compile(r"^[A-Za-z0-9.-]+$")
 _LABEL_STRIP = re.compile(r"[^A-Za-z0-9._-]")
 _LABEL_MAX = 40
 
+# Some captures (e.g. site_survey's multi-VAP off-channel scan) legitimately
+# hold the gate for up to ~70s. A short caller queued behind one must have
+# enough patience to wait through it rather than giving up on "busy" well
+# before the long capture finishes — so the gate-wait floor is decoupled from
+# this call's own (usually much shorter) read timeout. A caller that explicitly
+# asks for a longer read timeout than the floor still gets timeout + 4.0.
+_GATE_WAIT_FLOOR_SEC = 90.0
+
+
+def _gate_wait_seconds(timeout: float) -> float:
+    return max(timeout + 4.0, _GATE_WAIT_FLOOR_SEC)
+
 
 def sanitize_session_label(label: str | None) -> str:
     """Reduce a free-text DUT label to a filename-safe token (or "").
@@ -208,7 +220,7 @@ class SerialWorker:
         sentinel = f"__DUTCAP_{int(time.time() * 1000) % 1_000_000:06d}__"
         # Queue behind any in-flight capture rather than rejecting it: serial is a
         # single channel and these calls arrive on independent request threads.
-        if not self._capture_gate.acquire(timeout=timeout + 4.0):
+        if not self._capture_gate.acquire(timeout=_gate_wait_seconds(timeout)):
             raise RuntimeError("Serial capture is busy; try again")
         try:
             with self._lock:
