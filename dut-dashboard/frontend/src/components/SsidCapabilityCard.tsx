@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { CapabilityReport, CapabilityRow, getCapabilityReport, humanizeApiError } from "../api/rest";
 import { DEFAULT_DUT_ID } from "../api/dut";
@@ -22,13 +22,18 @@ function CapabilityRowView({ row }: { row: CapabilityRow }) {
 
   return (
     <>
-      <tr
-        className={rowClass}
-        onClick={() => setExpanded((v) => !v)}
-        style={{ cursor: "pointer" }}
-        aria-expanded={expanded}
-      >
-        <td className="cap-iface">{row.iface}</td>
+      <tr className={rowClass} aria-expanded={expanded}>
+        <td className="cap-iface filetable-name">
+          <button
+            className="btn"
+            onClick={() => setExpanded((v) => !v)}
+            title="Show config vs observed detail"
+            style={{ padding: "0 6px", marginRight: 6 }}
+          >
+            {expanded ? "▾" : "▸"}
+          </button>
+          {row.iface}
+        </td>
         <td className="cap-ssid">{row.ssid ?? <em>hidden</em>}</td>
         <td>{row.band ?? "—"}</td>
         <td>{row.channel ?? "—"}</td>
@@ -104,18 +109,37 @@ function CapabilityRowView({ row }: { row: CapabilityRow }) {
   );
 }
 
-/** On-demand SSID capability report: DUT config (serial) vs host-side iw scan. */
+/**
+ * On-demand SSID capability report: DUT config (serial) vs host-side iw scan.
+ * Auto-runs when the section opens or the selected DUT changes — mirrors
+ * WifiClientsCard's auto-scan idiom. The "Re-run" button always re-fetches.
+ */
 export default function SsidCapabilityCard({ dutId = DEFAULT_DUT_ID }: { dutId?: string }) {
   const [report, setReport] = useState<CapabilityReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const fetchReport = useCallback(() => {
+  const fetchReport = useCallback((forDut: string) => {
     setLoading(true);
     setError("");
-    getCapabilityReport(dutId)
+    getCapabilityReport(forDut)
       .then((r) => { setReport(r); setLoading(false); })
       .catch((e) => { setError(humanizeApiError(e)); setLoading(false); });
+  }, []);
+
+  const rerun = useCallback(() => fetchReport(dutId), [fetchReport, dutId]);
+
+  // Auto-run once per DUT (mount or switch). The ref-gate survives React 18
+  // StrictMode's double-invoke (first pass sets it, second sees it already set)
+  // so this never double-fires. Manual "Re-run" always re-fetches regardless.
+  const lastDutRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (lastDutRef.current !== dutId) {
+      lastDutRef.current = dutId;
+      setReport(null);
+      fetchReport(dutId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dutId]);
 
   return (
@@ -124,18 +148,18 @@ export default function SsidCapabilityCard({ dutId = DEFAULT_DUT_ID }: { dutId?:
         title="SSID Capability — Config vs Air"
         subtitle="DUT hostapd config (Source A, serial) reconciled with host-side iw scan (Source B)"
         actions={
-          <button type="button" className="btn primary" onClick={fetchReport} disabled={loading}>
+          <button type="button" className="btn primary" onClick={rerun} disabled={loading}>
             {loading ? "Loading…" : report ? "Re-run" : "Run"}
           </button>
         }
       >
         {error ? (
-          <EmptyState icon="⚠" message="Fetch failed" hint={error} />
+          <EmptyState icon="⚠" message="Fetch failed" hint={`Open a DUT serial connection, then Run. (${error})`} />
         ) : !report ? (
           <EmptyState
             icon="📡"
-            message="Click Run to reconcile"
-            hint="Requires an open serial connection to the DUT. Source B (iw scan) needs SURVEY_WIFI_IFACE set on the host."
+            message="No scan yet"
+            hint="Open a DUT serial connection, then Run."
           />
         ) : (
           <CapabilityReportBody report={report} />
@@ -166,8 +190,8 @@ function CapabilityReportBody({ report }: { report: CapabilityReport }) {
         <span className="cap-ts">A: {report.captured_at_a}{report.captured_at_b ? ` · B: ${report.captured_at_b}` : ""}</span>
       </div>
 
-      <div className="table-wrap" style={{ overflowX: "auto" }}>
-        <table className="cap-table">
+      <div style={{ overflowX: "auto" }}>
+        <table className="filetable wifitable">
           <thead>
             <tr>
               <th>Iface</th>
