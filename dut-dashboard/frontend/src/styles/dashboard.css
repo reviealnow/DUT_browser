@@ -615,6 +615,88 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* ---------- Charts: vertical channel columns ---------- */
+
+.colchart {
+  display: flex;
+  gap: var(--space-2);
+  /* headroom so a full-height column's Busy/Best tag stays inside the card */
+  padding-top: var(--space-5);
+  align-items: flex-start;
+}
+
+.colchart-y {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 140px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--faint);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  min-width: 20px;
+}
+
+.colchart-cols {
+  flex: 1;
+  display: flex;
+  border-left: 1px solid var(--border);
+}
+
+.colcol {
+  flex: 1;
+  min-width: 0;
+  padding: 0 2px;
+  cursor: pointer;
+}
+
+.colcol-track {
+  height: 140px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+}
+
+.colcol-tag {
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+.colcol-value {
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.colcol-bar {
+  width: min(70%, 22px);
+  flex-shrink: 0;
+  background: var(--faint);
+  border-radius: 3px 3px 0 0;
+  transition: height 0.2s ease;
+}
+
+.colcol:hover .colcol-bar {
+  filter: brightness(0.85);
+}
+
+.colcol-label {
+  margin-top: var(--space-1);
+  text-align: center;
+  font-size: 10px;
+  color: var(--muted);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ---------- Charts: crash feed ---------- */
 
 .feed {
