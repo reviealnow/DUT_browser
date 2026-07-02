@@ -97,14 +97,16 @@ export default function AppShell() {
               ) : undefined
             }
             actions={
-            <>
+            // Wrapper is transparent on desktop (display:contents) so the layout
+            // is unchanged; under 720px it becomes the deliberate stacked column.
+            <div className="toolbar-actions">
               <DutSwitcher selected={selectedDut} onSelect={setSelectedDut} />
               <ToolbarActions
                 status={monitor.status}
                 lastEventAgeSec={monitor.lastEventAgeSec}
                 onConnect={() => setActive("console")}
               />
-            </>
+            </div>
           }
           />
           {updateAvailable ? (
@@ -645,11 +647,15 @@ function ToolbarActions({
   const age = formatEventAge(lastEventAgeSec);
   return (
     <>
-      {age && status !== "offline" ? <span className="toolbar-sub">{age}</span> : null}
-      <span className={`pill ${statusMeta.pill}`} title="Backend link + DUT stream status">
-        <span className="dot" />
-        {statusMeta.label}
-      </span>
+      {/* Status cluster is transparent on desktop (display:contents); under 720px
+          it becomes one row (age left, pill right) above the Connect button. */}
+      <div className="toolbar-status">
+        {age && status !== "offline" ? <span className="toolbar-sub">{age}</span> : null}
+        <span className={`pill ${statusMeta.pill}`} title="Backend link + DUT stream status">
+          <span className="dot" />
+          {statusMeta.label}
+        </span>
+      </div>
       <button type="button" className="btn primary" onClick={onConnect}>
         Connect DUT
       </button>
