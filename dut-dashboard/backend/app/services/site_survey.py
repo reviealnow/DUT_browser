@@ -35,6 +35,15 @@ _BAND_TO_GHZ = {"2.4G": "2.4GHz", "5G": "5GHz", "6G": "6GHz"}
 # as recommendation candidates even if a VAP happens to sit off this grid.
 _NONOVERLAP_24G = (1, 6, 11)
 
+# 2.4 GHz channel numbers are 5 MHz apart but a 20 MHz transmission is ~4
+# channel numbers wide, so a neighbor bleeds into nearby channel numbers:
+# full weight co-channel, fading linearly to zero at a 5-channel separation
+# (which is why 1/6/11 are the non-overlapping set). 5/6 GHz channel plans
+# don't overlap this way, so the weight only applies to 2.4 GHz.
+def _overlap_weight_24g(channel_delta: int) -> float:
+    return max(0.0, 1.0 - abs(channel_delta) / 5.0)
+
+
 # Rough signal-to-disruption weight: a strong neighbor on a channel matters a
 # lot more than a barely-audible one. Buckets, not a full propagation model.
 def _signal_weight(signal_dbm: float | None) -> float:
@@ -94,6 +103,14 @@ def channel_recommendation(neighbors: list[dict], own_vaps: list[dict]) -> list[
     Returns one row per band the DUT has a VAP on:
         {band, iface, current_channel, recommended_channel, score,
          occupancy: {channel: score, ...}, reasoning, caveat}
+
+    Occupancy model: each neighbor contributes its signal weight to the
+    channels it disrupts. On 5/6 GHz that is co-channel only (keyed by
+    observed channels). On 2.4 GHz overlapping 20 MHz channels bleed into
+    each other, so every channel in the full 1-13 grid is scored with
+    `_overlap_weight_24g` applied per neighbor — a wall of APs on ch 6
+    now counts against ch 4-8 too, not just ch 6. Recommendation
+    candidates stay on the non-overlapping 1/6/11 grid (+ current).
     """
     own_bssids = {v["bssid"].lower() for v in own_vaps if v.get("bssid")}
 
@@ -110,15 +127,24 @@ def channel_recommendation(neighbors: list[dict], own_vaps: list[dict]) -> list[
         ]
 
         occupancy: dict[int, float] = {}
-        for n in band_neighbors:
-            ch = n.get("channel")
-            if ch is None:
-                continue
-            occupancy[ch] = occupancy.get(ch, 0.0) + _signal_weight(n.get("signal_dbm"))
-
         if band == "2.4GHz":
+            grid = sorted(set(range(1, 14)) | {current_channel})
+            for c in grid:
+                occupancy[c] = round(
+                    sum(
+                        _signal_weight(n.get("signal_dbm")) * _overlap_weight_24g(c - n["channel"])
+                        for n in band_neighbors
+                        if n.get("channel") is not None
+                    ),
+                    2,
+                )
             candidates = sorted(set(_NONOVERLAP_24G) | {current_channel})
         else:
+            for n in band_neighbors:
+                ch = n.get("channel")
+                if ch is None:
+                    continue
+                occupancy[ch] = occupancy.get(ch, 0.0) + _signal_weight(n.get("signal_dbm"))
             candidates = sorted({n["channel"] for n in band_neighbors if n.get("channel")} | {current_channel})
 
         # Tie-break toward the current channel (don't recommend hopping when a

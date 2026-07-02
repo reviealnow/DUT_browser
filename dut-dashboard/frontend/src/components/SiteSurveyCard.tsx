@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   ChannelRecommendation,
@@ -179,13 +179,21 @@ function RecommendationPill({ rec }: { rec: ChannelRecommendation }) {
 
 /** Per-band bar chart of raw SSID count per channel, so the user can eyeball
  * the jam and pick a channel themselves rather than only trusting the
- * recommendation pill above. The current channel's bar is called out. */
+ * recommendation pill above. The current channel's bar is called out.
+ * Clicking a bar previews "what if this radio moved here" using the
+ * backend's interference score (occupancy) — one preview per band, since
+ * same-band interfaces share the radio's frequency. */
 function ChannelUsageChart({ rec, neighbors }: { rec: ChannelRecommendation; neighbors: ObservedNeighbor[] }) {
   const counts = useMemo(
     () => channelCounts(neighbors, rec.band, rec.current_channel),
     [neighbors, rec.band, rec.current_channel],
   );
   const max = Math.max(1, ...counts.map(([, c]) => c));
+
+  const [whatIf, setWhatIf] = useState<number | null>(null);
+  // A re-scan replaces rec — a stale preview would compare against dead data.
+  useEffect(() => setWhatIf(null), [rec]);
+  const scoreOf = (ch: number) => rec.occupancy[String(ch)] ?? 0;
 
   return (
     <div className="chart">
@@ -196,9 +204,16 @@ function ChannelUsageChart({ rec, neighbors }: { rec: ChannelRecommendation; nei
         {counts.map(([ch, count]) => {
           const isCurrent = ch === rec.current_channel;
           const isRecommended = ch === rec.recommended_channel && !isCurrent;
+          const isWhatIf = ch === whatIf && !isCurrent;
           return (
-            <div className="barrow" key={ch}>
-              <div className="barrow-label">
+            <div
+              className="barrow"
+              key={ch}
+              onClick={() => setWhatIf(whatIf === ch ? null : ch)}
+              style={{ cursor: "pointer" }}
+              title={`Preview moving ${rec.band} to ch ${ch}`}
+            >
+              <div className="barrow-label" style={isWhatIf ? { color: "var(--accent)", fontWeight: 600 } : undefined}>
                 Ch {ch}
                 {isCurrent ? " •" : ""}
               </div>
@@ -207,7 +222,7 @@ function ChannelUsageChart({ rec, neighbors }: { rec: ChannelRecommendation; nei
                   className="barrow-fill"
                   style={{
                     width: `${(count / max) * 100}%`,
-                    background: isCurrent ? "var(--warn)" : isRecommended ? "var(--ok)" : undefined,
+                    background: isCurrent ? "var(--warn)" : isWhatIf ? "var(--accent)" : isRecommended ? "var(--ok)" : undefined,
                   }}
                 />
               </div>
@@ -216,13 +231,60 @@ function ChannelUsageChart({ rec, neighbors }: { rec: ChannelRecommendation; nei
           );
         })}
       </div>
-      <div style={{ display: "flex", gap: "var(--space-3)", fontSize: 11, color: "var(--faint)", marginTop: "var(--space-2)" }}>
+      <div style={{ display: "flex", gap: "var(--space-3)", fontSize: 11, color: "var(--faint)", marginTop: "var(--space-2)", flexWrap: "wrap" }}>
         <span>🟠 current (ch {rec.current_channel})</span>
         {rec.recommended_channel !== rec.current_channel ? (
           <span>🟢 recommended (ch {rec.recommended_channel})</span>
         ) : null}
+        {whatIf === null ? (
+          <span>click a bar to preview a move</span>
+        ) : (
+          <WhatIfPreview
+            band={rec.band}
+            channel={whatIf}
+            score={scoreOf(whatIf)}
+            currentChannel={rec.current_channel}
+            currentScore={scoreOf(rec.current_channel)}
+            onClear={() => setWhatIf(null)}
+          />
+        )}
       </div>
     </div>
+  );
+}
+
+/** Interference-score comparison for a hypothetical channel move. Scores are
+ * the backend's signal-weighted occupancy (adjacent-channel aware on 2.4GHz),
+ * NOT the raw SSID counts drawn in the bars — same source as the pill. */
+function WhatIfPreview({
+  band,
+  channel,
+  score,
+  currentChannel,
+  currentScore,
+  onClear,
+}: {
+  band: string;
+  channel: number;
+  score: number;
+  currentChannel: number;
+  currentScore: number;
+  onClear: () => void;
+}) {
+  const same = channel === currentChannel;
+  const better = score < currentScore;
+  const verdict = same
+    ? "already the current channel"
+    : `interference ${score < currentScore ? "↓" : score > currentScore ? "↑" : "="} ${score.toFixed(1)} vs ${currentScore.toFixed(1)} now`;
+  return (
+    <Fragment>
+      <span className={`pill ${same || better ? "ok" : "warn"}`} style={{ fontSize: 11 }}>
+        what-if {band} → ch {channel}: {verdict}
+      </span>
+      <button className="btn" style={{ fontSize: 11, padding: "0 var(--space-2)" }} onClick={onClear}>
+        ✕
+      </button>
+    </Fragment>
   );
 }
 
