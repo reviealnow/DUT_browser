@@ -44,6 +44,9 @@ const PHASE3_HINT = "Trend charts and live views arrive in Phase 3.";
  */
 export default function AppShell() {
   const [active, setActive] = useState<SectionId>("overview");
+  // Mobile nav drawer (off-canvas). Inert on desktop — the sidebar is always
+  // visible there and the hamburger that toggles this is hidden via CSS.
+  const [navOpen, setNavOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [selectedDut, setSelectedDut] = useState(DEFAULT_DUT_ID);
   // One monitor for the selected DUT drives everything: the sections, the topbar
@@ -73,11 +76,21 @@ export default function AppShell() {
     <DutMonitorProvider value={monitor}>
       <WifiScanProvider>
       <div className="app">
-        <Sidebar active={active} onSelect={setActive} />
+        <Sidebar
+          active={active}
+          onSelect={(id) => {
+            setActive(id);
+            setNavOpen(false);
+          }}
+          open={navOpen}
+          onClose={() => setNavOpen(false)}
+        />
         <div className="main">
           <Topbar
             title={current.title}
             subtitle={current.subtitle}
+            onMenuClick={() => setNavOpen(true)}
+            navOpen={navOpen}
             search={
               active === "logs" || active === "downloads" || active === "files" || active === "bulletin" ? (
                 <SearchBox value={search} onChange={setSearch} />
