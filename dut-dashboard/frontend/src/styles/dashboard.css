@@ -238,6 +238,15 @@ body {
   flex: 1;
 }
 
+/* Right-cluster wrappers. On desktop they are transparent (display:contents),
+   so DutSwitcher / age / pill / Connect stay direct flex children of .toolbar
+   exactly as before. Under 720px they switch to a deliberate stacked layout
+   (see the max-width media query). */
+.toolbar-actions,
+.toolbar-status {
+  display: contents;
+}
+
 .search {
   display: flex;
   align-items: center;
@@ -1116,6 +1125,39 @@ body {
   }
   .search {
     min-width: 0;
+    width: 100%;
+  }
+  /* Deliberate mobile layout for the right-side cluster: instead of letting
+     DutSwitcher / status / Connect wrap chaotically, stack them full width. */
+  .toolbar-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-3);
+    width: 100%;
+  }
+  /* Row 1: DutSwitcher spans the width; the select grows, "DUTs" stays snug. */
+  .dut-switcher {
+    width: 100%;
+  }
+  .dut-switcher > select {
+    flex: 1;
+    min-width: 0;
+  }
+  /* Row 2: status line — age on the left, pill pinned right. */
+  .toolbar-status {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+  }
+  .toolbar-status .toolbar-sub {
+    margin-right: auto;
+  }
+  /* Row 3: primary action spans the width. */
+  .toolbar-actions > .btn.primary {
+    width: 100%;
+    justify-content: center;
   }
 }
 
