@@ -25,17 +25,24 @@ const ALL_24G_CHANNELS = Array.from({ length: 13 }, (_, i) => i + 1);
 /** Raw neighbor (SSID) count per channel for one band — NOT the signal-weighted
  * occupancy score used for the recommendation pill. This is the plain "how many
  * APs are on this channel" number so the user can read the jam themselves. */
-function channelCounts(neighbors: ObservedNeighbor[], band: string, currentChannel: number): [number, number][] {
+function channelCounts(
+  neighbors: ObservedNeighbor[],
+  band: string,
+  currentChannel: number,
+  recommendedChannel: number,
+): [number, number][] {
   const counts = new Map<number, number>();
   for (const n of neighbors) {
     if (n.band === band && n.channel !== null) {
       counts.set(n.channel, (counts.get(n.channel) ?? 0) + 1);
     }
   }
+  // Recommended channel is included even when unobserved — an empty channel is
+  // exactly what the backend likes to recommend, and it must be visible.
   const channels =
     band === "2.4GHz"
       ? ALL_24G_CHANNELS
-      : Array.from(new Set([...counts.keys(), currentChannel])).sort((a, b) => a - b);
+      : Array.from(new Set([...counts.keys(), currentChannel, recommendedChannel])).sort((a, b) => a - b);
   return channels.map((ch) => [ch, counts.get(ch) ?? 0]);
 }
 
@@ -177,18 +184,23 @@ function RecommendationPill({ rec }: { rec: ChannelRecommendation }) {
   );
 }
 
-/** Per-band bar chart of raw SSID count per channel, so the user can eyeball
- * the jam and pick a channel themselves rather than only trusting the
- * recommendation pill above. The current channel's bar is called out.
- * Clicking a bar previews "what if this radio moved here" using the
- * backend's interference score (occupancy) — one preview per band, since
- * same-band interfaces share the radio's frequency. */
+/** Per-band vertical column chart of raw SSID count per channel, so the user
+ * can eyeball the jam and pick a channel themselves rather than only trusting
+ * the recommendation pill above. The busiest channel is called out in red
+ * ("Busy"), the recommended one in green ("Best"); the current channel gets a
+ * dot on its axis label. Clicking a column previews "what if this radio moved
+ * here" using the backend's interference score (occupancy) — one preview per
+ * band, since same-band interfaces share the radio's frequency. */
 function ChannelUsageChart({ rec, neighbors }: { rec: ChannelRecommendation; neighbors: ObservedNeighbor[] }) {
   const counts = useMemo(
-    () => channelCounts(neighbors, rec.band, rec.current_channel),
-    [neighbors, rec.band, rec.current_channel],
+    () => channelCounts(neighbors, rec.band, rec.current_channel, rec.recommended_channel),
+    [neighbors, rec.band, rec.current_channel, rec.recommended_channel],
   );
-  const max = Math.max(1, ...counts.map(([, c]) => c));
+  const max = Math.max(...counts.map(([, c]) => c));
+  // Axis headroom: round up past the tallest bar (multiple of 4 keeps the
+  // quarter-tick labels integral), so tag/value labels never overflow the top.
+  const axisMax = Math.max(4, Math.ceil((max + 1) / 4) * 4);
+  const busiest = max > 0 ? counts.find(([, c]) => c === max)![0] : null;
 
   const [whatIf, setWhatIf] = useState<number | null>(null);
   // A re-scan replaces rec — a stale preview would compare against dead data.
@@ -197,45 +209,64 @@ function ChannelUsageChart({ rec, neighbors }: { rec: ChannelRecommendation; nei
 
   return (
     <div className="chart">
-      <div style={{ fontWeight: 600, fontSize: 13, marginBottom: "var(--space-2)" }}>
+      <div style={{ fontWeight: 600, fontSize: 13 }}>
         {rec.band} channel usage <span style={{ color: "var(--faint)", fontWeight: 400 }}>(SSIDs per channel)</span>
       </div>
-      <div className="barrows">
-        {counts.map(([ch, count]) => {
-          const isCurrent = ch === rec.current_channel;
-          const isRecommended = ch === rec.recommended_channel && !isCurrent;
-          const isWhatIf = ch === whatIf && !isCurrent;
-          return (
-            <div
-              className="barrow"
-              key={ch}
-              onClick={() => setWhatIf(whatIf === ch ? null : ch)}
-              style={{ cursor: "pointer" }}
-              title={`Preview moving ${rec.band} to ch ${ch}`}
-            >
-              <div className="barrow-label" style={isWhatIf ? { color: "var(--accent)", fontWeight: 600 } : undefined}>
-                Ch {ch}
-                {isCurrent ? " •" : ""}
+      <div className="colchart">
+        <div className="colchart-y" aria-hidden="true">
+          {[4, 3, 2, 1, 0].map((i) => (
+            <span key={i}>{(axisMax * i) / 4}</span>
+          ))}
+        </div>
+        <div className="colchart-cols">
+          {counts.map(([ch, count]) => {
+            const isCurrent = ch === rec.current_channel;
+            const isWhatIf = ch === whatIf && !isCurrent;
+            const isRecommended = ch === rec.recommended_channel;
+            const isBusiest = ch === busiest && !isRecommended;
+            const color = isWhatIf
+              ? "var(--accent)"
+              : isRecommended
+                ? "var(--ok)"
+                : isBusiest
+                  ? "var(--danger)"
+                  : undefined;
+            const tag = isWhatIf ? "Try" : isRecommended ? "Best" : isBusiest ? "Busy" : null;
+            return (
+              <div
+                className="colcol"
+                key={ch}
+                onClick={() => setWhatIf(whatIf === ch ? null : ch)}
+                title={`Preview moving ${rec.band} to ch ${ch}`}
+              >
+                <div className="colcol-track">
+                  {tag ? (
+                    <span className="colcol-tag" style={{ color }}>
+                      {tag}
+                    </span>
+                  ) : null}
+                  <span className="colcol-value" style={color ? { color, fontWeight: 700 } : undefined}>{count}</span>
+                  <div
+                    className="colcol-bar"
+                    style={{
+                      height: count > 0 ? `max(2px, ${(count / axisMax) * 100}%)` : 0,
+                      background: color,
+                    }}
+                  />
+                </div>
+                <div className="colcol-label" style={isWhatIf ? { color: "var(--accent)", fontWeight: 600 } : undefined}>
+                  {ch}
+                  {isCurrent ? "•" : ""}
+                </div>
               </div>
-              <div className="barrow-track">
-                <div
-                  className="barrow-fill"
-                  style={{
-                    width: `${(count / max) * 100}%`,
-                    background: isCurrent ? "var(--warn)" : isWhatIf ? "var(--accent)" : isRecommended ? "var(--ok)" : undefined,
-                  }}
-                />
-              </div>
-              <div className="barrow-value">{count}</div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
-      <div style={{ display: "flex", gap: "var(--space-3)", fontSize: 11, color: "var(--faint)", marginTop: "var(--space-2)", flexWrap: "wrap" }}>
-        <span>🟠 current (ch {rec.current_channel})</span>
-        {rec.recommended_channel !== rec.current_channel ? (
-          <span>🟢 recommended (ch {rec.recommended_channel})</span>
-        ) : null}
+      <div style={{ display: "flex", gap: "var(--space-3)", fontSize: 11, color: "var(--faint)", flexWrap: "wrap" }}>
+        <span>• current (ch {rec.current_channel})</span>
+        <span>🟢 recommended (ch {rec.recommended_channel})</span>
+        {busiest !== null && busiest !== rec.recommended_channel ? <span>🔴 busiest (ch {busiest})</span> : null}
         {whatIf === null ? (
           <span>click a bar to preview a move</span>
         ) : (
