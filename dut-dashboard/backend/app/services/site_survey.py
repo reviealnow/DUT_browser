@@ -114,12 +114,23 @@ def channel_recommendation(neighbors: list[dict], own_vaps: list[dict]) -> list[
     """
     own_bssids = {v["bssid"].lower() for v in own_vaps if v.get("bssid")}
 
+    # One row per band, not per VAP: a DUT commonly runs several VAPs on the same
+    # band (multiple SSIDs share one radio, hence one channel), which would
+    # otherwise emit duplicate identical recommendations. Keep the first VAP seen
+    # per band; own_bssids above still spans every VAP so self-exclusion is intact.
+    band_vaps: list[dict] = []
+    seen_bands: set = set()
+    for v in own_vaps:
+        band = v.get("band")
+        if band is None or v.get("channel") is None or band in seen_bands:
+            continue
+        seen_bands.add(band)
+        band_vaps.append(v)
+
     rows: list[dict] = []
-    for own in own_vaps:
+    for own in band_vaps:
         band = own.get("band")
         current_channel = own.get("channel")
-        if band is None or current_channel is None:
-            continue
 
         band_neighbors = [
             n for n in neighbors

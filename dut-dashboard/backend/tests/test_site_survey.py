@@ -9,7 +9,12 @@ from __future__ import annotations
 
 import unittest
 
-from app.services.site_survey import channel_recommendation, parse_iw_scan_text
+from app.services.site_survey import (
+    _overlap_weight_24g,
+    _signal_weight,
+    channel_recommendation,
+    parse_iw_scan_text,
+)
 
 # Trimmed real capture (3 of ~14 BSS blocks) from `iw dev ath0 scan` on a live
 # AP6 840E — proves the DUT's busybox `iw` output matches the host-side format
@@ -125,6 +130,38 @@ class TestChannelRecommendation(unittest.TestCase):
     def test_skips_own_vap_missing_band_or_channel(self) -> None:
         own = [{"iface": "ath0", "band": None, "channel": None, "bssid": "aa:aa:aa:aa:aa:01"}]
         self.assertEqual(channel_recommendation([], own), [])
+
+    def test_one_row_per_band_when_multiple_vaps_share_a_band(self) -> None:
+        # Several SSIDs on one radio => several VAPs on the same band/channel.
+        # The recommendation is per band, so this must collapse to a single row.
+        own = [
+            _own_vap("ath0", "2.4GHz", 6, "aa:aa:aa:aa:aa:01"),
+            _own_vap("ath1", "2.4GHz", 6, "aa:aa:aa:aa:aa:02"),
+            _own_vap("ath2", "2.4GHz", 6, "aa:aa:aa:aa:aa:03"),
+            _own_vap("ath16", "5GHz", 36, "bb:bb:bb:bb:bb:01"),
+            _own_vap("ath17", "5GHz", 36, "bb:bb:bb:bb:bb:02"),
+        ]
+        rows = channel_recommendation([], own)
+        self.assertEqual([r["band"] for r in rows], ["2.4GHz", "5GHz"])
+        # The kept row is the first VAP seen for that band.
+        self.assertEqual(rows[0]["iface"], "ath0")
+        self.assertEqual(rows[1]["iface"], "ath16")
+
+    def test_own_bssid_exclusion_spans_all_same_band_vaps(self) -> None:
+        # Even though only one row per band is emitted, EVERY same-band VAP's
+        # BSSID must still be excluded from the neighbor tally (an AP sees all
+        # of its own SSIDs in a scan).
+        own = [
+            _own_vap("ath0", "2.4GHz", 6, "aa:aa:aa:aa:aa:01"),
+            _own_vap("ath1", "2.4GHz", 6, "aa:aa:aa:aa:aa:02"),
+        ]
+        neighbors = [
+            _neighbor("aa:aa:aa:aa:aa:02", 6, -40),  # our own 2nd SSID — must be ignored
+            _neighbor("ee:ee:ee:ee:ee:01", 6, -50),  # a genuine neighbor
+        ]
+        row = channel_recommendation(neighbors, own)[0]
+        # Only the genuine neighbor contributes (weight 3 for -50), not our own.
+        self.assertEqual(row["occupancy"][6], _signal_weight(-50) * _overlap_weight_24g(0))
 
 
 class TestAdjacentChannelWeighting(unittest.TestCase):
