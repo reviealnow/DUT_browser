@@ -127,5 +127,50 @@ class TestChannelRecommendation(unittest.TestCase):
         self.assertEqual(channel_recommendation([], own), [])
 
 
+class TestAdjacentChannelWeighting(unittest.TestCase):
+    """2.4GHz occupancy applies _overlap_weight_24g; 5/6GHz stay co-channel."""
+
+    def test_overlap_weights_pinned(self) -> None:
+        # One strong neighbor (weight 3) on ch 6 bleeds linearly: 3.0 at Δ0
+        # down to 0 at Δ5 — so the 1/6/11 grid stays mutually clean.
+        own = [_own_vap("ath0", "2.4GHz", 1, "aa:aa:aa:aa:aa:01")]
+        occupancy = channel_recommendation([_neighbor("11:11:11:11:11:01", 6, -50)], own)[0]["occupancy"]
+        self.assertEqual(occupancy[6], 3.0)
+        self.assertEqual(occupancy[5], 2.4)
+        self.assertEqual(occupancy[7], 2.4)
+        self.assertEqual(occupancy[4], 1.8)
+        self.assertEqual(occupancy[8], 1.8)
+        self.assertEqual(occupancy[1], 0.0)
+        self.assertEqual(occupancy[11], 0.0)
+
+    def test_adjacent_bleed_changes_recommendation(self) -> None:
+        # No neighbor sits exactly on 1/6/11 — the old co-channel model saw
+        # all candidates as equally clear and kept the current channel. With
+        # bleed, ch 3 pollutes ch 1 (Δ2) and ch 13 pollutes ch 11 (Δ2), so
+        # ch 6 (only Δ3 bleed from ch 3) is now the right call.
+        own = [_own_vap("ath0", "2.4GHz", 1, "aa:aa:aa:aa:aa:01")]
+        neighbors = [
+            _neighbor("11:11:11:11:11:01", 3, -50),
+            _neighbor("11:11:11:11:11:02", 13, -50),
+        ]
+        row = channel_recommendation(neighbors, own)[0]
+        self.assertEqual(row["occupancy"][1], 1.8)
+        self.assertEqual(row["occupancy"][6], 1.2)
+        self.assertEqual(row["occupancy"][11], 1.8)
+        self.assertEqual(row["recommended_channel"], 6)
+
+    def test_24g_occupancy_covers_full_grid(self) -> None:
+        own = [_own_vap("ath0", "2.4GHz", 6, "aa:aa:aa:aa:aa:01")]
+        occupancy = channel_recommendation([], own)[0]["occupancy"]
+        self.assertEqual(set(occupancy.keys()), set(range(1, 14)))
+
+    def test_5ghz_stays_co_channel_only(self) -> None:
+        own = [_own_vap("ath16", "5GHz", 36, "bb:bb:bb:bb:bb:01")]
+        row = channel_recommendation([_neighbor("cc:cc:cc:cc:cc:01", 40, -50, band="5GHz")], own)[0]
+        self.assertEqual(row["occupancy"], {40: 3.0})
+        self.assertEqual(row["recommended_channel"], 36)
+        self.assertEqual(row["score"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()
