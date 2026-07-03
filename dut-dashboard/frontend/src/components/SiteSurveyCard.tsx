@@ -47,14 +47,26 @@ function channelCounts(
 }
 
 /**
- * DUT-side site survey + per-band channel recommendation. Auto-runs on
- * section entry / DUT switch, mirrors WifiClientsCard's idiom (Card + Scan
- * action + summary pills + filetable). Off-channel scans on all active VAPs
- * are slow (tens of seconds on a busy AP) — the Scan button disables and
- * labels itself while in flight rather than pretending this is instant.
+ * Last successful survey per DUT, held at module scope so it survives the card
+ * unmounting when you navigate to another section. The off-channel scan takes
+ * ~40s, so it runs at most once per DUT — the first time the section is opened
+ * with serial up — and the cache is reused afterwards: re-entering the section
+ * shows the previous result instantly instead of re-running the long scan.
+ * Manual "Re-scan" is the only way to refresh.
+ */
+const surveyCache = new Map<string, ChannelRecommendationResult>();
+
+/**
+ * DUT-side site survey + per-band channel recommendation. Auto-runs once per DUT
+ * (the first view with no cached result), then reuses surveyCache on re-entry so
+ * the slow scan never repeats on navigation; mirrors WifiClientsCard's idiom
+ * (Card + Scan action + summary pills + filetable). Off-channel scans on all
+ * active VAPs are slow (tens of seconds on a busy AP) — the Scan button disables
+ * and labels itself while in flight, and a re-scan keeps the previous result on
+ * screen (even if it fails) rather than blanking the card.
  */
 export default function SiteSurveyCard({ dutId = DEFAULT_DUT_ID }: { dutId?: string }) {
-  const [data, setData] = useState<ChannelRecommendationResult | null>(null);
+  const [data, setData] = useState<ChannelRecommendationResult | null>(() => surveyCache.get(dutId) ?? null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -62,23 +74,36 @@ export default function SiteSurveyCard({ dutId = DEFAULT_DUT_ID }: { dutId?: str
     setLoading(true);
     setError("");
     getChannelRecommendation(forDut)
-      .then((r) => { setData(r); setLoading(false); })
-      .catch((e) => { setError(humanizeApiError(e)); setLoading(false); });
+      .then((r) => {
+        surveyCache.set(forDut, r);
+        setData(r);
+        setLoading(false);
+      })
+      // A re-scan that fails must NOT blank the card — keep the previous data on
+      // screen and surface the reason as an inline note (see render below).
+      .catch((e) => {
+        setError(humanizeApiError(e));
+        setLoading(false);
+      });
   }, []);
 
   const rerun = useCallback(() => scan(dutId), [scan, dutId]);
 
-  // Auto-run once per DUT (mount or switch); ref-gate survives StrictMode's
-  // double-invoke. Manual "Re-scan" always re-fetches.
+  // Auto-scan a DUT only the first time it's viewed with no cached result
+  // (ref-gate survives StrictMode's double-invoke). Once a scan lands in
+  // surveyCache, re-entering the section reuses it — the long scan never repeats
+  // on navigation. Switching DUT shows that DUT's cached survey, or scans once.
   const lastDutRef = useRef<string | null>(null);
   useEffect(() => {
-    if (lastDutRef.current !== dutId) {
-      lastDutRef.current = dutId;
-      setData(null);
+    if (lastDutRef.current === dutId) return;
+    lastDutRef.current = dutId;
+    const cached = surveyCache.get(dutId);
+    setData(cached ?? null);
+    setError("");
+    if (!cached) {
       scan(dutId);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dutId]);
+  }, [dutId, scan]);
 
   const sortedNeighbors = useMemo(() => {
     const ns = data?.neighbors ?? [];
@@ -107,16 +132,13 @@ export default function SiteSurveyCard({ dutId = DEFAULT_DUT_ID }: { dutId?: str
       subtitle="DUT-side neighbor scan (iw scan) per band, reconciled with current channel"
       actions={action}
     >
-      {error ? (
-        <EmptyState icon="⚠" message="Scan failed" hint={`Open a DUT serial connection, then Scan. (${error})`} />
-      ) : data === null ? (
-        <EmptyState
-          icon="📡"
-          message="No scan yet"
-          hint={loading ? "Scanning all active VAPs — this can take up to a minute." : "Open a DUT serial connection, then Scan."}
-        />
-      ) : (
+      {data !== null ? (
         <>
+          {error ? (
+            <div className="flash" style={{ marginBottom: "var(--space-3)" }}>
+              Re-scan failed: {error} — showing the previous scan.
+            </div>
+          ) : null}
           <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap", marginBottom: "var(--space-3)" }}>
             {data.recommendations.map((r) => (
               <RecommendationPill key={r.band} rec={r} />
@@ -166,6 +188,14 @@ export default function SiteSurveyCard({ dutId = DEFAULT_DUT_ID }: { dutId?: str
             dangerouslySetInnerHTML={{ __html: JSON.stringify(data.recommendations) }}
           />
         </>
+      ) : error ? (
+        <EmptyState icon="⚠" message="Scan failed" hint={`Open a DUT serial connection, then Scan. (${error})`} />
+      ) : (
+        <EmptyState
+          icon="📡"
+          message="No scan yet"
+          hint={loading ? "Scanning all active VAPs — this can take up to a minute." : "Open a DUT serial connection, then Scan."}
+        />
       )}
     </Card>
   );
