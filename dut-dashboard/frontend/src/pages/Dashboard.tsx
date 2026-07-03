@@ -28,7 +28,17 @@ function choosePreferredPort(ports: SerialPortInfo[]): string {
   return macosCuPort ? macosCuPort.device : ports[0].device;
 }
 
-export default function Dashboard({ active = true, dutId = DEFAULT_DUT_ID }: { active?: boolean; dutId?: string }) {
+export default function Dashboard({
+  active = true,
+  dutId = DEFAULT_DUT_ID,
+  onSerialOpened,
+}: {
+  active?: boolean;
+  dutId?: string;
+  /** Fired once a real serial connection opens (not replay) — lets the shell
+   *  kick off a background site survey the moment the DUT connects. */
+  onSerialOpened?: (dutId: string) => void;
+}) {
   // Console lines come from the single shared WebSocket (useDutMonitor) instead
   // of Dashboard opening its own connection.
   const { lines } = useDutMonitorContext();
@@ -80,6 +90,12 @@ export default function Dashboard({ active = true, dutId = DEFAULT_DUT_ID }: { a
       const fileName = logPath.split(/[\\/]/).pop() || "";
       setCurrentLogFileName(fileName);
       setIsOpen(true);
+      // A real serial connection just came up — prescan the site survey now so
+      // it's ready regardless of which page the user is on. Replay has no serial
+      // to scan, so skip it there.
+      if (mode === "serial") {
+        onSerialOpened?.(dutId);
+      }
     });
   }
 

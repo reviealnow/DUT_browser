@@ -1,13 +1,8 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
-import {
-  ChannelRecommendation,
-  ChannelRecommendationResult,
-  humanizeApiError,
-  ObservedNeighbor,
-  getChannelRecommendation,
-} from "../api/rest";
+import { ChannelRecommendation, ObservedNeighbor } from "../api/rest";
 import { DEFAULT_DUT_ID } from "../api/dut";
+import { ensureSurvey, runSurvey, useSurvey } from "../monitoring/siteSurveyStore";
 import { Card, EmptyState } from "./shell/Card";
 
 const BAND_ORDER: Record<string, number> = { "2.4GHz": 0, "5GHz": 1, "6GHz": 2 };
@@ -47,63 +42,32 @@ function channelCounts(
 }
 
 /**
- * Last successful survey per DUT, held at module scope so it survives the card
- * unmounting when you navigate to another section. The off-channel scan takes
- * ~40s, so it runs at most once per DUT — the first time the section is opened
- * with serial up — and the cache is reused afterwards: re-entering the section
- * shows the previous result instantly instead of re-running the long scan.
- * Manual "Re-scan" is the only way to refresh.
- */
-const surveyCache = new Map<string, ChannelRecommendationResult>();
-
-/**
- * DUT-side site survey + per-band channel recommendation. Auto-runs once per DUT
- * (the first view with no cached result), then reuses surveyCache on re-entry so
- * the slow scan never repeats on navigation; mirrors WifiClientsCard's idiom
- * (Card + Scan action + summary pills + filetable). Off-channel scans on all
- * active VAPs are slow (tens of seconds on a busy AP) — the Scan button disables
- * and labels itself while in flight, and a re-scan keeps the previous result on
- * screen (even if it fails) rather than blanking the card.
+ * DUT-side site survey + per-band channel recommendation.
+ *
+ * The scan result lives in a shared module store (siteSurveyStore), not in this
+ * card, so it survives the card unmounting on navigation and can be filled by a
+ * background prescan the moment serial connects — see runSurvey in the Dashboard
+ * open flow. The card just subscribes and displays: it auto-fills the cache once
+ * on first open if nothing scanned yet, reuses the cached result on re-entry so
+ * the slow (~40s) scan never repeats on navigation, and keeps the previous
+ * result on screen during a Re-scan (even if it fails) rather than blanking.
+ * Mirrors WifiClientsCard's idiom (Card + Scan action + summary pills + table).
  */
 export default function SiteSurveyCard({ dutId = DEFAULT_DUT_ID }: { dutId?: string }) {
-  const [data, setData] = useState<ChannelRecommendationResult | null>(() => surveyCache.get(dutId) ?? null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const { result: data, loading, error } = useSurvey(dutId);
 
-  const scan = useCallback((forDut: string) => {
-    setLoading(true);
-    setError("");
-    getChannelRecommendation(forDut)
-      .then((r) => {
-        surveyCache.set(forDut, r);
-        setData(r);
-        setLoading(false);
-      })
-      // A re-scan that fails must NOT blank the card — keep the previous data on
-      // screen and surface the reason as an inline note (see render below).
-      .catch((e) => {
-        setError(humanizeApiError(e));
-        setLoading(false);
-      });
-  }, []);
+  const rerun = () => void runSurvey(dutId);
 
-  const rerun = useCallback(() => scan(dutId), [scan, dutId]);
-
-  // Auto-scan a DUT only the first time it's viewed with no cached result
-  // (ref-gate survives StrictMode's double-invoke). Once a scan lands in
-  // surveyCache, re-entering the section reuses it — the long scan never repeats
-  // on navigation. Switching DUT shows that DUT's cached survey, or scans once.
+  // Fill the cache the first time this DUT's section is opened with no result
+  // yet — a normal serial connect already prescanned via runSurvey, so this is
+  // the fallback for opening Site Survey before connecting. ensureSurvey never
+  // re-runs a scan that already succeeded; the ref-gate survives StrictMode.
   const lastDutRef = useRef<string | null>(null);
   useEffect(() => {
     if (lastDutRef.current === dutId) return;
     lastDutRef.current = dutId;
-    const cached = surveyCache.get(dutId);
-    setData(cached ?? null);
-    setError("");
-    if (!cached) {
-      scan(dutId);
-    }
-  }, [dutId, scan]);
+    ensureSurvey(dutId);
+  }, [dutId]);
 
   const sortedNeighbors = useMemo(() => {
     const ns = data?.neighbors ?? [];

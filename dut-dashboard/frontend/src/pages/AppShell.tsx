@@ -14,6 +14,7 @@ import { useAppVersion } from "../monitoring/useAppVersion";
 import { DutMonitorProvider } from "../monitoring/DutMonitorContext";
 import { DutMonitorState, DutStatus, useDutMonitor } from "../monitoring/useDutMonitor";
 import { useWifiScan, wifiScanForDut, WifiScanProvider } from "../monitoring/WifiScanContext";
+import { runSurvey } from "../monitoring/siteSurveyStore";
 
 // Heavy sections are loaded on demand so the initial bundle only carries the
 // app shell + the default Overview (charts). Each becomes its own async chunk.
@@ -120,7 +121,11 @@ export default function AppShell() {
             {consoleLoaded ? (
               <div className="embed" style={{ display: active === "console" ? "block" : "none" }}>
                 <Suspense fallback={<SectionLoading />}>
-                  <Dashboard active={active === "console"} dutId={selectedDut} />
+                  <Dashboard
+                    active={active === "console"}
+                    dutId={selectedDut}
+                    onSerialOpened={(id) => void runSurvey(id)}
+                  />
                 </Suspense>
               </div>
             ) : null}
