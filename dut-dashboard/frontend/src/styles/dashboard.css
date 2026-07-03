@@ -840,6 +840,12 @@ body {
   max-height: 264px;
   overflow-y: auto;
 }
+/* Site Survey's neighbor table has 6 columns (incl. a 17-char BSSID) and busts
+   a phone's width. Scroll horizontally on the SAME element as the vertical
+   scroll so the sticky thead keeps pinning; desktop tables fit, so no bar. */
+.logscroll-x {
+  overflow-x: auto;
+}
 .logscroll .filetable thead th {
   position: sticky;
   top: 0;
@@ -1158,6 +1164,25 @@ body {
   .toolbar-actions > .btn.primary {
     width: 100%;
     justify-content: center;
+  }
+  /* Site Survey channel columns: 5GHz can carry 15+ channels, which crush to
+     unreadable, un-tappable slivers on a phone. Give each column a readable
+     min width and let the bars scroll horizontally instead. The y-axis ticks
+     (.colchart-y) are a separate flex sibling, so they stay pinned while only
+     the columns scroll. Desktop keeps flex:1 equal-fill (untouched). */
+  .colchart-cols {
+    overflow-x: auto;
+    min-width: 0;
+  }
+  .colcol {
+    min-width: 36px;
+  }
+  /* The columns' min-content otherwise propagates up and busts the card, so the
+     overflow never engages. Let the grid item (its chart) and the colchart flex
+     row shrink to the cell — :has scopes this to the Site Survey chart only. */
+  .chart:has(.colchart),
+  .colchart {
+    min-width: 0;
   }
 }
 
