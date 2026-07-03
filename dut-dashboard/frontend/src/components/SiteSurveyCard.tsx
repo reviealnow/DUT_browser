@@ -139,7 +139,7 @@ export default function SiteSurveyCard({ dutId = DEFAULT_DUT_ID }: { dutId?: str
                   Strongest signal first — scroll for more ({data.neighbors.length} total).
                 </div>
               ) : null}
-              <div className="logscroll">
+              <div className="logscroll logscroll-x">
                 <table className="filetable wifitable">
                   <thead>
                     <tr>
