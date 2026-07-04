@@ -15,6 +15,7 @@ import { DutMonitorProvider } from "../monitoring/DutMonitorContext";
 import { DutMonitorState, DutStatus, useDutMonitor } from "../monitoring/useDutMonitor";
 import { useWifiScan, wifiScanForDut, WifiScanProvider } from "../monitoring/WifiScanContext";
 import { runSurvey } from "../monitoring/siteSurveyStore";
+import { OverviewBandReco } from "../components/BandRecoSummary";
 
 // Heavy sections are loaded on demand so the initial bundle only carries the
 // app shell + the default Overview (charts). Each becomes its own async chunk.
@@ -134,7 +135,7 @@ export default function AppShell() {
                 {renderSection(active, monitor, search, selectedDut, (id) => {
                   setSelectedDut(id);
                   setActive("overview");
-                })}
+                }, setActive)}
               </Suspense>
             ) : null}
           </main>
@@ -177,10 +178,17 @@ function renderSection(
   search: string,
   selectedDut: string,
   onOpenDut: (dutId: string) => void,
+  onNavigate: (id: SectionId) => void,
 ) {
   switch (active) {
     case "overview":
-      return <OverviewSection monitor={monitor} selectedDut={selectedDut} />;
+      return (
+        <OverviewSection
+          monitor={monitor}
+          selectedDut={selectedDut}
+          onOpenSiteSurvey={() => onNavigate("sitesurvey")}
+        />
+      );
     case "fleet":
       return <FleetSection onOpenDut={onOpenDut} />;
     case "console":
@@ -228,7 +236,15 @@ function renderSection(
   }
 }
 
-function OverviewSection({ monitor, selectedDut }: { monitor: DutMonitorState; selectedDut: string }) {
+function OverviewSection({
+  monitor,
+  selectedDut,
+  onOpenSiteSurvey,
+}: {
+  monitor: DutMonitorState;
+  selectedDut: string;
+  onOpenSiteSurvey: () => void;
+}) {
   const statusMeta = STATUS_META[monitor.status];
   const cpuValue = monitor.cpuBusyPct === null ? undefined : `${monitor.cpuBusyPct}%`;
   const cpuSub =
@@ -277,6 +293,17 @@ function OverviewSection({ monitor, selectedDut }: { monitor: DutMonitorState; s
           }
         >
           <WifiSummaryBody result={wifiScan} loading={wifiLoading} error={wifiError} status={monitor.status} />
+        </Card>
+        <Card
+          title="Channel recommendation"
+          subtitle="Least-occupied channel per band (last survey)"
+          actions={
+            <button type="button" className="btn" onClick={onOpenSiteSurvey}>
+              Site Survey
+            </button>
+          }
+        >
+          <OverviewBandReco dutId={selectedDut} />
         </Card>
         <Card title="Critical crash / log events" subtitle="Live keyword detection">
           <CrashEventsBody monitor={monitor} />
