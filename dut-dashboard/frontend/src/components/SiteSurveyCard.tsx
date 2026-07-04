@@ -3,6 +3,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { ChannelRecommendation, ObservedNeighbor } from "../api/rest";
 import { DEFAULT_DUT_ID } from "../api/dut";
 import { ensureSurvey, runSurvey, useSurvey } from "../monitoring/siteSurveyStore";
+import { RecommendationPill } from "./RecommendationPill";
 import { Card, EmptyState } from "./shell/Card";
 
 const BAND_ORDER: Record<string, number> = { "2.4GHz": 0, "5GHz": 1, "6GHz": 2 };
@@ -162,19 +163,6 @@ export default function SiteSurveyCard({ dutId = DEFAULT_DUT_ID }: { dutId?: str
         />
       )}
     </Card>
-  );
-}
-
-function RecommendationPill({ rec }: { rec: ChannelRecommendation }) {
-  const optimal = rec.recommended_channel === rec.current_channel;
-  return (
-    <span
-      className={`pill ${optimal ? "ok" : "warn"}`}
-      title={rec.reasoning}
-    >
-      {optimal ? "✓" : "⚠"} {rec.band}: ch {rec.current_channel}
-      {optimal ? "" : ` → ${rec.recommended_channel}`}
-    </span>
   );
 }
 

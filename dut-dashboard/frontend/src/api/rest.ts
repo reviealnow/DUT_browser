@@ -552,3 +552,18 @@ export async function getSiteSurvey(dutId = DEFAULT_DUT_ID): Promise<SiteSurveyR
 export async function getChannelRecommendation(dutId = DEFAULT_DUT_ID): Promise<ChannelRecommendationResult> {
   return get<ChannelRecommendationResult>(`/api/wifi/channel-recommendation?dut=${dutId}`);
 }
+
+// Read-only cached last recommendation — no scan, no serial gate. Populated by
+// getChannelRecommendation (the connect-time prescan or a manual Re-scan). Used
+// by the Overview mini-card and Fleet grid; `cached: false` means never surveyed.
+export type LastChannelRecommendationResult = {
+  recommendations: ChannelRecommendation[];
+  captured_at: string | null;
+  cached: boolean;
+};
+
+export async function getLastChannelRecommendation(
+  dutId = DEFAULT_DUT_ID,
+): Promise<LastChannelRecommendationResult> {
+  return get<LastChannelRecommendationResult>(`/api/wifi/channel-recommendation/last?dut=${dutId}`);
+}

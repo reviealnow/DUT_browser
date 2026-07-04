@@ -21,6 +21,7 @@ from app.dut.registry import DEFAULT_DUT_ID, DutContext, DutRegistry, build_defa
 from app.services.analyzer_service import AnalyzerService
 from app.services.capability_report import build_capability_report
 from app.services.site_survey import channel_recommendation, get_site_survey
+from app.services.survey_cache import last_recommendation, remember_recommendation
 from app.services.wifi_clients import discover_vaps, get_ssid_capabilities, parse_apstats, parse_wlanconfig_list
 from app.services.wifi_survey import get_wifi_survey
 from app.websocket.terminal_manager import TerminalManager
@@ -252,19 +253,37 @@ def get_wifi_channel_recommendation(dut: str = DEFAULT_DUT_ID) -> dict:
     Also echoes the raw survey (neighbors/vaps) so the frontend can render both
     the recommendation and the underlying table from a single scan — a second
     call to /api/wifi/site-survey would re-run the (slow, off-channel) scan.
-    Serial mode only; both captures happen on this request (no caching)."""
+    Serial mode only; both captures happen on this request. The result is cached
+    per DUT so read-only surfaces (Overview / Fleet) can show it without a new
+    scan — see /api/wifi/channel-recommendation/last."""
     worker = resolve_dut(app, dut).serial_worker
     try:
         own_vaps = get_ssid_capabilities(worker)
         survey = get_site_survey(worker)
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    recommendations = channel_recommendation(survey["neighbors"], own_vaps)
+    remember_recommendation(dut, recommendations, survey["captured_at"])
     return {
-        "recommendations": channel_recommendation(survey["neighbors"], own_vaps),
+        "recommendations": recommendations,
         "neighbors": survey["neighbors"],
         "survey_vaps": survey["vaps"],
         "captured_at": survey["captured_at"],
     }
+
+
+@app.get("/api/wifi/channel-recommendation/last")
+def get_wifi_channel_recommendation_last(dut: str = DEFAULT_DUT_ID) -> dict:
+    """Return the last cached channel recommendation for a DUT — no scan, no
+    serial gate. Populated by /api/wifi/channel-recommendation (the connect-time
+    prescan or a manual Re-scan). Lets the Overview mini-card and Fleet grid show
+    the latest per-band recommendation without triggering the slow off-channel
+    scan. Returns {recommendations: [], captured_at: null, cached: false} when the
+    DUT has never been surveyed."""
+    cached = last_recommendation(dut)
+    if cached is None:
+        return {"recommendations": [], "captured_at": None, "cached": False}
+    return {**cached, "cached": True}
 
 
 @app.get("/api/logs")

@@ -1,5 +1,8 @@
+import { LastChannelRecommendationResult } from "../api/rest";
 import { DutStatus } from "../monitoring/useDutMonitor";
 import { FleetEntry, useFleetMonitor } from "../monitoring/useFleetMonitor";
+import { useFleetRecommendations } from "../monitoring/useLastRecommendation";
+import { FleetBandBadge } from "./BandRecoSummary";
 import { EmptyState } from "./shell/Card";
 
 type StatusMeta = { label: string; pill: "ok" | "idle" | "danger" };
@@ -28,6 +31,9 @@ function formatEventAge(seconds: number | null): string {
  */
 export default function FleetSection({ onOpenDut }: { onOpenDut: (dutId: string) => void }) {
   const fleet = useFleetMonitor();
+  // Per-DUT last-survey band recommendation, polled from the read-only cache
+  // (no scan). Drives the compact per-card band badge.
+  const recos = useFleetRecommendations(fleet.map((e) => e.id));
 
   if (fleet.length === 0) {
     return (
@@ -42,13 +48,26 @@ export default function FleetSection({ onOpenDut }: { onOpenDut: (dutId: string)
   return (
     <div className="fleet-grid">
       {fleet.map((entry) => (
-        <FleetCard key={entry.id} entry={entry} onOpen={() => onOpenDut(entry.id)} />
+        <FleetCard
+          key={entry.id}
+          entry={entry}
+          reco={recos.get(entry.id)}
+          onOpen={() => onOpenDut(entry.id)}
+        />
       ))}
     </div>
   );
 }
 
-function FleetCard({ entry, onOpen }: { entry: FleetEntry; onOpen: () => void }) {
+function FleetCard({
+  entry,
+  reco,
+  onOpen,
+}: {
+  entry: FleetEntry;
+  reco: LastChannelRecommendationResult | undefined;
+  onOpen: () => void;
+}) {
   const meta = STATUS_META[entry.status];
   const cpu = entry.cpuBusyPct === null ? "—" : `${entry.cpuBusyPct}%`;
   const cpuSub =
@@ -72,6 +91,7 @@ function FleetCard({ entry, onOpen }: { entry: FleetEntry; onOpen: () => void })
         <div className="kpi-value">{cpu}</div>
         <div className="kpi-sub">{cpuSub}</div>
       </div>
+      <FleetBandBadge reco={reco} />
       <dl className="stat-list">
         <div className="stat-row">
           <dt>Crash events</dt>
