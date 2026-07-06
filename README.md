@@ -1,4 +1,4 @@
-# AP6_monitor
+# DUT_browser
 
 Browser-based DUT monitoring dashboard for AP / network-device QA.
 FastAPI backend + React/Vite frontend, served over your LAN and opened in any
