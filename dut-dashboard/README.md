@@ -59,8 +59,9 @@ git checkout CPU_Plots && git pull --ff-only   # or `git checkout phase-N` to pi
   backend restart recovers without F5.
 - **No data migration:** the `default` DUT keeps using `logs/snapshots.jsonl`; `logs/duts.json`
   and per-DUT `logs/snapshots-<id>.jsonl` are created on demand (absent = just the default DUT,
-  exactly like before). Settings (accent / baud / crash keywords) live in browser localStorage.
-  Existing logs/history survive an upgrade.
+  exactly like before). Crash keywords + workspace data (files metadata, bulletin) persist in
+  `data/workspace.db` (SQLite, created on demand); UI preferences (accent / baud) live in browser
+  localStorage. Existing logs/history survive an upgrade.
 - **Dependency changes:** `start_lan.sh` re-runs `pip install` every launch but only runs
   `npm install` when `node_modules` is missing. If an upgrade changes `frontend/package.json`,
   refresh once: `rm -rf frontend/node_modules && ./scripts/start_lan.sh --prod`.
@@ -74,18 +75,30 @@ git checkout CPU_Plots && git pull --ff-only   # or `git checkout phase-N` to pi
 frontend/src/
 ├── main.tsx                      mounts <AppShell/>, imports the design system
 ├── pages/
-│   ├── AppShell.tsx              shell: sidebar + toolbar + sections; KPIs + chart cards
+│   ├── AppShell.tsx              shell: sidebar (12 sections in 3 groups) + toolbar + DUT switcher; Overview KPIs + chart cards
 │   └── Dashboard.tsx             Serial Console (embedded), Critical Crash panel, log download
 ├── components/
-│   ├── shell/                    Sidebar · Topbar · Card/KpiCard/EmptyState · navigation
+│   ├── shell/                    Sidebar · Topbar · Card · navigation (SectionId, nav groups)
 │   ├── charts/                   Sparkline (inline SVG) · ChartData (JSON blob)
+│   ├── FleetSection.tsx          fleet card grid (one card per registered DUT)
+│   ├── WifiClientsCard.tsx · SsidCapabilityCard.tsx · SiteSurveyCard.tsx
+│   │                             on-demand Wi-Fi captures: client tables · capability report · site survey
+│   ├── RecommendationPill.tsx · BandRecoSummary.tsx   per-band channel recommendation UI
 │   ├── ConsolePanel.tsx          console view + Vim popup command editor
-│   └── (legacy, unused) CpuChart.tsx · MemoryChart.tsx · ClientsPanel.tsx
+│   ├── TerminalView.tsx          xterm.js interactive terminal (bundled, /ws/term)
+│   ├── DownloadsSection.tsx      log list + analyzer artifacts with inline PNG preview
+│   ├── FilesSection.tsx · BulletinSection.tsx · AuthorTag.tsx   workspace (files · bulletin · author colours)
+│   ├── SettingsSection.tsx       crash-keyword editor + UI preferences
+│   └── DutSwitcher.tsx           toolbar DUT selector (registry-backed)
 ├── monitoring/
-│   ├── useDutMonitor.ts          single /ws connection → derived monitor state
+│   ├── useDutMonitor.ts          per-DUT /ws monitor → derived state (filters by dut_id)
+│   ├── useFleetMonitor.ts        fleet aggregate: one /ws demuxed across all DUTs
 │   ├── DutMonitorContext.tsx     shares the one monitor instance app-wide
-│   └── crash.ts                  built-in CRITICAL_CRASH_PATTERN (kernel panic / Q6 crash / watchdog)
-├── api/  rest.ts · websocket.ts  REST helpers + WS event types / delta application
+│   ├── useCrashKeywords.ts       shared crash keywords (GET/PUT /api/settings/crash-keywords) + memoized RegExp
+│   ├── crash.ts                  buildCrashPattern + built-in defaults (kernel panic / q6 crash / watchdog)
+│   ├── siteSurveyStore.ts · useLastRecommendation.ts · WifiScanContext.tsx   survey cache + recommendation polling
+│   └── useAppVersion.ts · useSettings.ts   release-banner poll · UI settings
+├── api/  rest.ts · websocket.ts · dut.ts   REST helpers + WS event types / delta application + DUT registry
 └── styles/dashboard.css          Luna design tokens + shell/card/chart CSS
 ```
 
@@ -95,7 +108,8 @@ Dashboards" tokens — spacing scale `--space-1..8`, a single `--accent`,
 chrome. Rebrand by changing only `--accent` / `--accent-weak`.
 
 **Single shared WebSocket monitor.** `useDutMonitor` opens **one** `/ws`
-connection (it is the only caller of `connectDashboardWebSocket`) and derives:
+connection for the selected DUT (events are tagged `dut_id`; it ignores other
+DUTs' events) and derives:
 
 - `status` — `offline` (WS down) / `idle` (up, no recent stream) / `streaming`
 - `lines` — console stream (capped 1000), shared with the Serial Console
@@ -108,6 +122,14 @@ connection (it is the only caller of `connectDashboardWebSocket`) and derives:
 `DutMonitorContext` shares that single instance, so the Overview KPIs, the
 charts, **and** the embedded Serial Console all read the same stream — no
 duplicate connections.
+
+**Fleet monitor.** `useFleetMonitor` (mounted only while the Fleet section is
+visible) opens one additional un-filtered `/ws` and demuxes it per `dut_id`,
+keeping only lightweight per-DUT state (latest snapshot base, last activity,
+crash count) so the whole fleet updates from a single socket. Crash matching
+uses the shared keyword pattern from `useCrashKeywords` (memoized — its
+identity must stay stable across renders, or the socket effect would reconnect
+in a loop).
 
 **KPI row + status pill.** Four KPIs (DUT Status, Latest CPU, Wi-Fi Clients,
 Crash Events) plus a toolbar status pill, all from the real stream above.
@@ -128,23 +150,41 @@ swap to Chart.js needs no change to how the data is produced. Every card has an
 **Serial Console (preserved).** `Dashboard.tsx` is embedded unchanged under the
 "Serial Console" section: realtime console, send / Tab / Ctrl-C, Vim popup
 editor, `Download DUT Log`, and the Critical Crash panel with live keyword
-detection + user lock-in keywords + new/seen badge.
+detection + user lock-in keywords + new/seen badge. The keyword list itself is
+editable in **Settings** and persisted server-side
+(`GET/PUT /api/settings/crash-keywords`), so every client shares the same
+patterns.
 
 ## Backend module map
 
 ```text
 backend/app/
-├── main.py                 FastAPI app; wires parser/serial/ws on startup; /health, /ws, /api/download
-├── config.py               paths (LOG_DIR, ANALYZER_SCRIPT, ANALYZER_OUTPUT_DIR, SNAPSHOT_FILE)
+├── main.py                 FastAPI app; wires the DUT registry + ws on startup; /health, /api/version,
+│                           /api/whoami, /api/snapshots, /api/console/tail, /api/wifi/*, /api/logs*,
+│                           /api/download*, /ws, /ws/term; serves the built SPA in prod
+├── config.py               paths (LOG_DIR, ANALYZER_SCRIPT, ANALYZER_OUTPUT_DIR, SNAPSHOT_FILE, DATA_DIR)
 ├── api/
-│   ├── serial_api.py       /api/serial/* (open, close, send, ports, logs, efficiency-report)
-│   └── analyzer_api.py     /api/analyzer/run
-├── serial/serial_worker.py SerialWorker: serial + replay threads; writes raw session log
+│   ├── serial_api.py       /api/serial/* (open, close, send, ports, terminal, wifi/kick, logs, efficiency-report)
+│   ├── analyzer_api.py     /api/analyzer/* (run, run-session, memory)
+│   ├── duts_api.py         /api/duts (dynamic DUT registry CRUD)
+│   ├── settings_api.py     /api/settings/crash-keywords
+│   ├── files_api.py        /api/files (workspace uploads)
+│   └── bulletin_api.py     /api/bulletin/posts (+comments)
+├── dut/registry.py         per-DUT runtime contexts (serial worker · parser · snapshot store ·
+│                           console buffer · terminal manager), keyed by dut_id; persisted to logs/duts.json
+├── db/workspace.py         SQLite schema/connection for data/workspace.db (files · bulletin · settings)
+├── serial/serial_worker.py SerialWorker: serial + replay threads; writes raw session log; capture_command
+│                           gate for on-demand wifi captures
 ├── parser/sysmon_parser.py SysMonParser: snapshots / CPU / wifi clients / batched console
 ├── services/
 │   ├── analyzer_service.py runs analyzer3.py → cpu_usage.csv / memory.csv
-│   └── snapshot_store.py   bounded JSONL snapshot ring; persists + backfills on connect
-└── websocket/ws_manager.py broadcasts events to all /ws clients (thread→loop bridge)
+│   ├── snapshot_store.py   bounded JSONL snapshot ring; persists + backfills on connect
+│   ├── console_buffer.py   recent console lines per DUT (seeds the console on load)
+│   ├── survey_cache.py     last site-survey result per DUT (feeds /channel-recommendation/last)
+│   └── settings_service.py crash-keyword persistence (workspace.db)
+└── websocket/
+    ├── ws_manager.py       broadcasts dut_id-tagged events to all /ws clients (thread→loop bridge)
+    └── terminal_manager.py raw-byte fan-out for /ws/term (interactive terminal)
 ```
 
 **Data path.** `SerialWorker` (background thread) reads serial/replay lines,
@@ -164,11 +204,15 @@ offline CPU/memory re-derivation by `analyzer3.py`.
 
 ## WebSocket event contracts (`/ws`)
 
+One `/ws` carries **every DUT's** events; each event is tagged with the
+originating `dut_id`. The single-DUT monitor keeps only its own DUT's events;
+the Fleet page demuxes all of them from one socket.
+
 `console_line` / `console_line_batch`:
 
 ```json
-{ "type": "console_line", "text": "..." }
-{ "type": "console_line_batch", "lines": ["...", "..."] }
+{ "type": "console_line", "dut_id": "default", "text": "..." }
+{ "type": "console_line_batch", "dut_id": "default", "lines": ["...", "..."] }
 ```
 
 `snapshot_update` (full) / `snapshot_delta` (incremental; the frontend applies
@@ -177,6 +221,7 @@ deltas onto the last full snapshot):
 ```json
 {
   "type": "snapshot_update",
+  "dut_id": "default",
   "snapshot": {
     "test_count": 1,
     "device_ts": "2026-02-26 09:46:01",
@@ -191,6 +236,7 @@ deltas onto the last full snapshot):
 ```json
 {
   "type": "wifi_clients_update",
+  "dut_id": "default",
   "radio": "5G",
   "total_size": 1,
   "clients": [{ "mac": "AA:...", "ip": "192.168.1.9", "rssi": -42, "snr": 30 }]
@@ -199,9 +245,19 @@ deltas onto the last full snapshot):
 
 ## REST API
 
+Per-DUT endpoints (serial, snapshots, console, wifi, terminal) accept
+`?dut=<id>`; omitting it targets the `default` DUT.
+
 | Method | Endpoint | Notes |
 |---|---|---|
 | `GET` | `/health` | liveness |
+| `GET` | `/api/version` | `{version, built_at}` — SPA polls this for the "new release" banner |
+| `GET` | `/api/whoami` | caller IP + suggested display name (workspace identity prefill) |
+| `GET` | `/api/duts` | list registered DUTs (id, label, mode, serial_open, …) |
+| `POST` | `/api/duts` | `{id, label?}` → register a DUT with its own serial/parser/snapshot context |
+| `DELETE` | `/api/duts/{dut_id}` | remove a DUT (the `default` DUT is not removable) |
+| `GET` | `/api/snapshots` | recent full snapshots — chart backfill on (re)connect |
+| `GET` | `/api/console/tail` | recent console lines — console seeds instantly on load |
 | `GET` | `/api/serial/ports` | list serial ports |
 | `POST` | `/api/serial/open` | `{mode:"serial"\|"replay", port, baudrate, replay_path, replay_interval_ms}` → `{ok, mode, log_path}` |
 | `POST` | `/api/serial/close` | stop the worker |
@@ -210,9 +266,21 @@ deltas onto the last full snapshot):
 | `POST` | `/api/serial/terminal/enter` | switch to raw interactive terminal mode (monitoring pauses); 400 if serial not open |
 | `POST` | `/api/serial/terminal/exit` | resume monitoring |
 | `POST` | `/api/serial/terminal/resize` | `{rows, cols, term?}` → sets DUT terminal size/type (see below); 400 if not in terminal mode |
+| `POST` | `/api/serial/wifi/kick` | kick an associated client off a VAP |
 | `GET` | `/api/serial/efficiency-report` | parser counters |
-| `POST` | `/api/analyzer/run` | `{log_path}` → runs analyzer; returns produced files |
+| `GET` | `/api/wifi/clients` · `/api/wifi/client-stats` | on-demand per-client tables (`wlanconfig … list`); serial mode only, briefly pauses sysmon parsing |
+| `GET` | `/api/wifi/capabilities` · `/api/wifi/capability-report` | SSID/VAP capability capture + parsed report |
+| `GET` | `/api/wifi/site-survey` | site-survey scan: per-band neighbors + channel occupancy |
+| `GET` | `/api/wifi/channel-recommendation` | least-occupied channel per band (uses/produces a survey) |
+| `GET` | `/api/wifi/channel-recommendation/last` | cached last recommendation — read-only, never scans |
+| `POST` | `/api/analyzer/run` · `/api/analyzer/run-session` | `{log_path}` → runs analyzer; returns produced files |
+| `GET` | `/api/analyzer/memory` | parsed memory series from the latest analyzer run (post-analysis only) |
+| `GET` | `/api/logs` · `/api/logs/tail` | list session logs · tail one |
 | `GET` | `/api/download/{file}` | download an artifact from `logs/analyzer_output/` |
+| `GET` | `/api/download/preview/{file}` | inline preview (e.g. analyzer PNGs in Downloads) |
+| `GET/PUT` | `/api/settings/crash-keywords` | shared crash-keyword list (persisted in `data/workspace.db`) |
+| `GET/POST` | `/api/files` · `GET /api/files/{id}/download` · `DELETE /api/files/{id}` | workspace file sharing (uploads in `data/uploads/`) |
+| `GET/POST` | `/api/bulletin/posts` · `POST /api/bulletin/posts/{id}/comments` · `DELETE /api/bulletin/posts/{id}` | bulletin board with comments |
 
 ### Interactive terminal (xterm.js)
 
@@ -290,6 +358,7 @@ Produces `log_events.json` (merged abnormal-event detection) and
 
 ```bash
 python3 -m compileall backend/app          # backend syntax
+cd backend && python3 -m pytest -q         # backend test suite
 cd frontend && npx tsc --noEmit            # frontend types (expect 0 errors)
 ```
 
