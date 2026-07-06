@@ -39,6 +39,11 @@ export type FleetEntry = {
  */
 export function useFleetMonitor(): FleetEntry[] {
   const { pattern: crashPattern } = useCrashKeywords();
+  // Read through a ref inside the socket callbacks so the websocket effect can
+  // run once per mount: a pattern change must not tear down the fleet socket
+  // (doing so re-rendered via onClose → new pattern → reconnect, ad infinitum).
+  const crashPatternRef = useRef(crashPattern);
+  crashPatternRef.current = crashPattern;
   // Registry order + labels for every registered DUT (cards show even with no stream).
   const [duts, setDuts] = useState<{ id: string; label: string }[]>([]);
   const [connected, setConnected] = useState(false);
@@ -113,7 +118,7 @@ export function useFleetMonitor(): FleetEntry[] {
           return;
         }
         if (event.type === "console_line" && typeof event.text === "string") {
-          if (crashPattern.test(event.text)) {
+          if (crashPatternRef.current.test(event.text)) {
             crashRef.current.set(dutId, (crashRef.current.get(dutId) ?? 0) + 1);
           }
           recordActivity(dutId);
@@ -122,7 +127,7 @@ export function useFleetMonitor(): FleetEntry[] {
         if (event.type === "console_line_batch" && Array.isArray(event.lines)) {
           let matched = 0;
           for (const line of event.lines) {
-            if (typeof line === "string" && crashPattern.test(line)) {
+            if (typeof line === "string" && crashPatternRef.current.test(line)) {
               matched += 1;
             }
           }
@@ -142,7 +147,7 @@ export function useFleetMonitor(): FleetEntry[] {
       window.clearInterval(interval);
       socket.close();
     };
-  }, [crashPattern]);
+  }, []);
 
   // Derive the view rows on each tick from the registry order + live refs.
   return duts.map(({ id, label }) => {

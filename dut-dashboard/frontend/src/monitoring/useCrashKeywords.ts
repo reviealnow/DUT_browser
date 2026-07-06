@@ -3,7 +3,7 @@
  * singleton) so every consumer (useDutMonitor, useFleetMonitor, Dashboard,
  * SettingsSection) shares one network request and one RegExp.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { getCrashKeywords, putCrashKeywords } from "../api/rest";
 import { buildCrashPattern, DEFAULT_CRASH_KEYWORDS } from "./crash";
@@ -74,6 +74,8 @@ export function useCrashKeywords(): UseCrashKeywordsResult {
     }
   }, []);
 
-  const pattern = buildCrashPattern(keywords);
+  // Memoized so consumers whose effects depend on `pattern` (useFleetMonitor's
+  // websocket) don't tear down and reconnect on every render.
+  const pattern = useMemo(() => buildCrashPattern(keywords), [keywords]);
   return { keywords, pattern, saving, saveKeywords };
 }
