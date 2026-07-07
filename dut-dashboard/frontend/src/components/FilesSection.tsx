@@ -2,11 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   deleteFile,
+  FileSortKey,
   getFileDownloadUrl,
   getFiles,
   FilesList,
   FilesStats,
   humanizeApiError,
+  SortOrder,
   uploadFile,
   WorkspaceFile,
 } from "../api/rest";
@@ -62,19 +64,59 @@ function FileTypeChip({ name }: { name: string }) {
 // and scroll for older. All rows stay in the DOM so search/filter still works.
 const VISIBLE_FILE_ROWS = 5;
 
-function SharedFilesTable({ rows, onDelete }: { rows: WorkspaceFile[]; onDelete: (file: WorkspaceFile) => void }) {
+// Default ordering (no header highlighted): newest upload first.
+const DEFAULT_SORT: FileSortKey = "date";
+const DEFAULT_ORDER: SortOrder = "desc";
+
+function SortHeader({
+  label,
+  col,
+  sort,
+  order,
+  onSort,
+}: {
+  label: string;
+  col: FileSortKey;
+  sort: FileSortKey;
+  order: SortOrder;
+  onSort: (col: FileSortKey) => void;
+}) {
+  const active = sort === col;
+  return (
+    <th aria-sort={active ? (order === "asc" ? "ascending" : "descending") : undefined}>
+      <button type="button" className="th-sort" onClick={() => onSort(col)}>
+        {label}
+        {active ? <span aria-hidden="true">{order === "asc" ? "▲" : "▼"}</span> : null}
+      </button>
+    </th>
+  );
+}
+
+function SharedFilesTable({
+  rows,
+  onDelete,
+  sort,
+  order,
+  onSort,
+}: {
+  rows: WorkspaceFile[];
+  onDelete: (file: WorkspaceFile) => void;
+  sort: FileSortKey;
+  order: SortOrder;
+  onSort: (col: FileSortKey) => void;
+}) {
   return (
     <>
       {rows.length > VISIBLE_FILE_ROWS ? (
-        <div className="logscroll-note">Showing newest first — scroll for older ({rows.length} loaded).</div>
+        <div className="logscroll-note">Scroll for more ({rows.length} loaded).</div>
       ) : null}
       <div className="logscroll">
         <table className="filetable">
           <thead>
             <tr>
-              <th>Filename</th>
-              <th>Size</th>
-              <th>Uploader</th>
+              <SortHeader label="Filename" col="name" sort={sort} order={order} onSort={onSort} />
+              <SortHeader label="Size" col="size" sort={sort} order={order} onSort={onSort} />
+              <SortHeader label="Uploader" col="uploader" sort={sort} order={order} onSort={onSort} />
               <th aria-label="actions" />
             </tr>
           </thead>
@@ -302,24 +344,45 @@ export default function FilesSection({ query = "" }: { query?: string }) {
   const [data, setData] = useState<FilesList | null>(null);
   const [failed, setFailed] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  // Server-side search: the topbar query is debounced into `q` so we don't hit
+  // the API on every keystroke, then the list refetches from page 1.
+  const [q, setQ] = useState("");
+  const [{ sort, order }, setSorting] = useState<{ sort: FileSortKey; order: SortOrder }>({
+    sort: DEFAULT_SORT,
+    order: DEFAULT_ORDER,
+  });
   // Rows currently on screen: reload refetches that many from offset 0 so an
   // upload/delete refresh doesn't collapse the list back to the first page.
   const loadedRef = useRef(PAGE_SIZE);
 
-  const reload = useCallback(() => {
-    setFailed(false);
-    getFiles(Math.max(PAGE_SIZE, loadedRef.current), 0)
-      .then((next) => {
-        loadedRef.current = next.files.length;
-        setData(next);
+  useEffect(() => {
+    const t = setTimeout(() => setQ(query.trim()), 300);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  const reload = useCallback(
+    (limit?: number) => {
+      setFailed(false);
+      getFiles({
+        limit: limit ?? Math.max(PAGE_SIZE, loadedRef.current),
+        offset: 0,
+        q: q || undefined,
+        sort,
+        order,
       })
-      .catch(() => setFailed(true));
-  }, []);
+        .then((next) => {
+          loadedRef.current = next.files.length;
+          setData(next);
+        })
+        .catch(() => setFailed(true));
+    },
+    [q, sort, order],
+  );
 
   const loadMore = useCallback(() => {
     if (!data) return;
     setLoadingMore(true);
-    getFiles(PAGE_SIZE, data.files.length)
+    getFiles({ limit: PAGE_SIZE, offset: data.files.length, q: q || undefined, sort, order })
       .then((next) => {
         setData((prev) => {
           if (!prev) return next;
@@ -332,11 +395,23 @@ export default function FilesSection({ query = "" }: { query?: string }) {
       })
       .catch(() => undefined) // keep the loaded rows; the button stays for retry
       .finally(() => setLoadingMore(false));
-  }, [data]);
+  }, [data, q, sort, order]);
 
+  // Runs on mount and whenever q/sort/order change identity via `reload`;
+  // a new search or ordering starts back at the first page.
   useEffect(() => {
-    reload();
+    loadedRef.current = PAGE_SIZE;
+    reload(PAGE_SIZE);
   }, [reload]);
+
+  // Header click cycle: other column -> asc; asc -> desc; desc -> back to default.
+  const onSort = useCallback((col: FileSortKey) => {
+    setSorting((prev) => {
+      if (prev.sort !== col) return { sort: col, order: "asc" };
+      if (prev.order === "asc") return { sort: col, order: "desc" };
+      return { sort: DEFAULT_SORT, order: DEFAULT_ORDER };
+    });
+  }, []);
 
   const onDelete = useCallback(
     (file: WorkspaceFile) => {
@@ -344,7 +419,7 @@ export default function FilesSection({ query = "" }: { query?: string }) {
         return;
       }
       deleteFile(file.id)
-        .then(reload)
+        .then(() => reload())
         .catch(() => reload());
     },
     [reload],
@@ -365,11 +440,19 @@ export default function FilesSection({ query = "" }: { query?: string }) {
     );
   }
 
-  const { stats } = data;
-  const needle = query.trim().toLowerCase();
-  const files = needle
-    ? data.files.filter((f) => f.filename.toLowerCase().includes(needle))
-    : data.files;
+  const { stats, files } = data;
+  const searching = q.length > 0;
+  const orderLabel =
+    sort === "date"
+      ? order === "desc"
+        ? "newest first"
+        : "oldest first"
+      : `by ${sort} (${order})`;
+  const noun = `${searching ? "matching " : ""}file${data.total === 1 ? "" : "s"}`;
+  const subtitle =
+    files.length < data.total
+      ? `${files.length} of ${data.total} ${noun} · ${orderLabel}`
+      : `${data.total} ${noun} · ${orderLabel}`;
 
   return (
     <>
@@ -384,33 +467,20 @@ export default function FilesSection({ query = "" }: { query?: string }) {
           downloading are the first thing the user reaches; the stats charts
           (analytics) follow below. */}
       <div className="grid">
-        <Card
-          title="Shared Files"
-          subtitle={
-            data.files.length < data.total
-              ? `${data.files.length} of ${data.total} files · newest first`
-              : `${data.total} files · newest first`
-          }
-        >
+        <Card title="Shared Files" subtitle={subtitle}>
           {files.length > 0 ? (
-            <SharedFilesTable rows={files} onDelete={onDelete} />
+            <SharedFilesTable rows={files} onDelete={onDelete} sort={sort} order={order} onSort={onSort} />
           ) : (
             <EmptyState
               icon="🗂"
-              message={needle ? "No matching files" : "No files yet"}
-              hint={
-                needle
-                  ? data.files.length < data.total
-                    ? "No match in the loaded rows — try Load more or a different filter."
-                    : "Try a different filter."
-                  : "Upload a file to get started."
-              }
+              message={searching ? "No matching files" : "No files yet"}
+              hint={searching ? "Search covers all files — try a different term." : "Upload a file to get started."}
             />
           )}
-          {data.files.length < data.total ? (
+          {files.length < data.total ? (
             <div style={{ marginTop: "var(--space-3)" }}>
               <button type="button" className="btn" disabled={loadingMore} onClick={loadMore}>
-                {loadingMore ? "Loading…" : `Load more (${data.total - data.files.length} older)`}
+                {loadingMore ? "Loading…" : `Load more (${data.total - files.length} more)`}
               </button>
             </div>
           ) : null}

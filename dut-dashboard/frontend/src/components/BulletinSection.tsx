@@ -259,26 +259,41 @@ export default function BulletinSection({ query = "" }: { query?: string }) {
   const [total, setTotal] = useState(0);
   const [failed, setFailed] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  // Server-side search: the topbar query is debounced into `q` so we don't hit
+  // the API on every keystroke, then the board refetches from page 1.
+  const [q, setQ] = useState("");
   const identity = useIdentity();
   // Posts currently on screen: reload refetches that many from offset 0 so a
   // post/reply/delete refresh doesn't collapse the board back to the first page.
   const loadedRef = useRef(PAGE_SIZE);
 
-  const reload = useCallback(() => {
-    setFailed(false);
-    getBulletinPosts(Math.max(PAGE_SIZE, loadedRef.current), 0)
-      .then((page) => {
-        loadedRef.current = page.posts.length;
-        setPosts(page.posts);
-        setTotal(page.total);
+  useEffect(() => {
+    const t = setTimeout(() => setQ(query.trim()), 300);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  const reload = useCallback(
+    (limit?: number) => {
+      setFailed(false);
+      getBulletinPosts({
+        limit: limit ?? Math.max(PAGE_SIZE, loadedRef.current),
+        offset: 0,
+        q: q || undefined,
       })
-      .catch(() => setFailed(true));
-  }, []);
+        .then((page) => {
+          loadedRef.current = page.posts.length;
+          setPosts(page.posts);
+          setTotal(page.total);
+        })
+        .catch(() => setFailed(true));
+    },
+    [q],
+  );
 
   const loadMore = useCallback(() => {
     if (posts === null) return;
     setLoadingMore(true);
-    getBulletinPosts(PAGE_SIZE, posts.length)
+    getBulletinPosts({ limit: PAGE_SIZE, offset: posts.length, q: q || undefined })
       .then((page) => {
         setPosts((prev) => {
           const current = prev ?? [];
@@ -292,16 +307,17 @@ export default function BulletinSection({ query = "" }: { query?: string }) {
       })
       .catch(() => undefined) // keep the loaded posts; the button stays for retry
       .finally(() => setLoadingMore(false));
-  }, [posts]);
+  }, [posts, q]);
 
+  // Runs on mount and whenever q changes identity via `reload`; a new search
+  // starts back at the first page.
   useEffect(() => {
-    reload();
+    loadedRef.current = PAGE_SIZE;
+    reload(PAGE_SIZE);
   }, [reload]);
 
-  const needle = query.trim().toLowerCase();
-  const visible = (posts ?? []).filter(
-    (p) => !needle || p.title.toLowerCase().includes(needle) || p.body.toLowerCase().includes(needle),
-  );
+  const searching = q.length > 0;
+  const visible = posts ?? [];
 
   return (
     <>
@@ -318,14 +334,8 @@ export default function BulletinSection({ query = "" }: { query?: string }) {
         <Card title="Bulletin" subtitle="Pinned notes">
           <EmptyState
             icon="📌"
-            message={needle ? "No matching notes" : "No notes yet"}
-            hint={
-              needle
-                ? posts.length < total
-                  ? "No match in the loaded notes — try Load more or a different filter."
-                  : "Try a different filter."
-                : "Post the first note above."
-            }
+            message={searching ? "No matching notes" : "No notes yet"}
+            hint={searching ? "Search covers all notes — try a different term." : "Post the first note above."}
           />
         </Card>
       ) : (

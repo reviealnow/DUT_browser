@@ -91,19 +91,57 @@ def save_uploaded_file(filename: str, fileobj: BinaryIO, uploader: str | None) -
     )
 
 
-def list_files(limit: int | None = None, offset: int = 0) -> list[dict]:
-    """Newest first. ``limit=None`` returns everything (legacy no-param behaviour);
-    otherwise a page of ``limit`` rows starting at ``offset``."""
-    sql = """
+# Whitelisted sort keys -> ORDER BY fragments (id tiebreak keeps pages stable).
+# "date" is the default and matches the pre-sort behaviour (newest first).
+FILE_SORTS = {
+    "date": "uploaded_at {o}, id {o}",
+    "name": "filename COLLATE NOCASE {o}, id {o}",
+    "size": "size {o}, id {o}",
+    "uploader": "uploader IS NULL, uploader COLLATE NOCASE {o}, id {o}",
+}
+
+
+def _like_pattern(q: str) -> str:
+    """Substring LIKE pattern with %/_ escaped so user input matches literally."""
+    escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
+def list_files(
+    limit: int | None = None,
+    offset: int = 0,
+    q: str | None = None,
+    sort: str = "date",
+    order: str = "desc",
+) -> list[dict]:
+    """``limit=None`` returns everything (legacy no-param behaviour); otherwise a
+    page of ``limit`` rows starting at ``offset``. ``q`` filters by filename
+    substring (case-insensitive). ``sort``/``order`` must be pre-validated
+    against FILE_SORTS / asc|desc (the API layer does this)."""
+    order_by = FILE_SORTS[sort].format(o="ASC" if order == "asc" else "DESC")
+    sql = f"""
         SELECT id, filename, size, uploader, uploaded_at
         FROM files
-        ORDER BY uploaded_at DESC, id DESC
+        {"WHERE filename LIKE ? ESCAPE '\\'" if q else ""}
+        ORDER BY {order_by}
         """
-    if limit is None:
-        rows = query_all(sql)
-    else:
-        rows = query_all(sql + " LIMIT ? OFFSET ?", (limit, offset))
+    params: tuple = (_like_pattern(q),) if q else ()
+    if limit is not None:
+        sql += " LIMIT ? OFFSET ?"
+        params += (limit, offset)
+    rows = query_all(sql, params)
     return [dict(r) for r in rows]
+
+
+def count_files(q: str | None = None) -> int:
+    if q:
+        row = query_one(
+            "SELECT COUNT(*) AS n FROM files WHERE filename LIKE ? ESCAPE '\\'",
+            (_like_pattern(q),),
+        )
+    else:
+        row = query_one("SELECT COUNT(*) AS n FROM files")
+    return int(row["n"])
 
 
 def get_file_by_id(file_id: int) -> dict | None:

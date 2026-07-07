@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
@@ -16,15 +16,20 @@ router = APIRouter(prefix="/api/files", tags=["files"])
 def list_files(
     limit: Annotated[int | None, Query(ge=1, le=500)] = None,
     offset: Annotated[int, Query(ge=0)] = 0,
+    q: Annotated[str | None, Query(max_length=200)] = None,
+    sort: Literal["date", "name", "size", "uploader"] = "date",
+    order: Literal["asc", "desc"] = "desc",
 ) -> dict:
-    """File list (newest first) plus the KPI aggregates the Files view needs,
-    bundled to save a round-trip. Without ``limit`` the full list is returned
-    (legacy behaviour); ``total`` always counts every file."""
-    stats = file_service.stats()
+    """File list plus the KPI aggregates the Files view needs, bundled to save
+    a round-trip. Without ``limit`` the full list is returned (legacy
+    behaviour). ``q`` filters by filename substring; ``total`` counts the rows
+    matching ``q`` (all rows when ``q`` is empty) so the client can page, while
+    ``stats`` always aggregates the whole workspace."""
+    q = q.strip() if q and q.strip() else None
     return {
-        "files": file_service.list_files(limit, offset),
-        "stats": stats,
-        "total": stats["total"],
+        "files": file_service.list_files(limit, offset, q, sort, order),
+        "stats": file_service.stats(),
+        "total": file_service.count_files(q),
     }
 
 

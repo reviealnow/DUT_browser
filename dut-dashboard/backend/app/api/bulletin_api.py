@@ -28,12 +28,15 @@ class CommentCreate(BaseModel):
 def list_posts(
     limit: Annotated[int | None, Query(ge=1, le=500)] = None,
     offset: Annotated[int, Query(ge=0)] = 0,
+    q: Annotated[str | None, Query(max_length=200)] = None,
 ) -> dict:
     """Posts newest first. Without ``limit`` the full list is returned (legacy
-    behaviour); ``total`` always counts every post."""
+    behaviour). ``q`` filters by title/body substring; ``total`` counts the
+    posts matching ``q`` (all posts when ``q`` is empty) so the client can page."""
+    q = q.strip() if q and q.strip() else None
     return {
-        "posts": bulletin_service.list_posts(limit, offset),
-        "total": bulletin_service.count_posts(),
+        "posts": bulletin_service.list_posts(limit, offset, q),
+        "total": bulletin_service.count_posts(q),
     }
 
 
