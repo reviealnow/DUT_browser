@@ -5,11 +5,17 @@ from __future__ import annotations
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 
 from app.services import file_service
 
 router = APIRouter(prefix="/api/files", tags=["files"])
+
+# In-row preview support (Files view row expand). Images render in an <img>;
+# text files show their head, capped so a huge log can't flood the response.
+PREVIEW_IMAGE_TYPES = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif"}
+PREVIEW_TEXT_EXTS = {"log", "txt", "csv", "json"}
+PREVIEW_TEXT_BYTES = 64 * 1024
 
 
 @router.get("")
@@ -62,6 +68,33 @@ def download_file(file_id: int) -> FileResponse:
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return FileResponse(path=path, filename=row["filename"], media_type="application/octet-stream")
+
+
+@router.get("/{file_id}/preview")
+def preview_file(file_id: int):
+    """Row-expand preview: images stream with their real content type so an
+    <img> can render them; text files return their first PREVIEW_TEXT_BYTES as
+    text/plain with X-Preview-Truncated signalling a cut. Other types are 415
+    (the client offers download instead)."""
+    row = file_service.get_file_by_id(file_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    try:
+        path = file_service.resolve_download_path(row)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    name = row["filename"]
+    ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    if ext in PREVIEW_IMAGE_TYPES:
+        return FileResponse(path=path, media_type=PREVIEW_IMAGE_TYPES[ext])
+    if ext in PREVIEW_TEXT_EXTS:
+        with path.open("rb") as fh:
+            head = fh.read(PREVIEW_TEXT_BYTES + 1)
+        truncated = len(head) > PREVIEW_TEXT_BYTES
+        text = head[:PREVIEW_TEXT_BYTES].decode("utf-8", errors="replace")
+        return PlainTextResponse(text, headers={"X-Preview-Truncated": "1" if truncated else "0"})
+    raise HTTPException(status_code=415, detail="No preview for this file type.")
 
 
 @router.delete("/{file_id}")

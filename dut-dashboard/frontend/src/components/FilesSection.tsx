@@ -1,14 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 
 import {
   deleteFile,
   FileSortKey,
   getFileDownloadUrl,
+  getFilePreviewUrl,
   getFiles,
+  getFileTextPreview,
   FilesList,
   FilesStats,
   humanizeApiError,
   SortOrder,
+  TextPreview,
   uploadFile,
   WorkspaceFile,
 } from "../api/rest";
@@ -64,6 +67,61 @@ function FileTypeChip({ name }: { name: string }) {
 // and scroll for older. All rows stay in the DOM so search/filter still works.
 const VISIBLE_FILE_ROWS = 5;
 
+// Row-expand preview: images render inline, text files show their head
+// (fetched lazily on expand); everything else only offers download.
+const PREVIEW_IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif"]);
+const PREVIEW_TEXT_EXTS = new Set(["log", "txt", "csv", "json"]);
+
+function previewKind(name: string): "image" | "text" | null {
+  const ext = extOf(name);
+  if (PREVIEW_IMAGE_EXTS.has(ext)) return "image";
+  if (PREVIEW_TEXT_EXTS.has(ext)) return "text";
+  return null;
+}
+
+function TextPreviewBody({ file }: { file: WorkspaceFile }) {
+  const [preview, setPreview] = useState<TextPreview | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getFileTextPreview(file.id)
+      .then((p) => !cancelled && setPreview(p))
+      .catch(() => !cancelled && setError("Could not load preview."));
+    return () => {
+      cancelled = true;
+    };
+  }, [file.id]);
+
+  if (error) return <div className="preview-note">{error}</div>;
+  if (preview === null) return <div className="preview-note">Loading preview…</div>;
+  return (
+    <>
+      <pre className="preview-text">{preview.content}</pre>
+      {preview.truncated ? (
+        <div className="preview-note">Preview truncated — download for the full file.</div>
+      ) : null}
+    </>
+  );
+}
+
+function FilePreviewRow({ file }: { file: WorkspaceFile }) {
+  const kind = previewKind(file.filename);
+  return (
+    <tr className="preview-row">
+      <td colSpan={4}>
+        {kind === "image" ? (
+          <img className="preview-image" src={getFilePreviewUrl(file.id)} alt={file.filename} />
+        ) : kind === "text" ? (
+          <TextPreviewBody file={file} />
+        ) : (
+          <div className="preview-note">No inline preview for this type — use download.</div>
+        )}
+      </td>
+    </tr>
+  );
+}
+
 // Default ordering (no header highlighted): newest upload first.
 const DEFAULT_SORT: FileSortKey = "date";
 const DEFAULT_ORDER: SortOrder = "desc";
@@ -98,12 +156,16 @@ function SharedFilesTable({
   sort,
   order,
   onSort,
+  expandedId,
+  onToggleExpand,
 }: {
   rows: WorkspaceFile[];
   onDelete: (file: WorkspaceFile) => void;
   sort: FileSortKey;
   order: SortOrder;
   onSort: (col: FileSortKey) => void;
+  expandedId: number | null;
+  onToggleExpand: (id: number) => void;
 }) {
   return (
     <>
@@ -122,36 +184,51 @@ function SharedFilesTable({
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.id}>
-                <td className="filetable-name">
-                  <FileTypeChip name={row.filename} />
-                  {row.filename}
-                </td>
-                <td>{formatSize(row.size)}</td>
-                <td><AuthorTag name={row.uploader} /></td>
-                <td>
-                  <div className="row-actions">
-                    <a
-                      className="icon-btn"
-                      href={getFileDownloadUrl(row.id)}
-                      download={row.filename}
-                      title="Download"
-                      aria-label={`Download ${row.filename}`}
-                    >
-                      ↓
-                    </a>
-                    <button
-                      type="button"
-                      className="icon-btn danger"
-                      title="Delete"
-                      aria-label={`Delete ${row.filename}`}
-                      onClick={() => onDelete(row)}
-                    >
-                      🗑
-                    </button>
-                  </div>
-                </td>
-              </tr>
+              <Fragment key={row.id}>
+                <tr>
+                  <td className="filetable-name">
+                    <FileTypeChip name={row.filename} />
+                    {row.filename}
+                  </td>
+                  <td>{formatSize(row.size)}</td>
+                  <td><AuthorTag name={row.uploader} /></td>
+                  <td>
+                    <div className="row-actions">
+                      {previewKind(row.filename) ? (
+                        <button
+                          type="button"
+                          className="icon-btn"
+                          title={expandedId === row.id ? "Hide preview" : "Preview"}
+                          aria-label={`${expandedId === row.id ? "Hide preview of" : "Preview"} ${row.filename}`}
+                          aria-expanded={expandedId === row.id}
+                          onClick={() => onToggleExpand(row.id)}
+                        >
+                          {expandedId === row.id ? "▴" : "👁"}
+                        </button>
+                      ) : null}
+                      <a
+                        className="icon-btn"
+                        href={getFileDownloadUrl(row.id)}
+                        download={row.filename}
+                        title="Download"
+                        aria-label={`Download ${row.filename}`}
+                      >
+                        ↓
+                      </a>
+                      <button
+                        type="button"
+                        className="icon-btn danger"
+                        title="Delete"
+                        aria-label={`Delete ${row.filename}`}
+                        onClick={() => onDelete(row)}
+                      >
+                        🗑
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                {expandedId === row.id ? <FilePreviewRow file={row} /> : null}
+              </Fragment>
             ))}
           </tbody>
         </table>
@@ -160,38 +237,53 @@ function SharedFilesTable({
   );
 }
 
+type UploadResult = { name: string; error: string | null };
+
 function UploadCard({ onUploaded }: { onUploaded: () => void }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [results, setResults] = useState<UploadResult[]>([]);
   const [dragging, setDragging] = useState(false);
   // There's no login, so the uploader is the free-text display name. It defaults
   // to an IP-derived suggestion (useIdentity), is editable right here at upload
   // time, persisted, and shared with Bulletin + Settings; a name is required.
   const { displayName, suggested, effectiveName, setDisplayName } = useIdentity();
 
+  // Uploads run sequentially: one failure (bad type, size cap) doesn't stop the
+  // rest, and the shared endpoint isn't hammered with parallel writes.
   const send = useCallback(
-    async (file: File) => {
+    async (list: FileList | File[]) => {
+      const files = [...list];
+      if (files.length === 0) return;
       if (!effectiveName) {
-        setError("Enter your name first.");
+        setResults([{ name: "", error: "Enter your name first." }]);
         return;
       }
       setBusy(true);
-      setError(null);
-      try {
-        await uploadFile(file, effectiveName);
+      setResults([]);
+      const outcome: UploadResult[] = [];
+      for (let i = 0; i < files.length; i += 1) {
+        setProgress({ done: i, total: files.length });
+        try {
+          await uploadFile(files[i], effectiveName);
+          outcome.push({ name: files[i].name, error: null });
+        } catch (e) {
+          outcome.push({ name: files[i].name, error: humanizeApiError(e) });
+        }
+      }
+      setProgress(null);
+      setResults(outcome);
+      setBusy(false);
+      if (outcome.some((r) => r.error === null)) {
         onUploaded();
-      } catch (e) {
-        setError(humanizeApiError(e));
-      } finally {
-        setBusy(false);
       }
     },
     [onUploaded, effectiveName],
   );
 
   return (
-    <Card title="Upload" subtitle="Max 50 MB · pdf, png, csv, log, pcapng…">
+    <Card title="Upload" subtitle="Max 50 MB each · pdf, png, csv, log, pcapng…">
       <label className="upload-name">
         <span>Your name</span>
         <input
@@ -218,31 +310,43 @@ function UploadCard({ onUploaded }: { onUploaded: () => void }) {
         onDrop={(e) => {
           e.preventDefault();
           setDragging(false);
-          const file = e.dataTransfer.files?.[0];
-          if (file) void send(file);
+          if (e.dataTransfer.files?.length) void send(e.dataTransfer.files);
         }}
       >
         <div className="upload-drop-icon" aria-hidden="true">
           ⬆
         </div>
         <div className="upload-drop-main">
-          {busy ? "Uploading…" : "Drag a file here, or click to browse"}
+          {busy && progress
+            ? `Uploading ${progress.done + 1}/${progress.total}…`
+            : "Drag files here, or click to browse"}
         </div>
-        <div className="upload-drop-hint">Max 50 MB · pdf, png, csv, log, pcapng…</div>
+        <div className="upload-drop-hint">Max 50 MB each · pdf, png, csv, log, pcapng…</div>
       </div>
       <input
         ref={inputRef}
         type="file"
+        multiple
         hidden
         onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) void send(file);
+          if (e.target.files?.length) void send(e.target.files);
           e.target.value = "";
         }}
       />
-      {error ? (
-        <div className="flash" style={{ marginTop: "var(--space-3)", color: "var(--danger)" }}>
-          {error}
+      {results.length > 0 ? (
+        <div className="upload-results">
+          {results.filter((r) => r.error === null).length > 0 ? (
+            <div className="upload-result">
+              ✓ {results.filter((r) => r.error === null).length} of {results.length} uploaded
+            </div>
+          ) : null}
+          {results
+            .filter((r) => r.error !== null)
+            .map((r, i) => (
+              <div className="upload-result upload-result-fail" key={`${r.name}-${i}`}>
+                ✗ {r.name ? `${r.name} — ` : ""}{r.error}
+              </div>
+            ))}
         </div>
       ) : null}
     </Card>
@@ -351,6 +455,11 @@ export default function FilesSection({ query = "" }: { query?: string }) {
     sort: DEFAULT_SORT,
     order: DEFAULT_ORDER,
   });
+  // One preview open at a time; toggling another row swaps it.
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const onToggleExpand = useCallback((id: number) => {
+    setExpandedId((prev) => (prev === id ? null : id));
+  }, []);
   // Rows currently on screen: reload refetches that many from offset 0 so an
   // upload/delete refresh doesn't collapse the list back to the first page.
   const loadedRef = useRef(PAGE_SIZE);
@@ -469,7 +578,15 @@ export default function FilesSection({ query = "" }: { query?: string }) {
       <div className="grid">
         <Card title="Shared Files" subtitle={subtitle}>
           {files.length > 0 ? (
-            <SharedFilesTable rows={files} onDelete={onDelete} sort={sort} order={order} onSort={onSort} />
+            <SharedFilesTable
+              rows={files}
+              onDelete={onDelete}
+              sort={sort}
+              order={order}
+              onSort={onSort}
+              expandedId={expandedId}
+              onToggleExpand={onToggleExpand}
+            />
           ) : (
             <EmptyState
               icon="🗂"

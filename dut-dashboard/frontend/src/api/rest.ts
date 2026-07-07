@@ -340,6 +340,26 @@ export function getFileDownloadUrl(id: number): string {
   return `/api/files/${id}/download`;
 }
 
+/** Preview URL for a shared file — images stream with their real content type,
+ * so this can be used directly as an <img> src. */
+export function getFilePreviewUrl(id: number): string {
+  return `/api/files/${id}/preview`;
+}
+
+export type TextPreview = { content: string; truncated: boolean };
+
+/** First chunk of a text file (log/txt/csv/json) for the row-expand preview. */
+export async function getFileTextPreview(id: number): Promise<TextPreview> {
+  const response = await fetch(getFilePreviewUrl(id));
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return {
+    content: await response.text(),
+    truncated: response.headers.get("X-Preview-Truncated") === "1",
+  };
+}
+
 /** Delete a shared file (no owner check — shared-trust model). */
 export async function deleteFile(id: number): Promise<void> {
   const response = await fetch(`/api/files/${id}`, { method: "DELETE" });

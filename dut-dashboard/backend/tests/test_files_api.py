@@ -178,6 +178,44 @@ class WorkspaceFilesTests(unittest.TestCase):
             ["amy", "nelson", None],
         )
 
+    def test_preview_image_streams_with_image_content_type(self) -> None:
+        created = _upload("shot.png", b"\x89PNG-not-really")
+        response = files_api.preview_file(created["id"])
+        self.assertEqual(response.media_type, "image/png")
+        self.assertEqual(Path(response.path).read_bytes(), b"\x89PNG-not-really")
+
+    def test_preview_text_returns_head_and_truncation_flag(self) -> None:
+        small = _upload("short.log", b"hello")
+        full = files_api.preview_file(small["id"])
+        self.assertEqual(full.body, b"hello")
+        self.assertEqual(full.headers["x-preview-truncated"], "0")
+
+        with patch.object(files_api, "PREVIEW_TEXT_BYTES", 4):
+            big = _upload("long.log", b"0123456789")
+            cut = files_api.preview_file(big["id"])
+        self.assertEqual(cut.body, b"0123")
+        self.assertEqual(cut.headers["x-preview-truncated"], "1")
+
+    def test_preview_unsupported_type_is_415(self) -> None:
+        created = _upload("capture.pcap", b"pcap-bytes")
+        with self.assertRaises(HTTPException) as ctx:
+            files_api.preview_file(created["id"])
+        self.assertEqual(ctx.exception.status_code, 415)
+
+    def test_preview_missing_file_is_404(self) -> None:
+        with self.assertRaises(HTTPException) as ctx:
+            files_api.preview_file(999)
+        self.assertEqual(ctx.exception.status_code, 404)
+
+    def test_preview_rejects_path_outside_upload_dir(self) -> None:
+        file_id = workspace.execute(
+            "INSERT INTO files (filename, filepath, size, uploader) VALUES (?, ?, ?, ?)",
+            ("evil.log", "/etc/passwd", 1, None),
+        )
+        with self.assertRaises(HTTPException) as ctx:
+            files_api.preview_file(file_id)
+        self.assertEqual(ctx.exception.status_code, 404)
+
     def test_download_missing_file_is_404(self) -> None:
         with self.assertRaises(HTTPException) as ctx:
             files_api.download_file(999)
