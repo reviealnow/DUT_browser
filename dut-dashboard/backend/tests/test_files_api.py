@@ -99,6 +99,23 @@ class WorkspaceFilesTests(unittest.TestCase):
         self.assertEqual(len(stats["uploads_per_day"]), 14)
         self.assertEqual(stats["uploads_per_day"][-1]["count"], 3)
 
+    def test_pagination_pages_newest_first_and_reports_total(self) -> None:
+        for name in ("one.log", "two.log", "three.log"):
+            _upload(name, b"x")
+
+        page = files_api.list_files(limit=2, offset=0)
+        self.assertEqual([f["filename"] for f in page["files"]], ["three.log", "two.log"])
+        self.assertEqual(page["total"], 3)
+
+        rest = files_api.list_files(limit=2, offset=2)
+        self.assertEqual([f["filename"] for f in rest["files"]], ["one.log"])
+        self.assertEqual(rest["total"], 3)
+
+        # No limit keeps the legacy full-list behaviour.
+        legacy = files_api.list_files()
+        self.assertEqual(len(legacy["files"]), 3)
+        self.assertEqual(legacy["total"], 3)
+
     def test_download_missing_file_is_404(self) -> None:
         with self.assertRaises(HTTPException) as ctx:
             files_api.download_file(999)

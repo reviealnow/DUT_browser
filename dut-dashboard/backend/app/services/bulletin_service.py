@@ -82,21 +82,39 @@ def delete_post(post_id: int) -> None:
     execute("DELETE FROM bulletin_posts WHERE id = ?", (post_id,))
 
 
-def list_posts() -> list[dict]:
-    posts = query_all(
-        """
+def count_posts() -> int:
+    row = query_one("SELECT COUNT(*) AS n FROM bulletin_posts")
+    return int(row["n"])
+
+
+def list_posts(limit: int | None = None, offset: int = 0) -> list[dict]:
+    """Newest first. ``limit=None`` returns everything (legacy no-param behaviour);
+    otherwise a page of ``limit`` posts starting at ``offset``. Comments are only
+    fetched for the returned page."""
+    posts_sql = """
         SELECT id, title, body, author, created_at
         FROM bulletin_posts
         ORDER BY created_at DESC, id DESC
         """
-    )
-    comments = query_all(
-        """
-        SELECT id, post_id, parent_comment_id, body, author, created_at
-        FROM bulletin_comments
-        ORDER BY created_at ASC, id ASC
-        """
-    )
+    if limit is None:
+        posts = query_all(posts_sql)
+    else:
+        posts = query_all(posts_sql + " LIMIT ? OFFSET ?", (limit, offset))
+
+    post_ids = [row["id"] for row in posts]
+    if post_ids:
+        placeholders = ", ".join("?" for _ in post_ids)
+        comments = query_all(
+            f"""
+            SELECT id, post_id, parent_comment_id, body, author, created_at
+            FROM bulletin_comments
+            WHERE post_id IN ({placeholders})
+            ORDER BY created_at ASC, id ASC
+            """,
+            tuple(post_ids),
+        )
+    else:
+        comments = []
 
     replies_by_parent: dict[int | None, list[dict]] = defaultdict(list)
     comments_by_post: dict[int, list[dict]] = defaultdict(list)

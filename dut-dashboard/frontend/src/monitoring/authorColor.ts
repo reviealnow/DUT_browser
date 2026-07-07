@@ -12,8 +12,9 @@ export type AuthorTagColor = { bg: string; fg: string };
 
 const NEUTRAL: AuthorTagColor = { bg: "var(--bg)", fg: "var(--muted)" };
 
-/** Stable 0–359 hue from a string (djb2-ish; unsigned). */
-function hashHue(name: string): number {
+/** Stable 0–359 hue from a string (djb2-ish; unsigned). Also reused for the
+ * file-type chip fallback colour in FilesSection. */
+export function hashHue(name: string): number {
   let hash = 0;
   for (let i = 0; i < name.length; i += 1) {
     hash = (hash * 31 + name.charCodeAt(i)) >>> 0;

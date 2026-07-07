@@ -293,11 +293,17 @@ export type FilesStats = {
   top_uploaders: { uploader: string; count: number }[];
 };
 
-export type FilesList = { files: WorkspaceFile[]; stats: FilesStats };
+export type FilesList = { files: WorkspaceFile[]; stats: FilesStats; total: number };
 
-/** List shared files (newest first) plus KPI aggregates, in one round-trip. */
-export async function getFiles(): Promise<FilesList> {
-  return get<FilesList>("/api/files");
+/** Query-string suffix for paginated list endpoints; empty when no limit given. */
+function pageQuery(limit?: number, offset?: number): string {
+  return limit == null ? "" : `?limit=${limit}&offset=${offset ?? 0}`;
+}
+
+/** List shared files (newest first) plus KPI aggregates, in one round-trip.
+ * Omitting `limit` returns everything; `total` always counts every file. */
+export async function getFiles(limit?: number, offset?: number): Promise<FilesList> {
+  return get<FilesList>(`/api/files${pageQuery(limit, offset)}`);
 }
 
 /** Upload a file. `uploader` is the optional free-text display name. */
@@ -350,10 +356,12 @@ export type BulletinPost = {
   comments: BulletinComment[];
 };
 
-/** List bulletin posts (newest first) with nested comments. */
-export async function getBulletinPosts(): Promise<BulletinPost[]> {
-  const result = await get<{ posts: BulletinPost[] }>("/api/bulletin/posts");
-  return result.posts;
+export type BulletinPostsPage = { posts: BulletinPost[]; total: number };
+
+/** List bulletin posts (newest first) with nested comments.
+ * Omitting `limit` returns everything; `total` always counts every post. */
+export async function getBulletinPosts(limit?: number, offset?: number): Promise<BulletinPostsPage> {
+  return get<BulletinPostsPage>(`/api/bulletin/posts${pageQuery(limit, offset)}`);
 }
 
 /** Create a bulletin post. `author` is the optional free-text display name. */

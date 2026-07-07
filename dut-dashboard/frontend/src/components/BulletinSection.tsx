@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   BulletinComment,
@@ -250,17 +250,49 @@ function PostCard({ post, onChanged, identity }: { post: BulletinPost; onChanged
   );
 }
 
+// First page size; "Load more" appends another page (the board accumulates
+// notes over months, so the view lazy-loads instead of fetching every post).
+const PAGE_SIZE = 20;
+
 export default function BulletinSection({ query = "" }: { query?: string }) {
   const [posts, setPosts] = useState<BulletinPost[] | null>(null);
+  const [total, setTotal] = useState(0);
   const [failed, setFailed] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const identity = useIdentity();
+  // Posts currently on screen: reload refetches that many from offset 0 so a
+  // post/reply/delete refresh doesn't collapse the board back to the first page.
+  const loadedRef = useRef(PAGE_SIZE);
 
   const reload = useCallback(() => {
     setFailed(false);
-    getBulletinPosts()
-      .then(setPosts)
+    getBulletinPosts(Math.max(PAGE_SIZE, loadedRef.current), 0)
+      .then((page) => {
+        loadedRef.current = page.posts.length;
+        setPosts(page.posts);
+        setTotal(page.total);
+      })
       .catch(() => setFailed(true));
   }, []);
+
+  const loadMore = useCallback(() => {
+    if (posts === null) return;
+    setLoadingMore(true);
+    getBulletinPosts(PAGE_SIZE, posts.length)
+      .then((page) => {
+        setPosts((prev) => {
+          const current = prev ?? [];
+          // Dedupe on id: a post landing between page fetches shifts offsets.
+          const known = new Set(current.map((p) => p.id));
+          const merged = [...current, ...page.posts.filter((p) => !known.has(p.id))];
+          loadedRef.current = merged.length;
+          return merged;
+        });
+        setTotal(page.total);
+      })
+      .catch(() => undefined) // keep the loaded posts; the button stays for retry
+      .finally(() => setLoadingMore(false));
+  }, [posts]);
 
   useEffect(() => {
     reload();
@@ -287,12 +319,25 @@ export default function BulletinSection({ query = "" }: { query?: string }) {
           <EmptyState
             icon="📌"
             message={needle ? "No matching notes" : "No notes yet"}
-            hint={needle ? "Try a different filter." : "Post the first note above."}
+            hint={
+              needle
+                ? posts.length < total
+                  ? "No match in the loaded notes — try Load more or a different filter."
+                  : "Try a different filter."
+                : "Post the first note above."
+            }
           />
         </Card>
       ) : (
         visible.map((post) => <PostCard key={post.id} post={post} onChanged={reload} identity={identity} />)
       )}
+      {posts !== null && posts.length < total ? (
+        <div style={{ marginTop: "var(--space-3)" }}>
+          <button type="button" className="btn" disabled={loadingMore} onClick={loadMore}>
+            {loadingMore ? "Loading…" : `Load more (${total - posts.length} older)`}
+          </button>
+        </div>
+      ) : null}
     </>
   );
 }
