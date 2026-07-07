@@ -23,13 +23,22 @@ import {
  * A failed scan keeps any previous result (only the error is updated) so a
  * re-scan never blanks the card.
  */
+export type SurveyProgress = {
+  stage: "capabilities" | "scanning" | "done";
+  iface: string | null;
+  index: number;
+  total: number;
+};
+
 export type SurveyEntry = {
   result: ChannelRecommendationResult | null;
   loading: boolean;
   error: string;
+  /** Live scan progress from survey_progress /ws events; null when idle. */
+  progress: SurveyProgress | null;
 };
 
-const EMPTY: SurveyEntry = { result: null, loading: false, error: "" };
+const EMPTY: SurveyEntry = { result: null, loading: false, error: "", progress: null };
 
 // One entry per DUT id. Entries are replaced (never mutated in place) so a
 // stable reference between changes keeps useSyncExternalStore from looping.
@@ -64,18 +73,28 @@ export function runSurvey(dutId: string): Promise<void> {
     return existing;
   }
   const run = (async () => {
-    setEntry(dutId, { loading: true, error: "" });
+    setEntry(dutId, { loading: true, error: "", progress: null });
     try {
       const result = await getChannelRecommendation(dutId);
-      setEntry(dutId, { result, loading: false, error: "" });
+      setEntry(dutId, { result, loading: false, error: "", progress: null });
     } catch (e) {
-      setEntry(dutId, { loading: false, error: humanizeApiError(e) });
+      setEntry(dutId, { loading: false, error: humanizeApiError(e), progress: null });
     } finally {
       inflight.delete(dutId);
     }
   })();
   inflight.set(dutId, run);
   return run;
+}
+
+/**
+ * Ingest a survey_progress /ws event (forwarded by useDutMonitor — the shared
+ * dashboard socket, NOT a new connection). Progress is only rendered while an
+ * entry is loading, and runSurvey resets it on start and settle, so a stray
+ * late event can't leave a stale bar behind.
+ */
+export function setSurveyProgress(dutId: string, progress: SurveyProgress): void {
+  setEntry(dutId, { progress });
 }
 
 /**

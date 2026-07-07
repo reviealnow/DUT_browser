@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
 import { ChannelRecommendation, ObservedNeighbor } from "../api/rest";
 import { DEFAULT_DUT_ID } from "../api/dut";
-import { ensureSurvey, runSurvey, useSurvey } from "../monitoring/siteSurveyStore";
+import { ensureSurvey, runSurvey, SurveyProgress, useSurvey } from "../monitoring/siteSurveyStore";
 import { RecommendationPill } from "./RecommendationPill";
 import { Card, EmptyState } from "./shell/Card";
 
@@ -17,6 +17,42 @@ function bandRank(band: string | null): number {
 // 5/6GHz have hundreds of possible channels, so only ones actually seen in the
 // scan (plus the current channel) are shown, ascending.
 const ALL_24G_CHANNELS = Array.from({ length: 13 }, (_, i) => i + 1);
+
+/** One line of scan state for the progress UI. The per-VAP off-channel scan is
+ * the slow part (up to 20s each), so "which VAP, i of N" is the signal. */
+function progressLabel(progress: SurveyProgress | null): string {
+  if (progress === null) return "Starting scan…";
+  if (progress.stage === "capabilities") return "Reading SSID configuration…";
+  if (progress.stage === "scanning") return `Scanning ${progress.iface} (${progress.index}/${progress.total})…`;
+  return "Finishing…";
+}
+
+/** Live scan progress (label + bar), shown only while a survey is in flight.
+ * Fed by survey_progress /ws events; before the first event arrives the bar
+ * sits at 0% with a generic label. Bar fill counts COMPLETED scans, so it
+ * reaches 100% only on the "done" stage. */
+function ScanProgress({ progress }: { progress: SurveyProgress | null }) {
+  const pct =
+    progress === null || progress.total === 0
+      ? 0
+      : progress.stage === "done"
+        ? 100
+        : progress.stage === "scanning"
+          ? Math.round(((progress.index - 1) / progress.total) * 100)
+          : 0;
+  return (
+    <div style={{ marginBottom: "var(--space-3)" }}>
+      <div style={{ fontSize: 12, color: "var(--faint)", marginBottom: "var(--space-1)" }}>
+        {progressLabel(progress)}
+      </div>
+      <div style={{ height: 6, borderRadius: 3, background: "var(--border)", overflow: "hidden" }}>
+        <div
+          style={{ height: "100%", width: `${pct}%`, background: "var(--accent)", transition: "width 0.3s ease" }}
+        />
+      </div>
+    </div>
+  );
+}
 
 /** Raw neighbor (SSID) count per channel for one band — NOT the signal-weighted
  * occupancy score used for the recommendation pill. This is the plain "how many
@@ -55,7 +91,7 @@ function channelCounts(
  * Mirrors WifiClientsCard's idiom (Card + Scan action + summary pills + table).
  */
 export default function SiteSurveyCard({ dutId = DEFAULT_DUT_ID }: { dutId?: string }) {
-  const { result: data, loading, error } = useSurvey(dutId);
+  const { result: data, loading, error, progress } = useSurvey(dutId);
 
   const rerun = () => void runSurvey(dutId);
 
@@ -104,6 +140,7 @@ export default function SiteSurveyCard({ dutId = DEFAULT_DUT_ID }: { dutId?: str
               Re-scan failed: {error} — showing the previous scan.
             </div>
           ) : null}
+          {loading ? <ScanProgress progress={progress} /> : null}
           <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap", marginBottom: "var(--space-3)" }}>
             {data.recommendations.map((r) => (
               <RecommendationPill key={r.band} rec={r} />
@@ -156,11 +193,14 @@ export default function SiteSurveyCard({ dutId = DEFAULT_DUT_ID }: { dutId?: str
       ) : error ? (
         <EmptyState icon="⚠" message="Scan failed" hint={`Open a DUT serial connection, then Scan. (${error})`} />
       ) : (
-        <EmptyState
-          icon="📡"
-          message="No scan yet"
-          hint={loading ? "Scanning all active VAPs — this can take up to a minute." : "Open a DUT serial connection, then Scan."}
-        />
+        <>
+          <EmptyState
+            icon="📡"
+            message="No scan yet"
+            hint={loading ? "Scanning all active VAPs — this can take a few minutes." : "Open a DUT serial connection, then Scan."}
+          />
+          {loading ? <ScanProgress progress={progress} /> : null}
+        </>
       )}
     </Card>
   );

@@ -18,6 +18,7 @@ gate, same as every other `capture_command` caller.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
 
 from app.services.wifi_clients import discover_vaps
@@ -56,17 +57,36 @@ def _signal_weight(signal_dbm: float | None) -> float:
     return 1.0
 
 
-def get_site_survey(worker: "object") -> dict:  # SerialWorker — avoids circular import
+def get_site_survey(
+    worker: "object",  # SerialWorker — avoids circular import
+    on_progress: Callable[[dict], None] | None = None,
+) -> dict:
     """Scan every active VAP's radio for neighboring BSS on the DUT.
 
     Returns {"vaps": [...], "neighbors": [ObservedNeighbor, ...], "captured_at": iso}.
     Each neighbor carries "iface" (which VAP's radio saw it) in addition to the
     usual iw-scan fields (bssid/ssid/band/channel/freq_mhz/signal_dbm/...).
     Raises RuntimeError (passed through) only when the serial port is not open.
+
+    `on_progress` (optional) is called with
+    {"stage": "scanning"|"done", "iface": str|None, "index": int, "total": int}
+    before each per-VAP scan and once after the loop — a full survey blocks a
+    single request for minutes (~10 VAPs x up to SCAN_TIMEOUT_SEC each), so this
+    is the only way any intermediate state escapes. Best-effort: a raising
+    callback never aborts the scan, and the service stays framework-free (the
+    caller decides what a progress event becomes, e.g. a /ws broadcast).
     """
     from app.serial.serial_worker import SerialWorker  # local import avoids circular
 
     assert isinstance(worker, SerialWorker)
+
+    def _progress(stage: str, iface: str | None, index: int, total: int) -> None:
+        if on_progress is None:
+            return
+        try:
+            on_progress({"stage": stage, "iface": iface, "index": index, "total": total})
+        except Exception:
+            pass
 
     iwconfig_text = worker.capture_command("iwconfig", timeout=6.0)
     vaps = discover_vaps(iwconfig_text)
@@ -74,7 +94,9 @@ def get_site_survey(worker: "object") -> dict:  # SerialWorker — avoids circul
         vap["band"] = _BAND_TO_GHZ.get(vap["band"], vap["band"])
 
     neighbors: list[dict] = []
-    for vap in vaps:
+    total = len(vaps)
+    for index, vap in enumerate(vaps, start=1):
+        _progress("scanning", vap["iface"], index, total)
         try:
             out = worker.capture_command(f"iw dev {vap['iface']} scan", timeout=SCAN_TIMEOUT_SEC)
         except RuntimeError:
@@ -82,6 +104,7 @@ def get_site_survey(worker: "object") -> dict:  # SerialWorker — avoids circul
         for neighbor in parse_iw_scan_text(out):
             neighbor["iface"] = vap["iface"]
             neighbors.append(neighbor)
+    _progress("done", None, total, total)
 
     return {
         "vaps": vaps,
