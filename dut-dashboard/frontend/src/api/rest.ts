@@ -295,15 +295,30 @@ export type FilesStats = {
 
 export type FilesList = { files: WorkspaceFile[]; stats: FilesStats; total: number };
 
-/** Query-string suffix for paginated list endpoints; empty when no limit given. */
-function pageQuery(limit?: number, offset?: number): string {
-  return limit == null ? "" : `?limit=${limit}&offset=${offset ?? 0}`;
+export type FileSortKey = "date" | "name" | "size" | "uploader";
+export type SortOrder = "asc" | "desc";
+
+export type FilesQuery = {
+  limit?: number;
+  offset?: number;
+  q?: string;
+  sort?: FileSortKey;
+  order?: SortOrder;
+};
+
+/** Query-string suffix from defined, non-empty params; empty when none given. */
+function listQuery(params: Record<string, string | number | undefined>): string {
+  const parts = Object.entries(params)
+    .filter(([, v]) => v !== undefined && v !== "")
+    .map(([k, v]) => `${k}=${encodeURIComponent(v as string | number)}`);
+  return parts.length ? `?${parts.join("&")}` : "";
 }
 
-/** List shared files (newest first) plus KPI aggregates, in one round-trip.
- * Omitting `limit` returns everything; `total` always counts every file. */
-export async function getFiles(limit?: number, offset?: number): Promise<FilesList> {
-  return get<FilesList>(`/api/files${pageQuery(limit, offset)}`);
+/** List shared files plus KPI aggregates, in one round-trip. Omitting `limit`
+ * returns everything. `q` filters by filename substring server-side; `total`
+ * counts the matches while `stats` stays workspace-wide. */
+export async function getFiles(opts: FilesQuery = {}): Promise<FilesList> {
+  return get<FilesList>(`/api/files${listQuery(opts)}`);
 }
 
 /** Upload a file. `uploader` is the optional free-text display name. */
@@ -358,10 +373,13 @@ export type BulletinPost = {
 
 export type BulletinPostsPage = { posts: BulletinPost[]; total: number };
 
-/** List bulletin posts (newest first) with nested comments.
- * Omitting `limit` returns everything; `total` always counts every post. */
-export async function getBulletinPosts(limit?: number, offset?: number): Promise<BulletinPostsPage> {
-  return get<BulletinPostsPage>(`/api/bulletin/posts${pageQuery(limit, offset)}`);
+export type BulletinQuery = { limit?: number; offset?: number; q?: string };
+
+/** List bulletin posts (newest first) with nested comments. Omitting `limit`
+ * returns everything. `q` filters by title/body substring server-side;
+ * `total` counts the matches. */
+export async function getBulletinPosts(opts: BulletinQuery = {}): Promise<BulletinPostsPage> {
+  return get<BulletinPostsPage>(`/api/bulletin/posts${listQuery(opts)}`);
 }
 
 /** Create a bulletin post. `author` is the optional free-text display name. */

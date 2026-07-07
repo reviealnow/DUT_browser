@@ -96,6 +96,26 @@ class BulletinTests(unittest.TestCase):
         )
         self.assertEqual(remaining, [])
 
+    def test_search_matches_title_or_body_and_total_follows(self) -> None:
+        bulletin_api.create_post(PostCreate(title="Router down", body="lab A"))
+        bulletin_api.create_post(PostCreate(title="Lunch", body="the router place"))
+        bulletin_api.create_post(PostCreate(title="Unrelated", body="nothing"))
+
+        hit = bulletin_api.list_posts(q="ROUTER")  # case-insensitive
+        self.assertEqual(
+            sorted(p["title"] for p in hit["posts"]),
+            ["Lunch", "Router down"],
+        )
+        self.assertEqual(hit["total"], 2)
+
+        # q combines with pagination: total is the match count, page is capped.
+        page = bulletin_api.list_posts(limit=1, offset=0, q="router")
+        self.assertEqual(len(page["posts"]), 1)
+        self.assertEqual(page["total"], 2)
+
+        # LIKE wildcards in the query match literally, not as wildcards.
+        self.assertEqual(bulletin_api.list_posts(q="rout%r")["total"], 0)
+
     def test_pagination_pages_newest_first_and_reports_total(self) -> None:
         ids = [
             bulletin_api.create_post(PostCreate(title=f"note {i}", body="b"))["id"]

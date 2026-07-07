@@ -82,24 +82,42 @@ def delete_post(post_id: int) -> None:
     execute("DELETE FROM bulletin_posts WHERE id = ?", (post_id,))
 
 
-def count_posts() -> int:
-    row = query_one("SELECT COUNT(*) AS n FROM bulletin_posts")
+def _like_pattern(q: str) -> str:
+    """Substring LIKE pattern with %/_ escaped so user input matches literally."""
+    escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
+_POSTS_MATCH = "(title LIKE :pat ESCAPE '\\' OR body LIKE :pat ESCAPE '\\')"
+
+
+def count_posts(q: str | None = None) -> int:
+    if q:
+        row = query_one(
+            f"SELECT COUNT(*) AS n FROM bulletin_posts WHERE {_POSTS_MATCH}",
+            {"pat": _like_pattern(q)},
+        )
+    else:
+        row = query_one("SELECT COUNT(*) AS n FROM bulletin_posts")
     return int(row["n"])
 
 
-def list_posts(limit: int | None = None, offset: int = 0) -> list[dict]:
+def list_posts(limit: int | None = None, offset: int = 0, q: str | None = None) -> list[dict]:
     """Newest first. ``limit=None`` returns everything (legacy no-param behaviour);
-    otherwise a page of ``limit`` posts starting at ``offset``. Comments are only
-    fetched for the returned page."""
-    posts_sql = """
+    otherwise a page of ``limit`` posts starting at ``offset``. ``q`` filters by
+    title/body substring (case-insensitive). Comments are only fetched for the
+    returned page."""
+    posts_sql = f"""
         SELECT id, title, body, author, created_at
         FROM bulletin_posts
+        {f"WHERE {_POSTS_MATCH}" if q else ""}
         ORDER BY created_at DESC, id DESC
         """
-    if limit is None:
-        posts = query_all(posts_sql)
-    else:
-        posts = query_all(posts_sql + " LIMIT ? OFFSET ?", (limit, offset))
+    params: dict = {"pat": _like_pattern(q)} if q else {}
+    if limit is not None:
+        posts_sql += " LIMIT :limit OFFSET :offset"
+        params.update({"limit": limit, "offset": offset})
+    posts = query_all(posts_sql, params)
 
     post_ids = [row["id"] for row in posts]
     if post_ids:

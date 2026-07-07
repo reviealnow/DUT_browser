@@ -116,6 +116,68 @@ class WorkspaceFilesTests(unittest.TestCase):
         self.assertEqual(len(legacy["files"]), 3)
         self.assertEqual(legacy["total"], 3)
 
+    def test_search_filters_by_filename_and_total_follows(self) -> None:
+        _upload("alpha-report.pdf", b"a")
+        _upload("beta-notes.txt", b"b")
+        _upload("ALPHA-extra.log", b"c")
+
+        hit = files_api.list_files(q="alpha")
+        self.assertEqual(
+            sorted(f["filename"] for f in hit["files"]),
+            ["ALPHA-extra.log", "alpha-report.pdf"],  # case-insensitive
+        )
+        self.assertEqual(hit["total"], 2)
+        # KPI aggregates stay workspace-wide even while searching.
+        self.assertEqual(hit["stats"]["total"], 3)
+
+        # q combines with pagination: total is the match count, page is capped.
+        page = files_api.list_files(limit=1, offset=0, q="alpha")
+        self.assertEqual(len(page["files"]), 1)
+        self.assertEqual(page["total"], 2)
+
+    def test_search_treats_like_wildcards_literally(self) -> None:
+        # Underscores survive upload sanitisation; unescaped they'd match any char.
+        _upload("a_b.log", b"c")
+        _upload("axb.log", b"d")
+        self.assertEqual(
+            [f["filename"] for f in files_api.list_files(q="a_b")["files"]],
+            ["a_b.log"],
+        )
+
+        # "%" can't come through upload (secure_filename rewrites it) but can sit
+        # in rows inserted out-of-band; it must match literally, not as a wildcard.
+        workspace.execute(
+            "INSERT INTO files (filename, filepath, size, uploader) VALUES (?, ?, ?, ?)",
+            ("100%.log", "/x/100%.log", 1, None),
+        )
+        self.assertEqual(
+            [f["filename"] for f in files_api.list_files(q="100%")["files"]],
+            ["100%.log"],
+        )
+        self.assertEqual(files_api.list_files(q="0%.l")["total"], 1)
+
+    def test_sort_by_name_and_size(self) -> None:
+        _upload("bravo.log", b"12345", uploader="amy")
+        _upload("alpha.log", b"1", uploader=None)
+        _upload("charlie.log", b"123", uploader="nelson")
+
+        by_name = files_api.list_files(sort="name", order="asc")
+        self.assertEqual(
+            [f["filename"] for f in by_name["files"]],
+            ["alpha.log", "bravo.log", "charlie.log"],
+        )
+        by_size = files_api.list_files(sort="size", order="desc")
+        self.assertEqual(
+            [f["size"] for f in by_size["files"]],
+            [5, 3, 1],
+        )
+        # Anonymous uploads sort after named uploaders regardless of order.
+        by_uploader = files_api.list_files(sort="uploader", order="asc")
+        self.assertEqual(
+            [f["uploader"] for f in by_uploader["files"]],
+            ["amy", "nelson", None],
+        )
+
     def test_download_missing_file_is_404(self) -> None:
         with self.assertRaises(HTTPException) as ctx:
             files_api.download_file(999)

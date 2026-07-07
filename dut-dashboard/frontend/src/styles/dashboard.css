@@ -787,6 +787,24 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
+/* Sortable column header: a bare button that inherits the th typography. */
+.th-sort {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.th-sort:hover {
+  color: var(--accent);
+}
+
 /* Wi-Fi clients table: centered header on an on-brand pale-blue row. */
 .wifitable thead th {
   text-align: center;
