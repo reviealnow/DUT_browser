@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import unittest
 
+from app.serial.serial_worker import SerialWorker
 from app.services.site_survey import (
     _overlap_weight_24g,
     _signal_weight,
     channel_recommendation,
+    get_site_survey,
     parse_iw_scan_text,
 )
 
@@ -207,6 +209,81 @@ class TestAdjacentChannelWeighting(unittest.TestCase):
         self.assertEqual(row["occupancy"], {40: 3.0})
         self.assertEqual(row["recommended_channel"], 36)
         self.assertEqual(row["score"], 0)
+
+
+# Two Master-mode VAPs so the progress sequence has a real i/N to walk.
+_IWCONFIG_SAMPLE = """\
+ath0      IEEE 802.11axg  ESSID:"AP6_24G"
+          Mode:Master  Frequency:2.437 GHz (Channel 6)
+ath16     IEEE 802.11axa  ESSID:"AP6_5G"
+          Mode:Master  Frequency:5.18 GHz (Channel 36)
+"""
+
+
+class _StubParser:
+    def reset(self) -> None:
+        pass
+
+    def flush(self) -> None:
+        pass
+
+    def feed(self, line: str) -> None:
+        pass
+
+
+class _ScriptedWorker(SerialWorker):
+    """capture_command double: canned iwconfig + per-VAP scan output, with
+    selected interfaces raising RuntimeError (a per-VAP scan timeout)."""
+
+    def __init__(self, fail_ifaces: set[str] | None = None) -> None:
+        super().__init__(_StubParser())
+        self._fail = fail_ifaces or set()
+
+    def capture_command(self, cmd: str, timeout: float = 6.0) -> str:
+        if cmd == "iwconfig":
+            return _IWCONFIG_SAMPLE
+        iface = cmd.split()[2]  # "iw dev <iface> scan"
+        if iface in self._fail:
+            raise RuntimeError("capture timed out")
+        return _ATH0_SCAN_SAMPLE if iface == "ath0" else ""
+
+
+class TestSurveyProgress(unittest.TestCase):
+    """get_site_survey's optional on_progress callback (Phase 61)."""
+
+    def test_emits_scanning_per_vap_then_done(self) -> None:
+        events: list[dict] = []
+        result = get_site_survey(_ScriptedWorker(), on_progress=events.append)
+        self.assertEqual(
+            events,
+            [
+                {"stage": "scanning", "iface": "ath0", "index": 1, "total": 2},
+                {"stage": "scanning", "iface": "ath16", "index": 2, "total": 2},
+                {"stage": "done", "iface": None, "index": 2, "total": 2},
+            ],
+        )
+        self.assertEqual(len(result["neighbors"]), 3)
+
+    def test_failed_vap_scan_still_advances_to_done(self) -> None:
+        events: list[dict] = []
+        result = get_site_survey(_ScriptedWorker(fail_ifaces={"ath0"}), on_progress=events.append)
+        # ath0's timeout is skipped (existing behavior) but the progress walk
+        # still covers every VAP and terminates with "done".
+        self.assertEqual([e["stage"] for e in events], ["scanning", "scanning", "done"])
+        self.assertEqual(events[-1], {"stage": "done", "iface": None, "index": 2, "total": 2})
+        self.assertEqual(result["neighbors"], [])
+
+    def test_raising_callback_never_aborts_the_scan(self) -> None:
+        def boom(_: dict) -> None:
+            raise ValueError("listener bug")
+
+        result = get_site_survey(_ScriptedWorker(), on_progress=boom)
+        self.assertEqual(len(result["neighbors"]), 3)
+
+    def test_no_callback_keeps_existing_behavior(self) -> None:
+        result = get_site_survey(_ScriptedWorker())
+        self.assertEqual(len(result["neighbors"]), 3)
+        self.assertEqual([v["iface"] for v in result["vaps"]], ["ath0", "ath16"])
 
 
 if __name__ == "__main__":

@@ -55,6 +55,13 @@ export type DashboardEvent =
       radio: "2G" | "5G" | "6G";
       total_size: number;
       clients: WifiClient[];
+    }
+  | {
+      type: "survey_progress";
+      stage: "capabilities" | "scanning" | "done";
+      iface: string | null;
+      index: number;
+      total: number;
     };
 // Note: this is a closed discriminated union. Unknown runtime event types are
 // parsed as DashboardEvent and fall through the type checks (ignored). A

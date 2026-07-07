@@ -235,13 +235,29 @@ def get_wifi_capability_report(dut: str = DEFAULT_DUT_ID) -> dict:
     return report
 
 
+def _survey_progress_emitter(dut: str):
+    """Bridge get_site_survey's on_progress callback onto the shared /ws.
+
+    The survey runs inside a threadpool-executed sync endpoint, so events go out
+    via emit_from_thread (same path the parser uses), tagged with dut_id like
+    every other /ws event. Frontends that don't know "survey_progress" ignore
+    unknown event types, so this is additive."""
+    ws_manager: WebSocketManager = app.state.ws_manager
+
+    def emit(progress: dict) -> None:
+        ws_manager.emit_from_thread({"type": "survey_progress", "dut_id": dut, **progress})
+
+    return emit
+
+
 @app.get("/api/wifi/site-survey")
 def get_wifi_site_survey(dut: str = DEFAULT_DUT_ID) -> dict:
     """On-demand DUT-side neighbor scan: `iw dev <vap> scan` per active VAP.
-    Serial mode only; off-channel scans are slower than other captures."""
+    Serial mode only; off-channel scans are slower than other captures.
+    Progress is broadcast as survey_progress events on /ws while it runs."""
     worker = resolve_dut(app, dut).serial_worker
     try:
-        return get_site_survey(worker)
+        return get_site_survey(worker, on_progress=_survey_progress_emitter(dut))
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -255,11 +271,15 @@ def get_wifi_channel_recommendation(dut: str = DEFAULT_DUT_ID) -> dict:
     call to /api/wifi/site-survey would re-run the (slow, off-channel) scan.
     Serial mode only; both captures happen on this request. The result is cached
     per DUT so read-only surfaces (Overview / Fleet) can show it without a new
-    scan — see /api/wifi/channel-recommendation/last."""
+    scan — see /api/wifi/channel-recommendation/last.
+    Progress is broadcast as survey_progress events on /ws while it runs
+    (a "capabilities" stage for the config capture, then the per-VAP scan)."""
     worker = resolve_dut(app, dut).serial_worker
+    notify = _survey_progress_emitter(dut)
+    notify({"stage": "capabilities", "iface": None, "index": 0, "total": 0})
     try:
         own_vaps = get_ssid_capabilities(worker)
-        survey = get_site_survey(worker)
+        survey = get_site_survey(worker, on_progress=notify)
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     recommendations = channel_recommendation(survey["neighbors"], own_vaps)

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_DUT_ID } from "../api/dut";
 import { getConsoleTail, getSnapshots } from "../api/rest";
 import { connectDashboardWebSocket, SnapshotPayload } from "../api/websocket";
+import { setSurveyProgress } from "./siteSurveyStore";
 import { useCrashKeywords } from "./useCrashKeywords";
 
 const MAX_LINES = 1000;
@@ -196,6 +197,18 @@ export function useDutMonitor(dutId: string = DEFAULT_DUT_ID): DutMonitorState {
             setWifiSeen(true);
             recordActivity();
           }
+          return;
+        }
+        if (event.type === "survey_progress") {
+          // Forwarded into the module-level survey store (not React state here):
+          // the scan may have been started by the connect-time prescan or the
+          // SiteSurveyCard, both of which subscribe to that store.
+          setSurveyProgress(dutId, {
+            stage: event.stage,
+            iface: event.iface,
+            index: event.index,
+            total: event.total,
+          });
         }
       },
       // Runs on first connect and on every reconnect → recover after a drop.
