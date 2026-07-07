@@ -74,9 +74,9 @@ flowchart TD
   colour + one spacing scale via CSS tokens). Responsive mobile layout with a
   nav drawer.
 - **Overview** — live KPIs + connection-status pill (`Streaming` / `No DUT` /
-  `Offline`), CPU trend, memory trend (post-analysis), Wi-Fi client summary,
-  per-band channel recommendation, and a critical-crash feed for the selected
-  DUT.
+  `Offline`), CPU trend, memory trend (live from streamed `/proc/meminfo`, with
+  a post-analysis fallback), Wi-Fi client summary, per-band channel
+  recommendation, and a critical-crash feed for the selected DUT.
 - **Fleet** — at-a-glance card per registered DUT (status / CPU busy% / crash
   count / last activity / band recommendation), all updated live from a single
   demuxed `/ws` connection.
@@ -176,7 +176,8 @@ The dashboard never invents metrics. Be aware of what is live and what is not:
 | Connection status | WS link + stream activity | ✅ |
 | Per-client Wi-Fi detail / SSID capability / site survey | on-demand serial captures (`/api/wifi/*`) | ❌ REST, on demand |
 | Channel recommendation | last site survey (server-side cache) | ❌ REST (`/api/wifi/channel-recommendation/last`) |
-| **Memory** | `analyzer3.py` → `memory.csv` / `*memavailable_plot.png` | ❌ post-analysis only |
+| Memory (MemAvailable/Slab/…) | `/proc/meminfo` streamed inside snapshot blocks | ✅ (needs the DUT-side `sysMon.sh` dump) |
+| Memory from an arbitrary offline log | `analyzer3.py` → `memory.csv` / `*memavailable_plot.png` | ❌ post-analysis |
 
 **Snapshots are persisted server-side.** The backend's `SnapshotStore`
 reconstructs full snapshots from the event stream and appends them to a bounded
@@ -210,8 +211,10 @@ Per-DUT endpoints accept `?dut=<id>` (defaults to the `default` DUT).
 
 ## Known limitations
 
-- **Memory has no realtime source** — the memory trend populates only after an
-  analyzer run (post-analysis CSV); never treat it as live.
+- **Live memory needs the DUT-side script** — the memory trend streams live
+  only when the DUT runs `sysMon.sh` (it dumps `/proc/meminfo` into each
+  snapshot block); for arbitrary logs it falls back to the post-analysis CSV
+  from `analyzer3.py`.
 - **Wi-Fi captures need serial mode** — client tables, capability reports, and
   site surveys drive the DUT shell over serial and briefly pause sysmon
   parsing; they are unavailable in replay mode.

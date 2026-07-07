@@ -115,6 +115,8 @@ DUTs' events) and derives:
 - `lines` — console stream (capped 1000), shared with the Serial Console
 - `cpuBusyPct` / `cpuIdlePct` / `coreCount` / `cpuPerCoreBusy` — from the latest snapshot
 - `cpuHistory` — one point per snapshot (capped 120), for the trend chart
+- `memoryLive` / `memoryHistory` — from the snapshot's streamed `/proc/meminfo`
+  (`effectiveKb` = MemAvailable − SUnreclaim, matching the offline analyzer)
 - `wifiByRadio` / `wifiClientTotal` — associated clients per radio
 - `crashLines` / `crashCount` — console lines matching the built-in crash pattern
 - `lastSnapshotTs`
@@ -175,7 +177,7 @@ backend/app/
 ├── db/workspace.py         SQLite schema/connection for data/workspace.db (files · bulletin · settings)
 ├── serial/serial_worker.py SerialWorker: serial + replay threads; writes raw session log; capture_command
 │                           gate for on-demand wifi captures
-├── parser/sysmon_parser.py SysMonParser: snapshots / CPU / wifi clients / batched console
+├── parser/sysmon_parser.py SysMonParser: snapshots / CPU / memory (/proc/meminfo) / wifi clients / batched console
 ├── services/
 │   ├── analyzer_service.py runs analyzer3.py → cpu_usage.csv / memory.csv
 │   ├── snapshot_store.py   bounded JSONL snapshot ring; persists + backfills on connect
@@ -226,6 +228,7 @@ deltas onto the last full snapshot):
     "test_count": 1,
     "device_ts": "2026-02-26 09:46:01",
     "cpu": { "0": { "usr": 1.9, "sys": 2.9, "nic": 0.0, "idle": 80.6, "io": 0.0, "irq": 1.9, "sirq": 12.6 } },
+    "memory": { "MemTotal": 1907104, "MemAvailable": 475472, "SUnreclaim": 84212 },
     "wifi_clients": { "5G": { "total_size": 1, "clients": [{ "mac": "AA:..." }] } }
   }
 }
