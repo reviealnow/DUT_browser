@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from typing import Annotated
+
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from app.services import bulletin_service
@@ -23,8 +25,16 @@ class CommentCreate(BaseModel):
 
 
 @router.get("/posts")
-def list_posts() -> dict:
-    return {"posts": bulletin_service.list_posts()}
+def list_posts(
+    limit: Annotated[int | None, Query(ge=1, le=500)] = None,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict:
+    """Posts newest first. Without ``limit`` the full list is returned (legacy
+    behaviour); ``total`` always counts every post."""
+    return {
+        "posts": bulletin_service.list_posts(limit, offset),
+        "total": bulletin_service.count_posts(),
+    }
 
 
 @router.post("/posts")

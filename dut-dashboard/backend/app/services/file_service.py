@@ -91,14 +91,18 @@ def save_uploaded_file(filename: str, fileobj: BinaryIO, uploader: str | None) -
     )
 
 
-def list_files() -> list[dict]:
-    rows = query_all(
-        """
+def list_files(limit: int | None = None, offset: int = 0) -> list[dict]:
+    """Newest first. ``limit=None`` returns everything (legacy no-param behaviour);
+    otherwise a page of ``limit`` rows starting at ``offset``."""
+    sql = """
         SELECT id, filename, size, uploader, uploaded_at
         FROM files
         ORDER BY uploaded_at DESC, id DESC
         """
-    )
+    if limit is None:
+        rows = query_all(sql)
+    else:
+        rows = query_all(sql + " LIMIT ? OFFSET ?", (limit, offset))
     return [dict(r) for r in rows]
 
 

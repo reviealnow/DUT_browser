@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from typing import Annotated
+
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 
 from app.services import file_service
@@ -11,10 +13,19 @@ router = APIRouter(prefix="/api/files", tags=["files"])
 
 
 @router.get("")
-def list_files() -> dict:
+def list_files(
+    limit: Annotated[int | None, Query(ge=1, le=500)] = None,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> dict:
     """File list (newest first) plus the KPI aggregates the Files view needs,
-    bundled to save a round-trip."""
-    return {"files": file_service.list_files(), "stats": file_service.stats()}
+    bundled to save a round-trip. Without ``limit`` the full list is returned
+    (legacy behaviour); ``total`` always counts every file."""
+    stats = file_service.stats()
+    return {
+        "files": file_service.list_files(limit, offset),
+        "stats": stats,
+        "total": stats["total"],
+    }
 
 
 @router.post("")

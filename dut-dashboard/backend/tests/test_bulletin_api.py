@@ -96,6 +96,28 @@ class BulletinTests(unittest.TestCase):
         )
         self.assertEqual(remaining, [])
 
+    def test_pagination_pages_newest_first_and_reports_total(self) -> None:
+        ids = [
+            bulletin_api.create_post(PostCreate(title=f"note {i}", body="b"))["id"]
+            for i in range(3)
+        ]
+        # Comments must ride along on a paginated page, not just the full list.
+        bulletin_api.create_comment(ids[2], CommentCreate(body="on newest"))
+
+        page = bulletin_api.list_posts(limit=2, offset=0)
+        self.assertEqual([p["title"] for p in page["posts"]], ["note 2", "note 1"])
+        self.assertEqual(page["total"], 3)
+        self.assertEqual(page["posts"][0]["comments"][0]["body"], "on newest")
+
+        rest = bulletin_api.list_posts(limit=2, offset=2)
+        self.assertEqual([p["title"] for p in rest["posts"]], ["note 0"])
+        self.assertEqual(rest["total"], 3)
+
+        # No limit keeps the legacy full-list behaviour.
+        legacy = bulletin_api.list_posts()
+        self.assertEqual(len(legacy["posts"]), 3)
+        self.assertEqual(legacy["total"], 3)
+
 
 if __name__ == "__main__":
     unittest.main()

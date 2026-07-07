@@ -10,6 +10,7 @@ import {
   uploadFile,
   WorkspaceFile,
 } from "../api/rest";
+import { hashHue } from "../monitoring/authorColor";
 import { useIdentity } from "../monitoring/useSettings";
 import AuthorTag from "./AuthorTag";
 import ChartData from "./charts/ChartData";
@@ -23,7 +24,7 @@ function formatSize(bytes: number): string {
 }
 
 // Known extensions get a branded chip colour (see .t-* in dashboard.css);
-// anything else falls back to the neutral .ftype background.
+// anything else gets a stable hashed colour (see FileTypeChip).
 const FTYPE_CLASS: Record<string, string> = {
   pdf: "t-pdf",
   pcap: "t-pcapng",
@@ -45,7 +46,16 @@ function extOf(name: string): string {
 function FileTypeChip({ name }: { name: string }) {
   const ext = extOf(name);
   const label = (ext || "?").slice(0, 3).toUpperCase();
-  return <span className={`ftype ${FTYPE_CLASS[ext] ?? ""}`}>{label}</span>;
+  const cls = FTYPE_CLASS[ext];
+  // Unknown extensions hash to a stable hue (same djb2 trick as author tags);
+  // lightness is fixed low enough that the chip's white text stays readable.
+  // Extension-less files keep the neutral .ftype background.
+  const style = !cls && ext ? { background: `hsl(${hashHue(ext)} 52% 42%)` } : undefined;
+  return (
+    <span className={`ftype ${cls ?? ""}`} style={style}>
+      {label}
+    </span>
+  );
 }
 
 // Shared files accumulate like session logs; cap the visible height to ~5 rows
@@ -56,7 +66,7 @@ function SharedFilesTable({ rows, onDelete }: { rows: WorkspaceFile[]; onDelete:
   return (
     <>
       {rows.length > VISIBLE_FILE_ROWS ? (
-        <div className="logscroll-note">Showing newest first — scroll for older ({rows.length} total).</div>
+        <div className="logscroll-note">Showing newest first — scroll for older ({rows.length} loaded).</div>
       ) : null}
       <div className="logscroll">
         <table className="filetable">
@@ -284,16 +294,45 @@ function TopUploadersBody({ stats }: { stats: FilesStats }) {
   );
 }
 
+// First page size; "Load more" appends another page (lists accumulate over
+// months, so the view lazy-loads instead of fetching every row up front).
+const PAGE_SIZE = 50;
+
 export default function FilesSection({ query = "" }: { query?: string }) {
   const [data, setData] = useState<FilesList | null>(null);
   const [failed, setFailed] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  // Rows currently on screen: reload refetches that many from offset 0 so an
+  // upload/delete refresh doesn't collapse the list back to the first page.
+  const loadedRef = useRef(PAGE_SIZE);
 
   const reload = useCallback(() => {
     setFailed(false);
-    getFiles()
-      .then(setData)
+    getFiles(Math.max(PAGE_SIZE, loadedRef.current), 0)
+      .then((next) => {
+        loadedRef.current = next.files.length;
+        setData(next);
+      })
       .catch(() => setFailed(true));
   }, []);
+
+  const loadMore = useCallback(() => {
+    if (!data) return;
+    setLoadingMore(true);
+    getFiles(PAGE_SIZE, data.files.length)
+      .then((next) => {
+        setData((prev) => {
+          if (!prev) return next;
+          // Dedupe on id: an upload landing between page fetches shifts offsets.
+          const known = new Set(prev.files.map((f) => f.id));
+          const files = [...prev.files, ...next.files.filter((f) => !known.has(f.id))];
+          loadedRef.current = files.length;
+          return { files, stats: next.stats, total: next.total };
+        });
+      })
+      .catch(() => undefined) // keep the loaded rows; the button stays for retry
+      .finally(() => setLoadingMore(false));
+  }, [data]);
 
   useEffect(() => {
     reload();
@@ -345,16 +384,36 @@ export default function FilesSection({ query = "" }: { query?: string }) {
           downloading are the first thing the user reaches; the stats charts
           (analytics) follow below. */}
       <div className="grid">
-        <Card title="Shared Files" subtitle={`${data.files.length} files · newest first`}>
+        <Card
+          title="Shared Files"
+          subtitle={
+            data.files.length < data.total
+              ? `${data.files.length} of ${data.total} files · newest first`
+              : `${data.total} files · newest first`
+          }
+        >
           {files.length > 0 ? (
             <SharedFilesTable rows={files} onDelete={onDelete} />
           ) : (
             <EmptyState
               icon="🗂"
               message={needle ? "No matching files" : "No files yet"}
-              hint={needle ? "Try a different filter." : "Upload a file to get started."}
+              hint={
+                needle
+                  ? data.files.length < data.total
+                    ? "No match in the loaded rows — try Load more or a different filter."
+                    : "Try a different filter."
+                  : "Upload a file to get started."
+              }
             />
           )}
+          {data.files.length < data.total ? (
+            <div style={{ marginTop: "var(--space-3)" }}>
+              <button type="button" className="btn" disabled={loadingMore} onClick={loadMore}>
+                {loadingMore ? "Loading…" : `Load more (${data.total - data.files.length} older)`}
+              </button>
+            </div>
+          ) : null}
         </Card>
         <UploadCard onUploaded={reload} />
       </div>
