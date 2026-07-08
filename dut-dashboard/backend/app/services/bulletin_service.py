@@ -67,9 +67,38 @@ def create_comment(
     )
 
 
+def update_post(post_id: int, title: str, body: str) -> bool:
+    """Shared-trust model: anyone may edit any post (matches ownerless delete).
+    Returns False when the post does not exist."""
+    clean_title = _validate_text(title, "Post title", POST_TITLE_LIMIT)
+    clean_body = _validate_text(body, "Post content", POST_BODY_LIMIT)
+    if query_one("SELECT id FROM bulletin_posts WHERE id = ?", (post_id,)) is None:
+        return False
+    execute(
+        "UPDATE bulletin_posts SET title = ?, body = ?, edited_at = CURRENT_TIMESTAMP"
+        " WHERE id = ?",
+        (clean_title, clean_body, post_id),
+    )
+    return True
+
+
+def update_comment(comment_id: int, body: str) -> bool:
+    """Shared-trust edit of a comment or nested reply. Returns False when the
+    comment does not exist."""
+    clean_body = _validate_text(body, "Reply", COMMENT_BODY_LIMIT)
+    if query_one("SELECT id FROM bulletin_comments WHERE id = ?", (comment_id,)) is None:
+        return False
+    execute(
+        "UPDATE bulletin_comments SET body = ?, edited_at = CURRENT_TIMESTAMP WHERE id = ?",
+        (clean_body, comment_id),
+    )
+    return True
+
+
 def get_post(post_id: int) -> dict | None:
     row = query_one(
-        "SELECT id, title, body, author, created_at FROM bulletin_posts WHERE id = ?",
+        "SELECT id, title, body, author, created_at, edited_at"
+        " FROM bulletin_posts WHERE id = ?",
         (post_id,),
     )
     return dict(row) if row is not None else None
@@ -108,7 +137,7 @@ def list_posts(limit: int | None = None, offset: int = 0, q: str | None = None) 
     title/body substring (case-insensitive). Comments are only fetched for the
     returned page."""
     posts_sql = f"""
-        SELECT id, title, body, author, created_at
+        SELECT id, title, body, author, created_at, edited_at
         FROM bulletin_posts
         {f"WHERE {_POSTS_MATCH}" if q else ""}
         ORDER BY created_at DESC, id DESC
@@ -124,7 +153,7 @@ def list_posts(limit: int | None = None, offset: int = 0, q: str | None = None) 
         placeholders = ", ".join("?" for _ in post_ids)
         comments = query_all(
             f"""
-            SELECT id, post_id, parent_comment_id, body, author, created_at
+            SELECT id, post_id, parent_comment_id, body, author, created_at, edited_at
             FROM bulletin_comments
             WHERE post_id IN ({placeholders})
             ORDER BY created_at ASC, id ASC

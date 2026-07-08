@@ -36,7 +36,8 @@ CREATE TABLE IF NOT EXISTS bulletin_posts (
   title TEXT NOT NULL,
   body TEXT NOT NULL,
   author TEXT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  edited_at TIMESTAMP
 );
 """
 
@@ -48,6 +49,7 @@ CREATE TABLE IF NOT EXISTS bulletin_comments (
   body TEXT NOT NULL,
   author TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  edited_at TIMESTAMP,
   FOREIGN KEY (post_id) REFERENCES bulletin_posts(id) ON DELETE CASCADE,
   FOREIGN KEY (parent_comment_id) REFERENCES bulletin_comments(id) ON DELETE CASCADE
 );
@@ -79,12 +81,22 @@ def connect() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str) -> None:
+    """CREATE TABLE IF NOT EXISTS never alters an existing table, so databases
+    created before a column was added to the schema need an ALTER TABLE."""
+    existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if column not in existing:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} TIMESTAMP")
+
+
 def init_db() -> None:
     with connect() as conn:
         conn.execute(FILES_SCHEMA)
         conn.execute(BULLETIN_POSTS_SCHEMA)
         conn.execute(BULLETIN_COMMENTS_SCHEMA)
         conn.execute(SETTINGS_SCHEMA)
+        _ensure_column(conn, "bulletin_posts", "edited_at")
+        _ensure_column(conn, "bulletin_comments", "edited_at")
         conn.commit()
 
 

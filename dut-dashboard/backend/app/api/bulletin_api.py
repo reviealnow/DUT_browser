@@ -24,6 +24,15 @@ class CommentCreate(BaseModel):
     parent_comment_id: int | None = None
 
 
+class PostUpdate(BaseModel):
+    title: str
+    body: str
+
+
+class CommentUpdate(BaseModel):
+    body: str
+
+
 @router.get("/posts")
 def list_posts(
     limit: Annotated[int | None, Query(ge=1, le=500)] = None,
@@ -49,6 +58,18 @@ def create_post(body: PostCreate) -> dict:
     return {"id": post_id}
 
 
+@router.put("/posts/{post_id}")
+def update_post(post_id: int, body: PostUpdate) -> dict:
+    """Shared-trust model: no owner check, mirroring ownerless delete below."""
+    try:
+        found = bulletin_service.update_post(post_id, body.title, body.body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not found:
+        raise HTTPException(status_code=404, detail="Post not found")
+    return {"ok": True}
+
+
 @router.delete("/posts/{post_id}")
 def delete_post(post_id: int) -> dict:
     if bulletin_service.get_post(post_id) is None:
@@ -66,3 +87,14 @@ def create_comment(post_id: int, body: CommentCreate) -> dict:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"id": comment_id}
+
+
+@router.put("/comments/{comment_id}")
+def update_comment(comment_id: int, body: CommentUpdate) -> dict:
+    try:
+        found = bulletin_service.update_comment(comment_id, body.body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not found:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    return {"ok": True}

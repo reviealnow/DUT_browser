@@ -9,7 +9,7 @@ from unittest.mock import patch
 from fastapi import HTTPException
 
 from app.api import bulletin_api
-from app.api.bulletin_api import CommentCreate, PostCreate
+from app.api.bulletin_api import CommentCreate, CommentUpdate, PostCreate, PostUpdate
 from app.db import workspace
 
 
@@ -95,6 +95,95 @@ class BulletinTests(unittest.TestCase):
             "SELECT id FROM bulletin_comments WHERE post_id = ?", (post_id,)
         )
         self.assertEqual(remaining, [])
+
+    def test_update_post_persists_and_sets_edited_at(self) -> None:
+        post = bulletin_api.create_post(PostCreate(title="old title", body="old body"))
+        self.assertIsNone(bulletin_api.list_posts()["posts"][0]["edited_at"])
+
+        bulletin_api.update_post(post["id"], PostUpdate(title="new title", body="new body"))
+
+        updated = bulletin_api.list_posts()["posts"][0]
+        self.assertEqual(updated["title"], "new title")
+        self.assertEqual(updated["body"], "new body")
+        self.assertIsNotNone(updated["edited_at"])
+
+    def test_update_post_keeps_author_and_created_at(self) -> None:
+        post = bulletin_api.create_post(PostCreate(title="t", body="b", author="nelson"))
+        before = bulletin_api.list_posts()["posts"][0]
+
+        bulletin_api.update_post(post["id"], PostUpdate(title="t2", body="b2"))
+
+        after = bulletin_api.list_posts()["posts"][0]
+        self.assertEqual(after["author"], "nelson")
+        self.assertEqual(after["created_at"], before["created_at"])
+
+    def test_update_missing_post_returns_404(self) -> None:
+        with self.assertRaises(HTTPException) as ctx:
+            bulletin_api.update_post(999, PostUpdate(title="t", body="b"))
+        self.assertEqual(ctx.exception.status_code, 404)
+
+    def test_update_post_validation_still_applies(self) -> None:
+        post = bulletin_api.create_post(PostCreate(title="t", body="b"))
+        with self.assertRaises(HTTPException) as ctx:
+            bulletin_api.update_post(post["id"], PostUpdate(title="   ", body="b"))
+        self.assertEqual(ctx.exception.status_code, 400)
+        with self.assertRaises(HTTPException) as ctx:
+            bulletin_api.update_post(post["id"], PostUpdate(title="t", body="x" * 1001))
+        self.assertEqual(ctx.exception.status_code, 400)
+        # The failed updates must not have touched the stored post.
+        kept = bulletin_api.list_posts()["posts"][0]
+        self.assertEqual((kept["title"], kept["body"]), ("t", "b"))
+        self.assertIsNone(kept["edited_at"])
+
+    def test_update_comment_and_nested_reply(self) -> None:
+        post = bulletin_api.create_post(PostCreate(title="p", body="b"))
+        top = bulletin_api.create_comment(post["id"], CommentCreate(body="top"))
+        reply = bulletin_api.create_comment(
+            post["id"], CommentCreate(body="reply", parent_comment_id=top["id"])
+        )
+
+        bulletin_api.update_comment(top["id"], CommentUpdate(body="top edited"))
+        bulletin_api.update_comment(reply["id"], CommentUpdate(body="reply edited"))
+
+        comment = bulletin_api.list_posts()["posts"][0]["comments"][0]
+        self.assertEqual(comment["body"], "top edited")
+        self.assertIsNotNone(comment["edited_at"])
+        self.assertEqual(comment["replies"][0]["body"], "reply edited")
+        self.assertIsNotNone(comment["replies"][0]["edited_at"])
+
+    def test_update_missing_comment_returns_404(self) -> None:
+        with self.assertRaises(HTTPException) as ctx:
+            bulletin_api.update_comment(999, CommentUpdate(body="x"))
+        self.assertEqual(ctx.exception.status_code, 404)
+
+    def test_init_db_adds_edited_at_to_pre_p65_database(self) -> None:
+        # Rebuild the tables without edited_at to simulate a database created
+        # before this migration, then re-run init_db against it.
+        with workspace.connect() as conn:
+            conn.execute("DROP TABLE bulletin_comments")
+            conn.execute("DROP TABLE bulletin_posts")
+            conn.execute(
+                "CREATE TABLE bulletin_posts (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                " title TEXT NOT NULL, body TEXT NOT NULL, author TEXT,"
+                " created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+            )
+            conn.execute(
+                "CREATE TABLE bulletin_comments (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                " post_id INTEGER NOT NULL, parent_comment_id INTEGER,"
+                " body TEXT NOT NULL, author TEXT,"
+                " created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+                " FOREIGN KEY (post_id) REFERENCES bulletin_posts(id) ON DELETE CASCADE)"
+            )
+            conn.execute("INSERT INTO bulletin_posts (title, body) VALUES ('legacy', 'row')")
+            conn.commit()
+
+        workspace.init_db()
+
+        post = bulletin_api.list_posts()["posts"][0]
+        self.assertEqual(post["title"], "legacy")
+        self.assertIsNone(post["edited_at"])
+        bulletin_api.update_post(post["id"], PostUpdate(title="legacy", body="edited"))
+        self.assertIsNotNone(bulletin_api.list_posts()["posts"][0]["edited_at"])
 
     def test_search_matches_title_or_body_and_total_follows(self) -> None:
         bulletin_api.create_post(PostCreate(title="Router down", body="lab A"))
