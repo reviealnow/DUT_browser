@@ -620,7 +620,49 @@ function WifiSummaryBody({
   );
 }
 
+/** Copy text to the clipboard; falls back to execCommand because LAN access
+ * over plain http://<ip> is not a secure context (no navigator.clipboard). */
+async function copyToClipboard(text: string): Promise<boolean> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Fall through to the legacy path.
+    }
+  }
+  const holder = document.createElement("textarea");
+  holder.value = text;
+  holder.style.position = "fixed";
+  holder.style.opacity = "0";
+  document.body.appendChild(holder);
+  holder.select();
+  const ok = document.execCommand("copy");
+  holder.remove();
+  return ok;
+}
+
+function downloadTextFile(filename: string, mime: string, content: string) {
+  const url = URL.createObjectURL(new Blob([content], { type: mime }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+function crashCsv(lines: string[]): string {
+  const rows = lines.map((line) => `"${line.replace(/"/g, '""')}"`);
+  return ["line", ...rows].join("\r\n") + "\r\n";
+}
+
+function crashExportName(ext: string): string {
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").slice(0, 15);
+  return `crash-events-${stamp}.${ext}`;
+}
+
 function CrashEventsBody({ monitor }: { monitor: DutMonitorState }) {
+  const [copyState, setCopyState] = useState<"idle" | "ok" | "fail">("idle");
   if (monitor.status === "offline" && monitor.crashLines.length === 0) {
     return <OfflineState />;
   }
@@ -629,13 +671,42 @@ function CrashEventsBody({ monitor }: { monitor: DutMonitorState }) {
       <EmptyState icon="⚠" message="No crash events detected" hint="Built-in: kernel panic / Q6 crash / watchdog." />
     );
   }
-  const recent = monitor.crashLines.slice(-12).reverse();
+  // Exports carry ALL matched lines, not just the 12 rendered below.
+  const all = monitor.crashLines;
+  const recent = all.slice(-12).reverse();
+  const copy = () => {
+    void copyToClipboard(all.join("\n")).then((ok) => {
+      setCopyState(ok ? "ok" : "fail");
+      setTimeout(() => setCopyState("idle"), 2000);
+    });
+  };
   return (
     <div className="chart">
       <div className="chart-foot">
         <div className="chart-metric">
           {monitor.crashCount}
           <span className="unit">critical matches</span>
+        </div>
+        <div className="row-actions">
+          <button type="button" className="btn" title={`Copy all ${all.length} lines`} onClick={copy}>
+            {copyState === "ok" ? "Copied ✓" : copyState === "fail" ? "Copy failed" : "Copy"}
+          </button>
+          <button
+            type="button"
+            className="btn"
+            title={`Download all ${all.length} lines as .txt`}
+            onClick={() => downloadTextFile(crashExportName("txt"), "text/plain", all.join("\n") + "\n")}
+          >
+            .txt
+          </button>
+          <button
+            type="button"
+            className="btn"
+            title={`Download all ${all.length} lines as .csv`}
+            onClick={() => downloadTextFile(crashExportName("csv"), "text/csv", crashCsv(all))}
+          >
+            .csv
+          </button>
         </div>
       </div>
       <div className="feed">

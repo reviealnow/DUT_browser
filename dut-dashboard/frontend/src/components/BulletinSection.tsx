@@ -8,6 +8,8 @@ import {
   deleteBulletinPost,
   getBulletinPosts,
   humanizeApiError,
+  updateBulletinComment,
+  updateBulletinPost,
 } from "../api/rest";
 import { useIdentity } from "../monitoring/useSettings";
 import AuthorTag from "./AuthorTag";
@@ -21,6 +23,12 @@ function formatTime(iso: string): string {
 
 function countReplies(comments: BulletinComment[]): number {
   return comments.reduce((total, c) => total + 1 + countReplies(c.replies), 0);
+}
+
+/** "· edited" marker with the edit time in a hover tooltip. */
+function EditedMark({ editedAt }: { editedAt: string | null }) {
+  if (!editedAt) return null;
+  return <span title={`Edited ${formatTime(editedAt)}`}> · edited</span>;
 }
 
 /** Shared, editable "Posting as <name>" identity field (IP-default, persisted). */
@@ -150,25 +158,119 @@ function ReplyBox({
   );
 }
 
+/** Inline single-line editor for a comment/reply body; mounts fresh per edit. */
+function CommentEditor({
+  comment,
+  onSaved,
+  onCancel,
+}: {
+  comment: BulletinComment;
+  onSaved: () => void;
+  onCancel: () => void;
+}) {
+  const [draft, setDraft] = useState(comment.body);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const canSave = draft.trim().length > 0 && !busy;
+
+  const save = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await updateBulletinComment(comment.id, draft);
+      onSaved();
+    } catch (e) {
+      setError(humanizeApiError(e));
+      setBusy(false);
+    }
+  }, [comment.id, draft, onSaved]);
+
+  return (
+    <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
+      <input
+        type="text"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && canSave && void save()}
+        aria-label="Edit reply"
+        maxLength={600}
+        style={{ flex: 1 }}
+      />
+      <button type="button" className="btn" disabled={!canSave} onClick={() => void save()}>
+        {busy ? "…" : "Save"}
+      </button>
+      <button type="button" className="btn" disabled={busy} onClick={onCancel}>
+        Cancel
+      </button>
+      {error ? <span className="flash" style={{ color: "var(--danger)" }}>{error}</span> : null}
+    </div>
+  );
+}
+
+function ReplyNote({ reply, onChanged }: { reply: BulletinComment; onChanged: () => void }) {
+  const [editing, setEditing] = useState(false);
+  return (
+    <div className="note" style={{ marginBottom: "var(--space-2)" }}>
+      {editing ? (
+        <CommentEditor
+          comment={reply}
+          onSaved={() => {
+            setEditing(false);
+            onChanged();
+          }}
+          onCancel={() => setEditing(false)}
+        />
+      ) : (
+        <p>{reply.body}</p>
+      )}
+      <div className="meta">
+        <AuthorTag name={reply.author} /> · {formatTime(reply.created_at)}
+        <EditedMark editedAt={reply.edited_at} /> ·{" "}
+        <button type="button" className="linklike" onClick={() => setEditing((v) => !v)}>
+          Edit
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function CommentThread({
   comment,
   postId,
-  onReplied,
+  onChanged,
   identity,
 }: {
   comment: BulletinComment;
   postId: number;
-  onReplied: () => void;
+  onChanged: () => void;
   identity: Identity;
 }) {
   const [replying, setReplying] = useState(false);
+  const [editing, setEditing] = useState(false);
   return (
     <div className="note" style={{ marginBottom: "var(--space-2)" }}>
-      <p>{comment.body}</p>
+      {editing ? (
+        <CommentEditor
+          comment={comment}
+          onSaved={() => {
+            setEditing(false);
+            onChanged();
+          }}
+          onCancel={() => setEditing(false)}
+        />
+      ) : (
+        <p>{comment.body}</p>
+      )}
       <div className="meta">
-        <AuthorTag name={comment.author} /> · {formatTime(comment.created_at)} ·{" "}
+        <AuthorTag name={comment.author} /> · {formatTime(comment.created_at)}
+        <EditedMark editedAt={comment.edited_at} /> ·{" "}
         <button type="button" className="linklike" onClick={() => setReplying((v) => !v)}>
           Reply
+        </button>{" "}
+        ·{" "}
+        <button type="button" className="linklike" onClick={() => setEditing((v) => !v)}>
+          Edit
         </button>
       </div>
       {replying ? (
@@ -178,19 +280,14 @@ function CommentThread({
           identity={identity}
           onReplied={() => {
             setReplying(false);
-            onReplied();
+            onChanged();
           }}
         />
       ) : null}
       {comment.replies.length > 0 ? (
         <div style={{ marginTop: "var(--space-2)", paddingLeft: "var(--space-4)" }}>
           {comment.replies.map((reply) => (
-            <div className="note" key={reply.id} style={{ marginBottom: "var(--space-2)" }}>
-              <p>{reply.body}</p>
-              <div className="meta">
-                <AuthorTag name={reply.author} /> · {formatTime(reply.created_at)}
-              </div>
-            </div>
+            <ReplyNote key={reply.id} reply={reply} onChanged={onChanged} />
           ))}
         </div>
       ) : null}
@@ -200,6 +297,11 @@ function CommentThread({
 
 function PostCard({ post, onChanged, identity }: { post: BulletinPost; onChanged: () => void; identity: Identity }) {
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draftTitle, setDraftTitle] = useState("");
+  const [draftBody, setDraftBody] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const replies = countReplies(post.comments);
 
   const onDelete = useCallback(() => {
@@ -211,12 +313,38 @@ function PostCard({ post, onChanged, identity }: { post: BulletinPost; onChanged
       .catch(() => onChanged());
   }, [post.id, post.title, onChanged]);
 
+  // Drafts are seeded on entry (not at mount) so they pick up the latest
+  // post fields even when this card instance is reused across reloads.
+  const startEdit = useCallback(() => {
+    setDraftTitle(post.title);
+    setDraftBody(post.body);
+    setError(null);
+    setEditing(true);
+  }, [post.title, post.body]);
+
+  const canSave = draftTitle.trim().length > 0 && draftBody.trim().length > 0 && !busy;
+
+  const save = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await updateBulletinPost(post.id, draftTitle, draftBody);
+      setEditing(false);
+      onChanged();
+    } catch (e) {
+      setError(humanizeApiError(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [post.id, draftTitle, draftBody, onChanged]);
+
   return (
     <Card
       title={post.title}
       subtitle={
         <>
-          <AuthorTag name={post.author} /> · {formatTime(post.created_at)} · {replies}{" "}
+          <AuthorTag name={post.author} /> · {formatTime(post.created_at)}
+          <EditedMark editedAt={post.edited_at} /> · {replies}{" "}
           {replies === 1 ? "reply" : "replies"}
         </>
       }
@@ -224,6 +352,15 @@ function PostCard({ post, onChanged, identity }: { post: BulletinPost; onChanged
         <div className="row-actions">
           <button type="button" className="btn" onClick={() => setOpen((v) => !v)}>
             {open ? "Hide" : "Open"}
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
+            title="Edit note"
+            aria-label={`Edit ${post.title}`}
+            onClick={() => (editing ? setEditing(false) : startEdit())}
+          >
+            ✎
           </button>
           <button
             type="button"
@@ -237,11 +374,39 @@ function PostCard({ post, onChanged, identity }: { post: BulletinPost; onChanged
         </div>
       }
     >
-      <p style={{ margin: 0, color: "var(--ink)" }}>{post.body}</p>
+      {editing ? (
+        <div style={{ display: "grid", gap: "var(--space-2)" }}>
+          <input
+            type="text"
+            value={draftTitle}
+            onChange={(e) => setDraftTitle(e.target.value)}
+            aria-label="Edit post title"
+            maxLength={120}
+          />
+          <textarea
+            value={draftBody}
+            onChange={(e) => setDraftBody(e.target.value)}
+            aria-label="Edit post content"
+            maxLength={1000}
+            rows={3}
+          />
+          {error ? <div className="flash" style={{ color: "var(--danger)" }}>{error}</div> : null}
+          <div style={{ display: "flex", gap: "var(--space-2)" }}>
+            <button type="button" className="btn primary" disabled={!canSave} onClick={() => void save()}>
+              {busy ? "Saving…" : "Save"}
+            </button>
+            <button type="button" className="btn" disabled={busy} onClick={() => setEditing(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <p style={{ margin: 0, color: "var(--ink)" }}>{post.body}</p>
+      )}
       {open ? (
         <div style={{ marginTop: "var(--space-3)" }}>
           {post.comments.map((comment) => (
-            <CommentThread key={comment.id} comment={comment} postId={post.id} onReplied={onChanged} identity={identity} />
+            <CommentThread key={comment.id} comment={comment} postId={post.id} onChanged={onChanged} identity={identity} />
           ))}
           <ReplyBox postId={post.id} onReplied={onChanged} identity={identity} />
         </div>

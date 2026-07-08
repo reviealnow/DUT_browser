@@ -68,6 +68,18 @@ async function get<T>(url: string): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function put<T>(url: string, body: unknown): Promise<T> {
+  const response = await fetch(url, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return (await response.json()) as T;
+}
+
 export async function openSerial(
   params: OpenSerialParams,
   dutId = DEFAULT_DUT_ID,
@@ -379,6 +391,7 @@ export type BulletinComment = {
   body: string;
   author: string | null;
   created_at: string;
+  edited_at: string | null;
   replies: BulletinComment[];
 };
 
@@ -388,6 +401,7 @@ export type BulletinPost = {
   body: string;
   author: string | null;
   created_at: string;
+  edited_at: string | null;
   comments: BulletinComment[];
 };
 
@@ -409,6 +423,16 @@ export async function createBulletinPost(
   author?: string | null,
 ): Promise<{ id: number }> {
   return post<{ id: number }>("/api/bulletin/posts", { title, body, author });
+}
+
+/** Edit a bulletin post's title/body. No owner check — shared-trust model. */
+export async function updateBulletinPost(id: number, title: string, body: string): Promise<void> {
+  await put<{ ok: boolean }>(`/api/bulletin/posts/${id}`, { title, body });
+}
+
+/** Edit a comment or nested reply. No owner check — shared-trust model. */
+export async function updateBulletinComment(id: number, body: string): Promise<void> {
+  await put<{ ok: boolean }>(`/api/bulletin/comments/${id}`, { body });
 }
 
 /** Delete a bulletin post (its comments cascade). No owner check — shared-trust model. */
