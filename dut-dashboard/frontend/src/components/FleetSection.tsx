@@ -1,4 +1,6 @@
-import { LastChannelRecommendationResult } from "../api/rest";
+import { useCallback, useState } from "react";
+
+import { closeSerial, humanizeApiError, LastChannelRecommendationResult } from "../api/rest";
 import { DutStatus } from "../monitoring/useDutMonitor";
 import { FleetEntry, useFleetMonitor } from "../monitoring/useFleetMonitor";
 import { useFleetRecommendations } from "../monitoring/useLastRecommendation";
@@ -28,9 +30,17 @@ function formatEventAge(seconds: number | null): string {
  * CPU / crash count / last-event age from a single demuxed `/ws` (see
  * useFleetMonitor) and jumps to that DUT's existing Overview on click. Wi-Fi is
  * intentionally absent — its serial scan is heavy and stays single-DUT on-demand.
+ * Phase 66: per-card quick actions (jump to Serial Console; close an open
+ * serial session).
  */
-export default function FleetSection({ onOpenDut }: { onOpenDut: (dutId: string) => void }) {
-  const fleet = useFleetMonitor();
+export default function FleetSection({
+  onOpenDut,
+  onOpenConsole,
+}: {
+  onOpenDut: (dutId: string) => void;
+  onOpenConsole: (dutId: string) => void;
+}) {
+  const { fleet, refreshRegistry } = useFleetMonitor();
   // Per-DUT last-survey band recommendation, polled from the read-only cache
   // (no scan). Drives the compact per-card band badge.
   const recos = useFleetRecommendations(fleet.map((e) => e.id));
@@ -53,6 +63,8 @@ export default function FleetSection({ onOpenDut }: { onOpenDut: (dutId: string)
           entry={entry}
           reco={recos.get(entry.id)}
           onOpen={() => onOpenDut(entry.id)}
+          onConsole={() => onOpenConsole(entry.id)}
+          onClosed={refreshRegistry}
         />
       ))}
     </div>
@@ -63,11 +75,17 @@ function FleetCard({
   entry,
   reco,
   onOpen,
+  onConsole,
+  onClosed,
 }: {
   entry: FleetEntry;
   reco: LastChannelRecommendationResult | undefined;
   onOpen: () => void;
+  onConsole: () => void;
+  onClosed: () => Promise<void>;
 }) {
+  const [closing, setClosing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const meta = STATUS_META[entry.status];
   const cpu = entry.cpuBusyPct === null ? "—" : `${entry.cpuBusyPct}%`;
   const cpuSub =
@@ -75,37 +93,78 @@ function FleetCard({
       ? "Awaiting snapshot"
       : `busy · ${entry.coreCount} core${entry.coreCount === 1 ? "" : "s"}`;
 
+  const onCloseSerial = useCallback(() => {
+    if (!window.confirm(`Close the serial session on ${entry.label}?`)) {
+      return;
+    }
+    setClosing(true);
+    setError(null);
+    closeSerial(entry.id)
+      .then(() => onClosed())
+      .catch((e) => setError(humanizeApiError(e)))
+      .finally(() => setClosing(false));
+  }, [entry.id, entry.label, onClosed]);
+
   return (
-    <button type="button" className="card fleet-card" onClick={onOpen} title={`Open ${entry.label} overview`}>
-      <div className="fleet-card-head">
-        <div className="fleet-card-titles">
-          <div className="card-title">{entry.label}</div>
-          <div className="card-sub">{entry.id}</div>
+    <div className="card fleet-card">
+      <button
+        type="button"
+        className="fleet-card-main"
+        onClick={onOpen}
+        title={`Open ${entry.label} overview`}
+      >
+        <div className="fleet-card-head">
+          <div className="fleet-card-titles">
+            <div className="card-title">{entry.label}</div>
+            <div className="card-sub">{entry.id}</div>
+          </div>
+          <span className={`pill ${meta.pill}`}>
+            <span className="dot" />
+            {meta.label}
+          </span>
         </div>
-        <span className={`pill ${meta.pill}`}>
-          <span className="dot" />
-          {meta.label}
-        </span>
+        <div className="fleet-card-cpu">
+          <div className="kpi-value">{cpu}</div>
+          <div className="kpi-sub">{cpuSub}</div>
+        </div>
+        <FleetBandBadge reco={reco} />
+        <dl className="stat-list">
+          <div className="stat-row">
+            <dt>Crash events</dt>
+            <dd>{entry.crashCount}{entry.crashCount > 0 ? " · since open" : ""}</dd>
+          </div>
+          <div className="stat-row">
+            <dt>Last event</dt>
+            <dd>{formatEventAge(entry.lastEventAgeSec)}</dd>
+          </div>
+          <div className="stat-row">
+            <dt>Last snapshot</dt>
+            <dd>{entry.lastSnapshotTs ?? "—"}</dd>
+          </div>
+        </dl>
+      </button>
+      <div className="fleet-card-actions">
+        <button
+          type="button"
+          className="btn"
+          title={`Open ${entry.label} serial console`}
+          onClick={onConsole}
+        >
+          Console
+        </button>
+        {entry.serialOpen ? (
+          <button
+            type="button"
+            className="btn"
+            disabled={closing}
+            title={`Close the serial session on ${entry.label}`}
+            onClick={onCloseSerial}
+          >
+            {closing ? "Closing…" : "Close serial"}
+          </button>
+        ) : null}
+        {error ? <span className="flash" style={{ color: "var(--danger)" }}>{error}</span> : null}
       </div>
-      <div className="fleet-card-cpu">
-        <div className="kpi-value">{cpu}</div>
-        <div className="kpi-sub">{cpuSub}</div>
-      </div>
-      <FleetBandBadge reco={reco} />
-      <dl className="stat-list">
-        <div className="stat-row">
-          <dt>Crash events</dt>
-          <dd>{entry.crashCount}{entry.crashCount > 0 ? " · since open" : ""}</dd>
-        </div>
-        <div className="stat-row">
-          <dt>Last event</dt>
-          <dd>{formatEventAge(entry.lastEventAgeSec)}</dd>
-        </div>
-        <div className="stat-row">
-          <dt>Last snapshot</dt>
-          <dd>{entry.lastSnapshotTs ?? "—"}</dd>
-        </div>
-      </dl>
-    </button>
+    </div>
   );
 }

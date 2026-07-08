@@ -132,10 +132,21 @@ export default function AppShell() {
             ) : null}
             {active !== "console" ? (
               <Suspense fallback={<SectionLoading />}>
-                {renderSection(active, monitor, search, selectedDut, (id) => {
-                  setSelectedDut(id);
-                  setActive("overview");
-                }, setActive)}
+                {renderSection(
+                  active,
+                  monitor,
+                  search,
+                  selectedDut,
+                  (id) => {
+                    setSelectedDut(id);
+                    setActive("overview");
+                  },
+                  (id) => {
+                    setSelectedDut(id);
+                    setActive("console");
+                  },
+                  setActive,
+                )}
               </Suspense>
             ) : null}
           </main>
@@ -178,6 +189,7 @@ function renderSection(
   search: string,
   selectedDut: string,
   onOpenDut: (dutId: string) => void,
+  onOpenConsole: (dutId: string) => void,
   onNavigate: (id: SectionId) => void,
 ) {
   switch (active) {
@@ -190,7 +202,7 @@ function renderSection(
         />
       );
     case "fleet":
-      return <FleetSection onOpenDut={onOpenDut} />;
+      return <FleetSection onOpenDut={onOpenDut} onOpenConsole={onOpenConsole} />;
     case "console":
       // Rendered separately (always mounted) so its session/state persists.
       return null;

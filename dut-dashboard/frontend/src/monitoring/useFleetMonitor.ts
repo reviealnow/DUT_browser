@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { getDuts, getSnapshots } from "../api/rest";
 import { applySnapshotDelta, connectFleetWebSocket, SnapshotPayload } from "../api/websocket";
@@ -15,6 +15,9 @@ export type FleetEntry = {
   id: string;
   label: string;
   status: DutStatus;
+  /** Registry truth: whether a serial/replay session is open on this DUT.
+   * Distinct from `status` — a quiet DUT can be open yet read "idle". */
+  serialOpen: boolean;
   /** 100 − mean idle across cores from the latest (reconstructed) snapshot. */
   cpuBusyPct: number | null;
   coreCount: number;
@@ -37,15 +40,16 @@ export type FleetEntry = {
  * Mounted only while the Fleet section is visible, so the second socket exists
  * only when it is being looked at.
  */
-export function useFleetMonitor(): FleetEntry[] {
+export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () => Promise<void> } {
   const { pattern: crashPattern } = useCrashKeywords();
   // Read through a ref inside the socket callbacks so the websocket effect can
   // run once per mount: a pattern change must not tear down the fleet socket
   // (doing so re-rendered via onClose → new pattern → reconnect, ad infinitum).
   const crashPatternRef = useRef(crashPattern);
   crashPatternRef.current = crashPattern;
-  // Registry order + labels for every registered DUT (cards show even with no stream).
-  const [duts, setDuts] = useState<{ id: string; label: string }[]>([]);
+  // Registry order + labels + open-state for every registered DUT (cards show
+  // even with no stream).
+  const [duts, setDuts] = useState<{ id: string; label: string; serialOpen: boolean }[]>([]);
   const [connected, setConnected] = useState(false);
   const [nowTick, setNowTick] = useState(() => Date.now());
 
@@ -55,15 +59,34 @@ export function useFleetMonitor(): FleetEntry[] {
   const lastActivityRef = useRef<Map<string, number>>(new Map());
   const crashRef = useRef<Map<string, number>>(new Map());
 
+  // Re-read the registry (labels + serial_open) without re-running the snapshot
+  // backfill. Used by quick actions after they change a DUT's open state.
+  const refreshRegistry = useCallback(async () => {
+    try {
+      const list = (await getDuts()).map((d) => ({
+        id: d.id,
+        label: d.label,
+        serialOpen: d.serial_open,
+      }));
+      setDuts(list);
+    } catch {
+      // Keep the current registry view; the action's own error surfaces to the user.
+    }
+  }, []);
+
   // Load the registry once, then backfill each DUT's latest snapshot for an
   // instant first paint (CPU + last-ts). Backfill does NOT count as activity, so
   // a stale DUT stays "idle" until a live event — matching useDutMonitor.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      let list: { id: string; label: string }[] = [];
+      let list: { id: string; label: string; serialOpen: boolean }[] = [];
       try {
-        list = (await getDuts()).map((d) => ({ id: d.id, label: d.label }));
+        list = (await getDuts()).map((d) => ({
+          id: d.id,
+          label: d.label,
+          serialOpen: d.serial_open,
+        }));
       } catch {
         return; // backend unreachable: nothing to show
       }
@@ -150,7 +173,7 @@ export function useFleetMonitor(): FleetEntry[] {
   }, []);
 
   // Derive the view rows on each tick from the registry order + live refs.
-  return duts.map(({ id, label }) => {
+  const fleet = duts.map(({ id, label, serialOpen }) => {
     const base = baseRef.current.get(id) ?? null;
     const cpu = cpuFromSnapshot(base);
     const lastActivity = lastActivityRef.current.get(id) ?? 0;
@@ -165,6 +188,7 @@ export function useFleetMonitor(): FleetEntry[] {
       id,
       label,
       status,
+      serialOpen,
       cpuBusyPct: cpu.cpuBusyPct,
       coreCount: cpu.coreCount,
       crashCount: crashRef.current.get(id) ?? 0,
@@ -172,4 +196,6 @@ export function useFleetMonitor(): FleetEntry[] {
       lastEventAgeSec,
     };
   });
+
+  return { fleet, refreshRegistry };
 }
