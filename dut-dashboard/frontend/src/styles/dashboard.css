@@ -1376,10 +1376,18 @@ body {
 }
 
 /* ---------- Fleet overview (Phase 37) ---------- */
-.fleet-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+/* Phase 69: the fleet is a horizontal strip at the top of Overview. Cards keep
+   a fixed width and the row scrolls sideways when they overflow (esp. mobile). */
+.fleet-strip {
+  display: flex;
   gap: var(--space-4);
+  overflow-x: auto;
+  padding-bottom: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+.fleet-card--strip {
+  flex: 0 0 auto;
+  width: 250px;
 }
 .fleet-card {
   gap: var(--space-4);

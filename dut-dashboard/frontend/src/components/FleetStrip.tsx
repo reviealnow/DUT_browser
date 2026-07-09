@@ -6,7 +6,6 @@ import { DutStatus } from "../monitoring/useDutMonitor";
 import { FleetEntry, useFleetMonitor } from "../monitoring/useFleetMonitor";
 import { useFleetRecommendations } from "../monitoring/useLastRecommendation";
 import { FleetBandBadge } from "./BandRecoSummary";
-import { EmptyState } from "./shell/Card";
 
 type StatusMeta = { label: string; pill: "ok" | "idle" | "danger" };
 
@@ -27,18 +26,22 @@ function formatEventAge(seconds: number | null): string {
 }
 
 /**
- * Phase 37: all registered DUTs side-by-side. Each card shows status / latest
- * CPU / crash count / last-event age from a single demuxed `/ws` (see
- * useFleetMonitor) and jumps to that DUT's existing Overview on click. Wi-Fi is
- * intentionally absent — its serial scan is heavy and stays single-DUT on-demand.
- * Phase 66: per-card quick actions (jump to Serial Console; close an open
- * serial session).
+ * Phase 37 / 69: all registered DUTs side-by-side. Each card shows status /
+ * latest CPU / crash count / last-event age from a single demuxed `/ws` (see
+ * useFleetMonitor). Wi-Fi is intentionally absent — its serial scan is heavy and
+ * stays single-DUT on-demand. Phase 66: per-card quick actions (jump to Serial
+ * Console; close an open serial session); Phase 67: Connect a remembered DUT.
+ *
+ * Phase 69: rendered as a horizontal strip at the top of Overview (the dedicated
+ * Fleet nav section was removed). Clicking a card selects that DUT — the caller
+ * is already on Overview, so no navigation is needed. Hidden entirely when the
+ * fleet has one DUT or fewer (nothing to switch between).
  */
-export default function FleetSection({
-  onOpenDut,
+export default function FleetStrip({
+  onSelectDut,
   onOpenConsole,
 }: {
-  onOpenDut: (dutId: string) => void;
+  onSelectDut: (dutId: string) => void;
   onOpenConsole: (dutId: string) => void;
 }) {
   const { fleet, refreshRegistry } = useFleetMonitor();
@@ -46,24 +49,20 @@ export default function FleetSection({
   // (no scan). Drives the compact per-card band badge.
   const recos = useFleetRecommendations(fleet.map((e) => e.id));
 
-  if (fleet.length === 0) {
-    return (
-      <EmptyState
-        icon="🛰"
-        message="No DUTs to show"
-        hint="Register a DUT from the switcher, or check the backend is reachable."
-      />
-    );
+  // Single-DUT (or empty) users have nothing to switch between — hide the strip
+  // so Overview isn't cluttered with a redundant one-card row.
+  if (fleet.length <= 1) {
+    return null;
   }
 
   return (
-    <div className="fleet-grid">
+    <div className="fleet-strip">
       {fleet.map((entry) => (
         <FleetCard
           key={entry.id}
           entry={entry}
           reco={recos.get(entry.id)}
-          onOpen={() => onOpenDut(entry.id)}
+          onOpen={() => onSelectDut(entry.id)}
           onConsole={() => onOpenConsole(entry.id)}
           onClosed={refreshRegistry}
         />
@@ -125,12 +124,12 @@ function FleetCard({
   }, [entry.id, lastSerial, onClosed]);
 
   return (
-    <div className="card fleet-card">
+    <div className="card fleet-card fleet-card--strip">
       <button
         type="button"
         className="fleet-card-main"
         onClick={onOpen}
-        title={`Open ${entry.label} overview`}
+        title={`Select ${entry.label}`}
       >
         <div className="fleet-card-head">
           <div className="fleet-card-titles">
