@@ -39,8 +39,8 @@ export type FleetEntry = {
  * storage, no CPU/memory history). Drilling into a DUT's Overview still uses the
  * full single-DUT `useDutMonitor`.
  *
- * Mounted only while the Fleet section is visible, so the second socket exists
- * only when it is being looked at.
+ * Phase 69: mounted by the Fleet strip at the top of Overview (its own nav
+ * section was removed), so this second socket lives whenever Overview is shown.
  */
 export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () => Promise<void> } {
   const { pattern: crashPattern } = useCrashKeywords();

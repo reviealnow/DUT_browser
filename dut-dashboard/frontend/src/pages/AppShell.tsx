@@ -22,7 +22,7 @@ import { OverviewBandReco } from "../components/BandRecoSummary";
 // The Serial Console (Dashboard) pulls in CodeMirror, so deferring it keeps the
 // editor out of first paint; it stays mounted once first opened (see below).
 const BulletinSection = lazy(() => import("../components/BulletinSection"));
-const FleetSection = lazy(() => import("../components/FleetSection"));
+const FleetStrip = lazy(() => import("../components/FleetStrip"));
 const DownloadsSection = lazy(() => import("../components/DownloadsSection"));
 const FilesSection = lazy(() => import("../components/FilesSection"));
 const SettingsSection = lazy(() => import("../components/SettingsSection"));
@@ -137,10 +137,7 @@ export default function AppShell() {
                   monitor,
                   search,
                   selectedDut,
-                  (id) => {
-                    setSelectedDut(id);
-                    setActive("overview");
-                  },
+                  setSelectedDut,
                   (id) => {
                     setSelectedDut(id);
                     setActive("console");
@@ -188,7 +185,7 @@ function renderSection(
   monitor: DutMonitorState,
   search: string,
   selectedDut: string,
-  onOpenDut: (dutId: string) => void,
+  onSelectDut: (dutId: string) => void,
   onOpenConsole: (dutId: string) => void,
   onNavigate: (id: SectionId) => void,
 ) {
@@ -198,11 +195,11 @@ function renderSection(
         <OverviewSection
           monitor={monitor}
           selectedDut={selectedDut}
+          onSelectDut={onSelectDut}
+          onOpenConsole={onOpenConsole}
           onOpenSiteSurvey={() => onNavigate("sitesurvey")}
         />
       );
-    case "fleet":
-      return <FleetSection onOpenDut={onOpenDut} onOpenConsole={onOpenConsole} />;
     case "console":
       // Rendered separately (always mounted) so its session/state persists.
       return null;
@@ -251,10 +248,14 @@ function renderSection(
 function OverviewSection({
   monitor,
   selectedDut,
+  onSelectDut,
+  onOpenConsole,
   onOpenSiteSurvey,
 }: {
   monitor: DutMonitorState;
   selectedDut: string;
+  onSelectDut: (dutId: string) => void;
+  onOpenConsole: (dutId: string) => void;
   onOpenSiteSurvey: () => void;
 }) {
   const statusMeta = STATUS_META[monitor.status];
@@ -281,6 +282,14 @@ function OverviewSection({
 
   return (
     <>
+      {/* Phase 69: the fleet strip lives at the top of Overview (its own nav
+          section was removed). Its own Suspense with a null fallback keeps the
+          rest of Overview painting immediately; the strip hides itself when the
+          fleet has one DUT or fewer. */}
+      <Suspense fallback={null}>
+        <FleetStrip onSelectDut={onSelectDut} onOpenConsole={onOpenConsole} />
+      </Suspense>
+
       <div className="kpis">
         <KpiCard label="DUT Status" value={statusMeta.label} sub={statusMeta.sub} />
         <KpiCard label="Latest CPU" value={cpuValue} sub={cpuSub} />
