@@ -222,6 +222,10 @@ def open_serial(body: SerialOpenRequest, request: Request, dut: str = DEFAULT_DU
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # Remember the params of a successful serial-mode open so the Fleet view can
+    # offer one-click Connect. Replay opens have no reusable port — skip them.
+    if body.mode == "serial" and body.port:
+        request.app.state.dut_registry.record_serial_params(dut, body.port, body.baudrate)
     return {"ok": True, "mode": body.mode, "log_path": serial_worker.current_log_path}
 
 

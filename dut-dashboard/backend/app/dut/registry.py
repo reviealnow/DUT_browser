@@ -35,6 +35,25 @@ MAX_DUTS = 16
 _DUT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 
 
+def _clean_last_serial(value: object) -> dict | None:
+    """Validate a persisted/recorded ``last_serial`` payload; ``None`` if malformed.
+
+    Guards the load path against a hand-edited or stale ``duts.json`` (bad type,
+    empty port, non-int baud) so a bad entry silently disables Connect rather
+    than crashing the registry.
+    """
+    if not isinstance(value, dict):
+        return None
+    port = value.get("port")
+    baudrate = value.get("baudrate")
+    if not isinstance(port, str) or not port:
+        return None
+    # bool is an int subclass — reject it explicitly.
+    if not isinstance(baudrate, int) or isinstance(baudrate, bool) or baudrate <= 0:
+        return None
+    return {"port": port, "baudrate": baudrate}
+
+
 @dataclass
 class DutContext:
     """The live runtime for one DUT."""
@@ -46,6 +65,9 @@ class DutContext:
     snapshot_store: SnapshotStore
     console_buffer: ConsoleBuffer
     terminal_manager: TerminalManager
+    # Last successful serial-open params ({"port", "baudrate"}), remembered so the
+    # Fleet view can offer one-click Connect. None until a serial-mode open.
+    last_serial: dict | None = None
 
 
 class DutRegistry:
@@ -114,6 +136,22 @@ class DutRegistry:
             self._save_locked()
         return context
 
+    def record_serial_params(self, dut_id: str, port: str, baudrate: int) -> None:
+        """Remember a DUT's last successful serial-open params and persist them.
+
+        Called on a serial-mode open only (replay skipped). Persistence is
+        best-effort — a lost write just leaves Connect disabled next time.
+        """
+        cleaned = _clean_last_serial({"port": port, "baudrate": baudrate})
+        if cleaned is None:
+            return
+        with self._lock:
+            ctx = self._duts.get(dut_id)
+            if ctx is None:
+                return
+            ctx.last_serial = cleaned
+            self._save_locked()
+
     def remove_dut(self, dut_id: str) -> None:
         """Stop and drop a DUT (frees its serial port). The default DUT is fixed."""
         if dut_id == DEFAULT_DUT_ID:
@@ -146,16 +184,30 @@ class DutRegistry:
                     "serial_open": worker.is_open,
                     "log_path": worker.current_log_path,
                     "removable": ctx.dut_id != DEFAULT_DUT_ID,
+                    "last_serial": ctx.last_serial,
                 }
             )
         return out
 
+    @staticmethod
+    def _entry_for(ctx: DutContext) -> dict:
+        entry: dict = {"id": ctx.dut_id, "label": ctx.label}
+        if ctx.last_serial is not None:
+            entry["last_serial"] = ctx.last_serial
+        return entry
+
     def _save_locked(self) -> None:
-        """Persist the non-default DUTs (call holding ``self._lock``)."""
+        """Persist the DUT list (call holding ``self._lock``).
+
+        Non-default DUTs always persist so they survive a restart. The default
+        DUT is re-created by ``build_default_registry`` on boot, so it is only
+        written once it has remembered serial params — never a bare entry that a
+        reload would try to re-create.
+        """
         entries = [
-            {"id": ctx.dut_id, "label": ctx.label}
+            self._entry_for(ctx)
             for ctx in self._duts.values()
-            if ctx.dut_id != DEFAULT_DUT_ID
+            if ctx.dut_id != DEFAULT_DUT_ID or ctx.last_serial is not None
         ]
         try:
             DUTS_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -164,7 +216,11 @@ class DutRegistry:
             pass  # persistence is best-effort; never break a register/remove
 
     def load_persisted(self) -> None:
-        """Re-create DUTs saved in ``DUTS_FILE`` (best-effort, skips malformed)."""
+        """Re-create DUTs saved in ``DUTS_FILE`` (best-effort, skips malformed).
+
+        An id that already exists (the default DUT, created before this runs) is
+        not re-created — only its remembered ``last_serial`` is merged in.
+        """
         try:
             entries = json.loads(DUTS_FILE.read_text(encoding="utf-8"))
         except (OSError, ValueError):
@@ -176,9 +232,16 @@ class DutRegistry:
                 dut_id = entry["id"]
             except (TypeError, KeyError):
                 continue
-            if not _DUT_ID_RE.match(str(dut_id)) or dut_id in self._duts:
+            if not _DUT_ID_RE.match(str(dut_id)):
                 continue
-            self.create_dut(dut_id, label=entry.get("label"))
+            last_serial = _clean_last_serial(entry.get("last_serial")) if isinstance(entry, dict) else None
+            existing = self._duts.get(dut_id)
+            if existing is not None:
+                if last_serial is not None:
+                    existing.last_serial = last_serial
+                continue
+            ctx = self.create_dut(dut_id, label=entry.get("label"))
+            ctx.last_serial = last_serial
 
 
 def build_default_registry(
