@@ -18,6 +18,8 @@ export type FleetEntry = {
   /** Registry truth: whether a serial/replay session is open on this DUT.
    * Distinct from `status` — a quiet DUT can be open yet read "idle". */
   serialOpen: boolean;
+  /** Last successful serial-open params, or null. Enables one-click Connect. */
+  lastSerial: { port: string; baudrate: number } | null;
   /** 100 − mean idle across cores from the latest (reconstructed) snapshot. */
   cpuBusyPct: number | null;
   coreCount: number;
@@ -49,7 +51,9 @@ export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () =>
   crashPatternRef.current = crashPattern;
   // Registry order + labels + open-state for every registered DUT (cards show
   // even with no stream).
-  const [duts, setDuts] = useState<{ id: string; label: string; serialOpen: boolean }[]>([]);
+  const [duts, setDuts] = useState<
+    { id: string; label: string; serialOpen: boolean; lastSerial: FleetEntry["lastSerial"] }[]
+  >([]);
   const [connected, setConnected] = useState(false);
   const [nowTick, setNowTick] = useState(() => Date.now());
 
@@ -67,6 +71,7 @@ export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () =>
         id: d.id,
         label: d.label,
         serialOpen: d.serial_open,
+        lastSerial: d.last_serial,
       }));
       setDuts(list);
     } catch {
@@ -80,12 +85,13 @@ export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () =>
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      let list: { id: string; label: string; serialOpen: boolean }[] = [];
+      let list: { id: string; label: string; serialOpen: boolean; lastSerial: FleetEntry["lastSerial"] }[] = [];
       try {
         list = (await getDuts()).map((d) => ({
           id: d.id,
           label: d.label,
           serialOpen: d.serial_open,
+          lastSerial: d.last_serial,
         }));
       } catch {
         return; // backend unreachable: nothing to show
@@ -173,7 +179,7 @@ export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () =>
   }, []);
 
   // Derive the view rows on each tick from the registry order + live refs.
-  const fleet = duts.map(({ id, label, serialOpen }) => {
+  const fleet = duts.map(({ id, label, serialOpen, lastSerial }) => {
     const base = baseRef.current.get(id) ?? null;
     const cpu = cpuFromSnapshot(base);
     const lastActivity = lastActivityRef.current.get(id) ?? 0;
@@ -189,6 +195,7 @@ export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () =>
       label,
       status,
       serialOpen,
+      lastSerial,
       cpuBusyPct: cpu.cpuBusyPct,
       coreCount: cpu.coreCount,
       crashCount: crashRef.current.get(id) ?? 0,

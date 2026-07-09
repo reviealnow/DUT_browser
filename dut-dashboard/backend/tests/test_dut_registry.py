@@ -107,6 +107,108 @@ class DutRegistryTests(unittest.TestCase):
         self.assertEqual(set(reg2.ids()), {DEFAULT_DUT_ID, "lab2"})
         self.assertEqual(reg2.get("lab2").label, "Replay DUT")
 
+    # --- Phase 67: remembered serial params ------------------------------------
+
+    def test_record_serial_params_exposed_in_describe(self) -> None:
+        reg = self._registry()
+        reg.create_dut(DEFAULT_DUT_ID, label="Default")
+        self.assertIsNone(reg.describe()[0]["last_serial"])
+        reg.record_serial_params(DEFAULT_DUT_ID, "/dev/cu.usbserial", 115200)
+        self.assertEqual(
+            reg.describe()[0]["last_serial"], {"port": "/dev/cu.usbserial", "baudrate": 115200}
+        )
+
+    def test_record_serial_params_unknown_dut_is_noop(self) -> None:
+        reg = self._registry()
+        reg.create_dut(DEFAULT_DUT_ID)
+        reg.record_serial_params("ghost", "/dev/cu.x", 115200)  # must not raise
+        self.assertFalse(self._duts_file.exists())
+
+    def test_record_serial_params_rejects_malformed(self) -> None:
+        reg = self._registry()
+        reg.create_dut(DEFAULT_DUT_ID)
+        for port, baud in (("", 115200), ("/dev/x", 0), ("/dev/x", -1)):
+            reg.record_serial_params(DEFAULT_DUT_ID, port, baud)
+        self.assertIsNone(reg.get(DEFAULT_DUT_ID).last_serial)
+
+    def test_last_serial_survives_restart_default_and_registered(self) -> None:
+        reg = self._registry()
+        reg.create_dut(DEFAULT_DUT_ID, label="Default")
+        reg.register_dut("lab2", label="Replay DUT")
+        reg.record_serial_params(DEFAULT_DUT_ID, "/dev/cu.default", 115200)
+        reg.record_serial_params("lab2", "/dev/cu.lab2", 9600)
+        # Fresh registry: default is re-created by build, lab2 restored from file;
+        # both get their remembered params back.
+        reg2 = self._registry()
+        reg2.create_dut(DEFAULT_DUT_ID, label="Default")
+        reg2.load_persisted()
+        self.assertEqual(reg2.get(DEFAULT_DUT_ID).last_serial, {"port": "/dev/cu.default", "baudrate": 115200})
+        self.assertEqual(reg2.get("lab2").last_serial, {"port": "/dev/cu.lab2", "baudrate": 9600})
+
+    def test_legacy_file_without_last_serial_loads(self) -> None:
+        # A duts.json written by a pre-P67 build has no last_serial key.
+        self._duts_file.write_text('[{"id": "lab2", "label": "Legacy DUT"}]', encoding="utf-8")
+        reg = self._registry()
+        reg.create_dut(DEFAULT_DUT_ID, label="Default")
+        reg.load_persisted()
+        self.assertEqual(reg.get("lab2").label, "Legacy DUT")
+        self.assertIsNone(reg.get("lab2").last_serial)
+
+    def test_malformed_last_serial_in_file_is_ignored(self) -> None:
+        self._duts_file.write_text(
+            '[{"id": "lab2", "label": "L", "last_serial": {"port": "", "baudrate": "fast"}}]',
+            encoding="utf-8",
+        )
+        reg = self._registry()
+        reg.create_dut(DEFAULT_DUT_ID, label="Default")
+        reg.load_persisted()
+        self.assertIsNone(reg.get("lab2").last_serial)
+
+
+class SerialOpenRecordingTests(unittest.TestCase):
+    """The /api/serial/open handler records params on serial-mode opens only."""
+
+    def setUp(self) -> None:
+        self._dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._dir.cleanup)
+        tmp = Path(self._dir.name)
+        patches = [
+            mock.patch.object(registry_mod, "DUTS_FILE", tmp / "duts.json"),
+            mock.patch.object(registry_mod, "snapshot_file_for", lambda d: tmp / f"snap-{d}.jsonl"),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+        self._loop = asyncio.new_event_loop()
+        self.addCleanup(self._loop.close)
+        self.reg = DutRegistry(ws_manager=_StubWsManager(), loop=self._loop)
+        ctx = self.reg.create_dut(DEFAULT_DUT_ID, label="Default")
+        # Stub the worker open so no real serial/replay file is needed.
+        ctx.serial_worker.open = lambda **kw: None  # type: ignore[assignment]
+        self.request = mock.Mock()
+        self.request.app.state.dut_registry = self.reg
+
+    def _open(self, **kw):
+        from app.api.serial_api import SerialOpenRequest, open_serial
+
+        body = SerialOpenRequest(**kw)
+        return open_serial(body, self.request, dut=DEFAULT_DUT_ID)
+
+    def test_serial_open_records_params(self) -> None:
+        self._open(mode="serial", port="/dev/cu.usbserial", baudrate=115200)
+        self.assertEqual(
+            self.reg.get(DEFAULT_DUT_ID).last_serial,
+            {"port": "/dev/cu.usbserial", "baudrate": 115200},
+        )
+
+    def test_replay_open_does_not_record(self) -> None:
+        self._open(mode="replay", replay_path="/tmp/x.log")
+        self.assertIsNone(self.reg.get(DEFAULT_DUT_ID).last_serial)
+
+    def test_serial_open_without_port_does_not_record(self) -> None:
+        self._open(mode="serial", port="", baudrate=115200)
+        self.assertIsNone(self.reg.get(DEFAULT_DUT_ID).last_serial)
+
 
 if __name__ == "__main__":
     unittest.main()

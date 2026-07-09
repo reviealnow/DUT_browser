@@ -262,6 +262,8 @@ export type DutInfo = {
   serial_open: boolean;
   log_path: string | null;
   removable: boolean;
+  /** Last successful serial-open params, remembered for one-click Connect. */
+  last_serial: { port: string; baudrate: number } | null;
 };
 
 /** List the registered DUTs (for the switcher). */

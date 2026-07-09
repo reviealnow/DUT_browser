@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 
-import { closeSerial, humanizeApiError, LastChannelRecommendationResult } from "../api/rest";
+import { closeSerial, humanizeApiError, LastChannelRecommendationResult, openSerial } from "../api/rest";
+import { runSurvey } from "../monitoring/siteSurveyStore";
 import { DutStatus } from "../monitoring/useDutMonitor";
 import { FleetEntry, useFleetMonitor } from "../monitoring/useFleetMonitor";
 import { useFleetRecommendations } from "../monitoring/useLastRecommendation";
@@ -85,6 +86,7 @@ function FleetCard({
   onClosed: () => Promise<void>;
 }) {
   const [closing, setClosing] = useState(false);
+  const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const meta = STATUS_META[entry.status];
   const cpu = entry.cpuBusyPct === null ? "—" : `${entry.cpuBusyPct}%`;
@@ -104,6 +106,23 @@ function FleetCard({
       .catch((e) => setError(humanizeApiError(e)))
       .finally(() => setClosing(false));
   }, [entry.id, entry.label, onClosed]);
+
+  const lastSerial = entry.lastSerial;
+  const onConnect = useCallback(() => {
+    if (!lastSerial) {
+      return;
+    }
+    setConnecting(true);
+    setError(null);
+    // Reopen with the remembered params. On success refresh the registry (so the
+    // card flips to the open/Close state) and kick the P58 connect-time prescan,
+    // exactly like a console-driven open.
+    openSerial({ port: lastSerial.port, baudrate: lastSerial.baudrate, mode: "serial" }, entry.id)
+      .then(() => onClosed())
+      .then(() => void runSurvey(entry.id))
+      .catch((e) => setError(humanizeApiError(e)))
+      .finally(() => setConnecting(false));
+  }, [entry.id, lastSerial, onClosed]);
 
   return (
     <div className="card fleet-card">
@@ -162,7 +181,26 @@ function FleetCard({
           >
             {closing ? "Closing…" : "Close serial"}
           </button>
-        ) : null}
+        ) : lastSerial ? (
+          <button
+            type="button"
+            className="btn"
+            disabled={connecting}
+            title={`Connect ${entry.label} on ${lastSerial.port} @ ${lastSerial.baudrate}`}
+            onClick={onConnect}
+          >
+            {connecting ? "Connecting…" : "Connect"}
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="btn"
+            disabled
+            title="No remembered serial parameters — open this DUT once from the Serial Console."
+          >
+            Connect
+          </button>
+        )}
         {error ? <span className="flash" style={{ color: "var(--danger)" }}>{error}</span> : null}
       </div>
     </div>
