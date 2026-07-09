@@ -7,6 +7,7 @@ import {
   getLogs,
   getLogTail,
   getSerialLogDownloadUrl,
+  getSurveyDownloadUrl,
   humanizeApiError,
   LogEntry,
   LogList,
@@ -279,6 +280,7 @@ export default function DownloadsSection({ query = "" }: { query?: string }) {
   const match = (rows: LogEntry[]) => (needle ? rows.filter((r) => r.name.toLowerCase().includes(needle)) : rows);
   const sessions = match(data.sessions);
   const artifacts = match(data.artifacts);
+  const surveys = match(data.surveys);
 
   return (
     <>
@@ -294,6 +296,13 @@ export default function DownloadsSection({ query = "" }: { query?: string }) {
           <FileTable rows={artifacts} hrefFor={getAnalyzerDownloadUrl} />
         ) : (
           <EmptyState icon="📊" message={query ? "No matching artifacts" : "No analyzer outputs yet"} hint="Click Analyze on a session log above to generate these." />
+        )}
+      </Card>
+      <Card title="Site surveys" subtitle="Persisted channel scans — JSON + neighbor CSV per scan">
+        {surveys.length > 0 ? (
+          <FileTable rows={surveys} hrefFor={getSurveyDownloadUrl} />
+        ) : (
+          <EmptyState icon="📡" message={query ? "No matching surveys" : "No site surveys yet"} hint="Run a Site Survey on a connected DUT to persist one." />
         )}
       </Card>
     </>

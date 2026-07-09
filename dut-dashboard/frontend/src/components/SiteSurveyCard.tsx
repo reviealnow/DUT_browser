@@ -7,6 +7,8 @@ import { RecommendationPill } from "./RecommendationPill";
 import { Card, EmptyState } from "./shell/Card";
 
 const BAND_ORDER: Record<string, number> = { "2.4GHz": 0, "5GHz": 1, "6GHz": 2 };
+// Segmented band filter for the neighbor table + per-band charts (display-only).
+const BAND_TABS = ["All", "2.4GHz", "5GHz", "6GHz"] as const;
 
 function bandRank(band: string | null): number {
   return band !== null && band in BAND_ORDER ? BAND_ORDER[band] : 99;
@@ -106,12 +108,28 @@ export default function SiteSurveyCard({ dutId = DEFAULT_DUT_ID }: { dutId?: str
     ensureSurvey(dutId);
   }, [dutId]);
 
+  // Display-only filters over the already-captured neighbor list — never trigger
+  // a scan. `bandFilter` also narrows which per-band charts render; `search`
+  // matches SSID or BSSID (case-insensitive substring).
+  const [bandFilter, setBandFilter] = useState<string>("All");
+  const [search, setSearch] = useState("");
+
   const sortedNeighbors = useMemo(() => {
-    const ns = data?.neighbors ?? [];
+    const q = search.trim().toLowerCase();
+    const ns = (data?.neighbors ?? []).filter((n) => {
+      if (bandFilter !== "All" && n.band !== bandFilter) return false;
+      if (!q) return true;
+      return (n.ssid ?? "").toLowerCase().includes(q) || n.bssid.toLowerCase().includes(q);
+    });
     return [...ns].sort(
       (a, b) => bandRank(a.band) - bandRank(b.band) || (b.signal_dbm ?? -999) - (a.signal_dbm ?? -999),
     );
-  }, [data]);
+  }, [data, bandFilter, search]);
+
+  const filteredRecommendations = useMemo(
+    () => (data?.recommendations ?? []).filter((r) => bandFilter === "All" || r.band === bandFilter),
+    [data, bandFilter],
+  );
 
   const neighborCountByBand = useMemo(() => {
     const m: Record<string, number> = {};
@@ -149,7 +167,7 @@ export default function SiteSurveyCard({ dutId = DEFAULT_DUT_ID }: { dutId?: str
           </div>
 
           <div className="grid" style={{ marginBottom: "var(--space-4)" }}>
-            {data.recommendations.map((rec) => (
+            {filteredRecommendations.map((rec) => (
               <ChannelUsageChart key={rec.band} rec={rec} neighbors={data.neighbors} />
             ))}
           </div>
@@ -158,30 +176,59 @@ export default function SiteSurveyCard({ dutId = DEFAULT_DUT_ID }: { dutId?: str
             <EmptyState icon="📶" message="No neighboring APs detected" hint={`Scanned ${data.survey_vaps.length} VAP(s).`} />
           ) : (
             <>
-              {data.neighbors.length > 5 ? (
-                <div className="logscroll-note">
-                  Strongest signal first — scroll for more ({data.neighbors.length} total).
+              <div className="survey-filterbar">
+                <div className="segmented" role="group" aria-label="Filter by band">
+                  {BAND_TABS.map((b) => (
+                    <button
+                      key={b}
+                      type="button"
+                      className={`seg ${bandFilter === b ? "active" : ""}`}
+                      aria-pressed={bandFilter === b}
+                      onClick={() => setBandFilter(b)}
+                    >
+                      {b}
+                    </button>
+                  ))}
                 </div>
-              ) : null}
-              <div className="logscroll logscroll-x">
-                <table className="filetable wifitable">
-                  <thead>
-                    <tr>
-                      <th>Band</th>
-                      <th>Channel</th>
-                      <th>SSID</th>
-                      <th>BSSID</th>
-                      <th>Signal</th>
-                      <th>Security</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sortedNeighbors.map((n) => (
-                      <NeighborRow key={`${n.iface}-${n.bssid}`} n={n} />
-                    ))}
-                  </tbody>
-                </table>
+                <input
+                  type="search"
+                  className="survey-search"
+                  placeholder="Filter SSID or BSSID…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  aria-label="Filter neighbors by SSID or BSSID"
+                />
               </div>
+              {sortedNeighbors.length === 0 ? (
+                <div className="logscroll-note">No neighbors match the current filter.</div>
+              ) : (
+                <>
+                  {sortedNeighbors.length > 5 ? (
+                    <div className="logscroll-note">
+                      Strongest signal first — scroll for more ({sortedNeighbors.length} shown).
+                    </div>
+                  ) : null}
+                  <div className="logscroll logscroll-x">
+                    <table className="filetable wifitable">
+                      <thead>
+                        <tr>
+                          <th>Band</th>
+                          <th>Channel</th>
+                          <th>SSID</th>
+                          <th>BSSID</th>
+                          <th>Signal</th>
+                          <th>Security</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sortedNeighbors.map((n) => (
+                          <NeighborRow key={`${n.iface}-${n.bssid}`} n={n} />
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
             </>
           )}
           <script
