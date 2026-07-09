@@ -16,6 +16,8 @@ def snapshot_file_for(dut_id: str) -> Path:
 TOOLS_DIR = BASE_DIR / "tools"
 ANALYZER_SCRIPT = TOOLS_DIR / "analyzer3.py"
 ANALYZER_OUTPUT_DIR = LOG_DIR / "analyzer_output"
+# Persisted site-survey snapshots (json+csv pairs; runtime state, gitignored).
+SURVEY_SNAPSHOT_DIR = LOG_DIR / "site-surveys"
 
 # Workspace module (LAN file-sharing + bulletin). Shared-trust model: no auth,
 # uploader/author are free text. All runtime state lives under data/ (gitignored).

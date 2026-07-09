@@ -136,7 +136,7 @@ export type MemorySeries = {
 };
 
 export type LogEntry = { name: string; size: number; mtime: string };
-export type LogList = { sessions: LogEntry[]; artifacts: LogEntry[] };
+export type LogList = { sessions: LogEntry[]; artifacts: LogEntry[]; surveys: LogEntry[] };
 
 /** List saved DUT session logs and analyzer artifacts (read-only browse). */
 export async function getLogs(): Promise<LogList> {
@@ -158,6 +158,11 @@ export function getAnalyzerDownloadUrl(fileName: string): string {
 /** Inline image URL for an analyzer PNG plot (renders in an <img>, not a download). */
 export function getAnalyzerPreviewUrl(fileName: string): string {
   return `/api/download/preview/${encodeURIComponent(fileName)}`;
+}
+
+/** Download URL for a persisted site-survey snapshot (json/csv) in logs/site-surveys/. */
+export function getSurveyDownloadUrl(fileName: string): string {
+  return `/api/download/survey/${encodeURIComponent(fileName)}`;
 }
 
 /** Parsed memory series from the latest analyzer run (post-analysis only). */

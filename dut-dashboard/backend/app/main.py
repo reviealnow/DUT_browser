@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import re
 import subprocess
@@ -15,13 +16,14 @@ from app.api.duts_api import router as duts_router
 from app.api.files_api import router as files_router
 from app.api.serial_api import router as serial_router
 from app.api.settings_api import router as settings_router
-from app.config import ANALYZER_OUTPUT_DIR, FRONTEND_DIST, LOG_DIR, UPLOAD_DIR
+from app.config import ANALYZER_OUTPUT_DIR, FRONTEND_DIST, LOG_DIR, SURVEY_SNAPSHOT_DIR, UPLOAD_DIR
 from app.db.workspace import init_db
 from app.dut.registry import DEFAULT_DUT_ID, DutContext, DutRegistry, build_default_registry
 from app.services.analyzer_service import AnalyzerService
 from app.services.capability_report import build_capability_report
 from app.services.site_survey import channel_recommendation, get_site_survey
 from app.services.survey_cache import last_recommendation, remember_recommendation
+from app.services import survey_snapshot
 from app.services.wifi_clients import discover_vaps, get_ssid_capabilities, parse_apstats, parse_wlanconfig_list
 from app.services.wifi_survey import get_wifi_survey
 from app.websocket.terminal_manager import TerminalManager
@@ -53,6 +55,10 @@ async def on_startup() -> None:
 
     # Per-DUT runtime; A0 registers the single default DUT (behaviour unchanged).
     app.state.dut_registry = build_default_registry(ws_manager=ws_manager, loop=loop)
+
+    # Rebuild the in-memory recommendation cache from persisted survey snapshots
+    # so Overview / Fleet band badges survive a restart with no new scan.
+    survey_snapshot.restore_cache()
 
 
 def resolve_dut(app_, dut_id: str) -> DutContext:
@@ -284,6 +290,14 @@ def get_wifi_channel_recommendation(dut: str = DEFAULT_DUT_ID) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     recommendations = channel_recommendation(survey["neighbors"], own_vaps)
     remember_recommendation(dut, recommendations, survey["captured_at"])
+    # Persist the survey to disk (json+csv) for Downloads / log-ZIP bundling and
+    # restart restore. Best-effort: a write failure must never fail the scan.
+    try:
+        survey_snapshot.write_snapshot(
+            dut, recommendations, survey["neighbors"], survey["vaps"], survey["captured_at"]
+        )
+    except Exception:  # noqa: BLE001 — persistence is best-effort
+        logging.getLogger(__name__).exception("failed to persist survey snapshot for %s", dut)
     return {
         "recommendations": recommendations,
         "neighbors": survey["neighbors"],
@@ -332,7 +346,8 @@ def list_logs() -> dict:
 
     sessions = entries(LOG_DIR.glob("dut-session-*.log")) if LOG_DIR.is_dir() else []
     artifacts = entries(ANALYZER_OUTPUT_DIR.glob("*")) if ANALYZER_OUTPUT_DIR.is_dir() else []
-    return {"sessions": sessions, "artifacts": artifacts}
+    surveys = survey_snapshot.list_snapshots()
+    return {"sessions": sessions, "artifacts": artifacts, "surveys": surveys}
 
 
 @app.get("/api/download/{file_name}")
@@ -342,6 +357,21 @@ def download_file(file_name: str) -> FileResponse:
         raise HTTPException(status_code=400, detail="Invalid file name")
 
     file_path = ANALYZER_OUTPUT_DIR / safe_name
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return FileResponse(path=file_path, filename=safe_name, media_type="application/octet-stream")
+
+
+@app.get("/api/download/survey/{file_name}")
+def download_survey(file_name: str) -> FileResponse:
+    """Serve a persisted site-survey snapshot (json or csv) as a download.
+    Name validated against traversal; only .json/.csv under SURVEY_SNAPSHOT_DIR."""
+    safe_name = Path(file_name).name
+    if safe_name != file_name or not safe_name.lower().endswith((".json", ".csv")):
+        raise HTTPException(status_code=400, detail="Invalid file name")
+
+    file_path = SURVEY_SNAPSHOT_DIR / safe_name
     if not file_path.exists() or not file_path.is_file():
         raise HTTPException(status_code=404, detail="File not found")
 
