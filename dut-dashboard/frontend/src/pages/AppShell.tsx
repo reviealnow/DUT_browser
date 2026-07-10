@@ -22,6 +22,7 @@ import { OverviewBandReco } from "../components/BandRecoSummary";
 // The Serial Console (Dashboard) pulls in CodeMirror, so deferring it keeps the
 // editor out of first paint; it stays mounted once first opened (see below).
 const BulletinSection = lazy(() => import("../components/BulletinSection"));
+const WorkspaceSearchResults = lazy(() => import("../components/WorkspaceSearchResults"));
 const FleetStrip = lazy(() => import("../components/FleetStrip"));
 const DownloadsSection = lazy(() => import("../components/DownloadsSection"));
 const FilesSection = lazy(() => import("../components/FilesSection"));
@@ -50,6 +51,10 @@ export default function AppShell() {
   // visible there and the hamburger that toggles this is hidden via CSS.
   const [navOpen, setNavOpen] = useState(false);
   const [search, setSearch] = useState("");
+  // Workspace tag search (P70): non-null while the combined Files+Bulletin
+  // results panel is open. Set by submitting the search box on Files/Bulletin
+  // or clicking any tag chip; cleared by Close or switching sections.
+  const [wsSearch, setWsSearch] = useState<string | null>(null);
   const [selectedDut, setSelectedDut] = useState(DEFAULT_DUT_ID);
   // One monitor for the selected DUT drives everything: the sections, the topbar
   // status, and the Serial Console (via context) — all follow the switcher.
@@ -83,6 +88,7 @@ export default function AppShell() {
           onSelect={(id) => {
             setActive(id);
             setNavOpen(false);
+            setWsSearch(null);
           }}
           open={navOpen}
           onClose={() => setNavOpen(false)}
@@ -95,7 +101,17 @@ export default function AppShell() {
             navOpen={navOpen}
             search={
               active === "logs" || active === "downloads" || active === "files" || active === "bulletin" ? (
-                <SearchBox value={search} onChange={setSearch} />
+                <SearchBox
+                  value={search}
+                  onChange={setSearch}
+                  // Enter on Files/Bulletin opens the combined tag-search panel;
+                  // live per-section substring filtering is unchanged.
+                  onSubmit={
+                    active === "files" || active === "bulletin"
+                      ? (value) => setWsSearch(value.trim() || null)
+                      : undefined
+                  }
+                />
               ) : undefined
             }
             actions={
@@ -132,17 +148,26 @@ export default function AppShell() {
             ) : null}
             {active !== "console" ? (
               <Suspense fallback={<SectionLoading />}>
-                {renderSection(
-                  active,
-                  monitor,
-                  search,
-                  selectedDut,
-                  setSelectedDut,
-                  (id) => {
-                    setSelectedDut(id);
-                    setActive("console");
-                  },
-                  setActive,
+                {wsSearch !== null && (active === "files" || active === "bulletin") ? (
+                  <WorkspaceSearchResults
+                    query={wsSearch}
+                    onTagClick={setWsSearch}
+                    onClose={() => setWsSearch(null)}
+                  />
+                ) : (
+                  renderSection(
+                    active,
+                    monitor,
+                    search,
+                    selectedDut,
+                    setSelectedDut,
+                    (id) => {
+                      setSelectedDut(id);
+                      setActive("console");
+                    },
+                    setActive,
+                    setWsSearch,
+                  )
                 )}
               </Suspense>
             ) : null}
@@ -188,6 +213,7 @@ function renderSection(
   onSelectDut: (dutId: string) => void,
   onOpenConsole: (dutId: string) => void,
   onNavigate: (id: SectionId) => void,
+  onTagSearch: (tag: string) => void,
 ) {
   switch (active) {
     case "overview":
@@ -235,9 +261,9 @@ function renderSection(
     case "downloads":
       return <DownloadsSection query={search} />;
     case "files":
-      return <FilesSection query={search} />;
+      return <FilesSection query={search} onTagClick={onTagSearch} />;
     case "bulletin":
-      return <BulletinSection query={search} />;
+      return <BulletinSection query={search} onTagClick={onTagSearch} />;
     case "settings":
       return <SettingsSection />;
     default:
@@ -743,18 +769,32 @@ function CrashEventsBody({ monitor }: { monitor: DutMonitorState }) {
   );
 }
 
-function SearchBox({ value, onChange }: { value: string; onChange: (next: string) => void }) {
+function SearchBox({
+  value,
+  onChange,
+  onSubmit,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  onSubmit?: (value: string) => void;
+}) {
   return (
-    <div className="search">
+    <form
+      className="search"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSubmit?.(value);
+      }}
+    >
       <span aria-hidden>🔍</span>
       <input
         type="search"
-        placeholder="Filter…"
+        placeholder={onSubmit ? "Filter… (Enter = tag search)" : "Filter…"}
         aria-label="Filter"
         value={value}
         onChange={(e) => onChange(e.target.value)}
       />
-    </div>
+    </form>
   );
 }
 
