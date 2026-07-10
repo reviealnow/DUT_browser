@@ -10,6 +10,7 @@ import {
   FilesList,
   FilesStats,
   humanizeApiError,
+  setFileTags,
   SortOrder,
   TextPreview,
   uploadFile,
@@ -18,6 +19,8 @@ import {
 import { hashHue } from "../monitoring/authorColor";
 import { useIdentity } from "../monitoring/useSettings";
 import AuthorTag from "./AuthorTag";
+import { TagList } from "./TagChip";
+import TagInput, { parseTags } from "./TagInput";
 import ChartData from "./charts/ChartData";
 import Sparkline from "./charts/Sparkline";
 import { Card, EmptyState, KpiCard } from "./shell/Card";
@@ -150,6 +153,41 @@ function SortHeader({
   );
 }
 
+/** Inline tag editor rendered as an extra row (same idiom as the preview row). */
+function FileTagsEditRow({ file, onSaved, onCancel }: { file: WorkspaceFile; onSaved: () => void; onCancel: () => void }) {
+  const [text, setText] = useState((file.tags ?? []).join(", "));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = () => {
+    setBusy(true);
+    setError(null);
+    setFileTags(file.id, parseTags(text))
+      .then(onSaved)
+      .catch((e) => {
+        setError(humanizeApiError(e));
+        setBusy(false);
+      });
+  };
+
+  return (
+    <tr className="tag-edit-row">
+      <td colSpan={4}>
+        <div className="tag-edit-form">
+          <TagInput value={text} onChange={setText} ariaLabel={`Tags for ${file.filename}`} />
+          <button type="button" className="btn" disabled={busy} onClick={save}>
+            {busy ? "…" : "Save"}
+          </button>
+          <button type="button" className="btn" disabled={busy} onClick={onCancel}>
+            Cancel
+          </button>
+          {error ? <span className="flash" style={{ color: "var(--danger)" }}>{error}</span> : null}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 function SharedFilesTable({
   rows,
   onDelete,
@@ -158,6 +196,10 @@ function SharedFilesTable({
   onSort,
   expandedId,
   onToggleExpand,
+  onTagClick,
+  tagEditId,
+  onToggleTagEdit,
+  onTagsSaved,
 }: {
   rows: WorkspaceFile[];
   onDelete: (file: WorkspaceFile) => void;
@@ -166,6 +208,10 @@ function SharedFilesTable({
   onSort: (col: FileSortKey) => void;
   expandedId: number | null;
   onToggleExpand: (id: number) => void;
+  onTagClick?: (tag: string) => void;
+  tagEditId: number | null;
+  onToggleTagEdit: (id: number | null) => void;
+  onTagsSaved: () => void;
 }) {
   return (
     <>
@@ -189,11 +235,22 @@ function SharedFilesTable({
                   <td className="filetable-name">
                     <FileTypeChip name={row.filename} />
                     {row.filename}
+                    <TagList tags={row.tags} onTagClick={onTagClick} />
                   </td>
                   <td>{formatSize(row.size)}</td>
                   <td><AuthorTag name={row.uploader} /></td>
                   <td>
                     <div className="row-actions">
+                      <button
+                        type="button"
+                        className="icon-btn"
+                        title={tagEditId === row.id ? "Close tag editor" : "Edit tags"}
+                        aria-label={`Edit tags of ${row.filename}`}
+                        aria-expanded={tagEditId === row.id}
+                        onClick={() => onToggleTagEdit(tagEditId === row.id ? null : row.id)}
+                      >
+                        🏷
+                      </button>
                       {previewKind(row.filename) ? (
                         <button
                           type="button"
@@ -228,6 +285,16 @@ function SharedFilesTable({
                   </td>
                 </tr>
                 {expandedId === row.id ? <FilePreviewRow file={row} /> : null}
+                {tagEditId === row.id ? (
+                  <FileTagsEditRow
+                    file={row}
+                    onSaved={() => {
+                      onToggleTagEdit(null);
+                      onTagsSaved();
+                    }}
+                    onCancel={() => onToggleTagEdit(null)}
+                  />
+                ) : null}
               </Fragment>
             ))}
           </tbody>
@@ -245,6 +312,8 @@ function UploadCard({ onUploaded }: { onUploaded: () => void }) {
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [results, setResults] = useState<UploadResult[]>([]);
   const [dragging, setDragging] = useState(false);
+  // Optional comma-separated tags, applied to every file in the batch.
+  const [tagsText, setTagsText] = useState("");
   // There's no login, so the uploader is the free-text display name. It defaults
   // to an IP-derived suggestion (useIdentity), is editable right here at upload
   // time, persisted, and shared with Bulletin + Settings; a name is required.
@@ -262,11 +331,12 @@ function UploadCard({ onUploaded }: { onUploaded: () => void }) {
       }
       setBusy(true);
       setResults([]);
+      const tags = parseTags(tagsText);
       const outcome: UploadResult[] = [];
       for (let i = 0; i < files.length; i += 1) {
         setProgress({ done: i, total: files.length });
         try {
-          await uploadFile(files[i], effectiveName);
+          await uploadFile(files[i], effectiveName, tags);
           outcome.push({ name: files[i].name, error: null });
         } catch (e) {
           outcome.push({ name: files[i].name, error: humanizeApiError(e) });
@@ -276,10 +346,11 @@ function UploadCard({ onUploaded }: { onUploaded: () => void }) {
       setResults(outcome);
       setBusy(false);
       if (outcome.some((r) => r.error === null)) {
+        setTagsText("");
         onUploaded();
       }
     },
-    [onUploaded, effectiveName],
+    [onUploaded, effectiveName, tagsText],
   );
 
   return (
@@ -295,6 +366,10 @@ function UploadCard({ onUploaded }: { onUploaded: () => void }) {
           maxLength={40}
         />
         {effectiveName ? <AuthorTag name={effectiveName} /> : null}
+      </label>
+      <label className="upload-name">
+        <span>Tags</span>
+        <TagInput value={tagsText} onChange={setTagsText} ariaLabel="Tags for the upload" />
       </label>
       <div
         className={`upload-drop${dragging ? " dragging" : ""}`}
@@ -444,7 +519,13 @@ function TopUploadersBody({ stats }: { stats: FilesStats }) {
 // months, so the view lazy-loads instead of fetching every row up front).
 const PAGE_SIZE = 50;
 
-export default function FilesSection({ query = "" }: { query?: string }) {
+export default function FilesSection({
+  query = "",
+  onTagClick,
+}: {
+  query?: string;
+  onTagClick?: (tag: string) => void;
+}) {
   const [data, setData] = useState<FilesList | null>(null);
   const [failed, setFailed] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -460,6 +541,8 @@ export default function FilesSection({ query = "" }: { query?: string }) {
   const onToggleExpand = useCallback((id: number) => {
     setExpandedId((prev) => (prev === id ? null : id));
   }, []);
+  // One inline tag editor open at a time (same idiom as the preview).
+  const [tagEditId, setTagEditId] = useState<number | null>(null);
   // Rows currently on screen: reload refetches that many from offset 0 so an
   // upload/delete refresh doesn't collapse the list back to the first page.
   const loadedRef = useRef(PAGE_SIZE);
@@ -586,6 +669,10 @@ export default function FilesSection({ query = "" }: { query?: string }) {
               onSort={onSort}
               expandedId={expandedId}
               onToggleExpand={onToggleExpand}
+              onTagClick={onTagClick}
+              tagEditId={tagEditId}
+              onToggleTagEdit={setTagEditId}
+              onTagsSaved={reload}
             />
           ) : (
             <EmptyState

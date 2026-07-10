@@ -63,6 +63,33 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 """
 
+# Tags are shared between files and bulletin posts; `norm_name` (lowercased,
+# separator-stripped) is what lookups and fuzzy search match against, while
+# `name` keeps the first spelling the user typed for display.
+TAGS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS tags (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  norm_name TEXT NOT NULL
+);
+"""
+
+FILE_TAGS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS file_tags (
+  file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  tag_id  INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+  UNIQUE(file_id, tag_id)
+);
+"""
+
+POST_TAGS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS post_tags (
+  post_id INTEGER NOT NULL REFERENCES bulletin_posts(id) ON DELETE CASCADE,
+  tag_id  INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+  UNIQUE(post_id, tag_id)
+);
+"""
+
 
 def _db_path() -> Path:
     return WORKSPACE_DB
@@ -95,6 +122,9 @@ def init_db() -> None:
         conn.execute(BULLETIN_POSTS_SCHEMA)
         conn.execute(BULLETIN_COMMENTS_SCHEMA)
         conn.execute(SETTINGS_SCHEMA)
+        conn.execute(TAGS_SCHEMA)
+        conn.execute(FILE_TAGS_SCHEMA)
+        conn.execute(POST_TAGS_SCHEMA)
         _ensure_column(conn, "bulletin_posts", "edited_at")
         _ensure_column(conn, "bulletin_comments", "edited_at")
         conn.commit()

@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections import defaultdict
 
 from app.db.workspace import execute, query_all, query_one
+from app.services import tag_service
 
 
 POST_TITLE_LIMIT = 120
@@ -175,9 +176,12 @@ def list_posts(limit: int | None = None, offset: int = 0, q: str | None = None) 
         comment["replies"] = replies_by_parent.get(comment["id"], [])
         comments_by_post[comment["post_id"]].append(comment)
 
+    tag_map = tag_service.tags_for_posts(post_ids)
+
     result = []
     for row in posts:
         post = dict(row)
         post["comments"] = comments_by_post.get(post["id"], [])
+        post["tags"] = tag_map.get(post["id"], [])
         result.append(post)
     return result

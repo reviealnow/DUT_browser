@@ -41,6 +41,28 @@ class BulletinTests(unittest.TestCase):
         self.assertEqual(len(posts[0]["comments"][0]["replies"]), 1)
         self.assertEqual(posts[0]["comments"][0]["replies"][0]["body"], "Thanks")
 
+    def test_post_tags_create_update_and_retag(self) -> None:
+        post = bulletin_api.create_post(PostCreate(title="t", body="b", tags=["UI", "perf"]))
+        listed = bulletin_api.list_posts()["posts"][0]
+        self.assertEqual(listed["tags"], ["perf", "UI"])
+
+        # Update with tags=None leaves them unchanged.
+        bulletin_api.update_post(post["id"], PostUpdate(title="t2", body="b2"))
+        self.assertEqual(bulletin_api.list_posts()["posts"][0]["tags"], ["perf", "UI"])
+
+        # Update with an explicit list replaces them.
+        bulletin_api.update_post(post["id"], PostUpdate(title="t3", body="b3", tags=["UI"]))
+        self.assertEqual(bulletin_api.list_posts()["posts"][0]["tags"], ["UI"])
+
+        updated = bulletin_api.set_post_tags(post["id"], bulletin_api.TagsUpdate(tags=[]))
+        self.assertEqual(updated["tags"], [])
+        self.assertEqual(bulletin_api.list_posts()["posts"][0]["tags"], [])
+
+    def test_retag_missing_post_is_404(self) -> None:
+        with self.assertRaises(HTTPException) as ctx:
+            bulletin_api.set_post_tags(999, bulletin_api.TagsUpdate(tags=["a"]))
+        self.assertEqual(ctx.exception.status_code, 404)
+
     def test_blank_author_is_stored_as_null(self) -> None:
         bulletin_api.create_post(PostCreate(title="t", body="b", author="  "))
         self.assertIsNone(bulletin_api.list_posts()["posts"][0]["author"])

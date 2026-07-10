@@ -300,6 +300,7 @@ export type WorkspaceFile = {
   size: number;
   uploader: string | null;
   uploaded_at: string;
+  tags?: string[];
 };
 
 export type FilesStats = {
@@ -340,18 +341,32 @@ export async function getFiles(opts: FilesQuery = {}): Promise<FilesList> {
   return get<FilesList>(`/api/files${listQuery(opts)}`);
 }
 
-/** Upload a file. `uploader` is the optional free-text display name. */
-export async function uploadFile(file: File, uploader?: string | null): Promise<WorkspaceFile> {
+/** Upload a file. `uploader` is the optional free-text display name;
+ * `tags` is an optional tag-name list. */
+export async function uploadFile(
+  file: File,
+  uploader?: string | null,
+  tags?: string[],
+): Promise<WorkspaceFile> {
   const form = new FormData();
   form.append("file", file);
   if (uploader) {
     form.append("uploader", uploader);
+  }
+  if (tags && tags.length) {
+    form.append("tags", tags.join(","));
   }
   const response = await fetch("/api/files", { method: "POST", body: form });
   if (!response.ok) {
     throw new Error(await response.text());
   }
   return (await response.json()) as WorkspaceFile;
+}
+
+/** Replace the tag set of an existing file. Returns the stored tag names. */
+export async function setFileTags(id: number, tags: string[]): Promise<string[]> {
+  const result = await put<{ tags: string[] }>(`/api/files/${id}/tags`, { tags });
+  return result.tags;
 }
 
 /** Direct download URL for a shared file (by id). */
@@ -410,6 +425,7 @@ export type BulletinPost = {
   created_at: string;
   edited_at: string | null;
   comments: BulletinComment[];
+  tags?: string[];
 };
 
 export type BulletinPostsPage = { posts: BulletinPost[]; total: number };
@@ -428,13 +444,50 @@ export async function createBulletinPost(
   title: string,
   body: string,
   author?: string | null,
+  tags?: string[],
 ): Promise<{ id: number }> {
-  return post<{ id: number }>("/api/bulletin/posts", { title, body, author });
+  return post<{ id: number }>("/api/bulletin/posts", { title, body, author, tags });
 }
 
-/** Edit a bulletin post's title/body. No owner check — shared-trust model. */
-export async function updateBulletinPost(id: number, title: string, body: string): Promise<void> {
-  await put<{ ok: boolean }>(`/api/bulletin/posts/${id}`, { title, body });
+/** Edit a bulletin post's title/body. `tags` undefined leaves tags unchanged;
+ * an array (even empty) replaces them. No owner check — shared-trust model. */
+export async function updateBulletinPost(
+  id: number,
+  title: string,
+  body: string,
+  tags?: string[],
+): Promise<void> {
+  await put<{ ok: boolean }>(`/api/bulletin/posts/${id}`, { title, body, tags });
+}
+
+/** Replace the tag set of an existing post. Returns the stored tag names. */
+export async function setPostTags(id: number, tags: string[]): Promise<string[]> {
+  const result = await put<{ tags: string[] }>(`/api/bulletin/posts/${id}/tags`, { tags });
+  return result.tags;
+}
+
+// ---------------------------------------------------------------------------
+// Workspace: shared tags + fuzzy tag search across files and bulletin posts
+// ---------------------------------------------------------------------------
+
+export type WorkspaceTag = { name: string; file_count: number; post_count: number };
+
+export type WorkspaceSearchResult = {
+  query: string;
+  matched_tags: { name: string; score: number }[];
+  files: WorkspaceFile[];
+  posts: (Omit<BulletinPost, "comments"> & { comments?: BulletinComment[] })[];
+};
+
+/** All tags with usage counts (feeds the tag-input suggestion datalist). */
+export async function getWorkspaceTags(): Promise<WorkspaceTag[]> {
+  const result = await get<{ tags: WorkspaceTag[] }>("/api/workspace/tags");
+  return result.tags;
+}
+
+/** Fuzzy tag search over files and bulletin posts ("ui" matches "usage_insight"). */
+export async function searchWorkspace(q: string): Promise<WorkspaceSearchResult> {
+  return get<WorkspaceSearchResult>(`/api/workspace/search${listQuery({ q })}`);
 }
 
 /** Edit a comment or nested reply. No owner check — shared-trust model. */

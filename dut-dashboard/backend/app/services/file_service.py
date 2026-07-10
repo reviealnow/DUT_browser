@@ -19,6 +19,7 @@ from typing import BinaryIO
 
 from app.config import ALLOWED_EXTENSIONS, MAX_UPLOAD_BYTES, UPLOAD_DIR
 from app.db.workspace import execute, query_all, query_one
+from app.services import tag_service
 
 
 _SAFE_CHARS = re.compile(r"[^A-Za-z0-9._-]")
@@ -130,7 +131,11 @@ def list_files(
         sql += " LIMIT ? OFFSET ?"
         params += (limit, offset)
     rows = query_all(sql, params)
-    return [dict(r) for r in rows]
+    files = [dict(r) for r in rows]
+    tag_map = tag_service.tags_for_files([f["id"] for f in files])
+    for f in files:
+        f["tags"] = tag_map.get(f["id"], [])
+    return files
 
 
 def count_files(q: str | None = None) -> int:
@@ -149,7 +154,11 @@ def get_file_by_id(file_id: int) -> dict | None:
         "SELECT id, filename, filepath, size, uploader, uploaded_at FROM files WHERE id = ?",
         (file_id,),
     )
-    return dict(row) if row else None
+    if row is None:
+        return None
+    result = dict(row)
+    result["tags"] = tag_service.tags_for_files([file_id]).get(file_id, [])
+    return result
 
 
 def resolve_download_path(file_row: dict) -> Path:

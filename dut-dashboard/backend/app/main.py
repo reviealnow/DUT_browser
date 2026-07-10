@@ -16,6 +16,7 @@ from app.api.duts_api import router as duts_router
 from app.api.files_api import router as files_router
 from app.api.serial_api import router as serial_router
 from app.api.settings_api import router as settings_router
+from app.api.workspace_api import router as workspace_router
 from app.config import ANALYZER_OUTPUT_DIR, FRONTEND_DIST, LOG_DIR, SURVEY_SNAPSHOT_DIR, UPLOAD_DIR
 from app.db.workspace import init_db
 from app.dut.registry import DEFAULT_DUT_ID, DutContext, DutRegistry, build_default_registry
@@ -36,6 +37,7 @@ app.include_router(duts_router)
 app.include_router(files_router)
 app.include_router(bulletin_router)
 app.include_router(settings_router)
+app.include_router(workspace_router)
 
 
 @app.on_event("startup")

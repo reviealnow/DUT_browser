@@ -13,6 +13,8 @@ import {
 } from "../api/rest";
 import { useIdentity } from "../monitoring/useSettings";
 import AuthorTag from "./AuthorTag";
+import { TagList } from "./TagChip";
+import TagInput, { parseTags } from "./TagInput";
 import { Card, EmptyState } from "./shell/Card";
 
 type Identity = ReturnType<typeof useIdentity>;
@@ -52,6 +54,7 @@ function PostingAs({ identity }: { identity: Identity }) {
 function NewPostCard({ onPosted, identity }: { onPosted: () => void; identity: Identity }) {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
+  const [tagsText, setTagsText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,16 +62,17 @@ function NewPostCard({ onPosted, identity }: { onPosted: () => void; identity: I
     setBusy(true);
     setError(null);
     try {
-      await createBulletinPost(title, body, identity.effectiveName || null);
+      await createBulletinPost(title, body, identity.effectiveName || null, parseTags(tagsText));
       setTitle("");
       setBody("");
+      setTagsText("");
       onPosted();
     } catch (e) {
       setError(humanizeApiError(e));
     } finally {
       setBusy(false);
     }
-  }, [title, body, identity.effectiveName, onPosted]);
+  }, [title, body, tagsText, identity.effectiveName, onPosted]);
 
   const canPost =
     title.trim().length > 0 && body.trim().length > 0 && identity.effectiveName.length > 0 && !busy;
@@ -93,6 +97,7 @@ function NewPostCard({ onPosted, identity }: { onPosted: () => void; identity: I
           maxLength={1000}
           rows={3}
         />
+        <TagInput value={tagsText} onChange={setTagsText} ariaLabel="Post tags" />
         {error ? <div className="flash" style={{ color: "var(--danger)" }}>{error}</div> : null}
         <div>
           <button type="button" className="btn primary" disabled={!canPost} onClick={() => void submit()}>
@@ -295,11 +300,22 @@ function CommentThread({
   );
 }
 
-function PostCard({ post, onChanged, identity }: { post: BulletinPost; onChanged: () => void; identity: Identity }) {
+function PostCard({
+  post,
+  onChanged,
+  identity,
+  onTagClick,
+}: {
+  post: BulletinPost;
+  onChanged: () => void;
+  identity: Identity;
+  onTagClick?: (tag: string) => void;
+}) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draftTitle, setDraftTitle] = useState("");
   const [draftBody, setDraftBody] = useState("");
+  const [draftTags, setDraftTags] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const replies = countReplies(post.comments);
@@ -318,9 +334,10 @@ function PostCard({ post, onChanged, identity }: { post: BulletinPost; onChanged
   const startEdit = useCallback(() => {
     setDraftTitle(post.title);
     setDraftBody(post.body);
+    setDraftTags((post.tags ?? []).join(", "));
     setError(null);
     setEditing(true);
-  }, [post.title, post.body]);
+  }, [post.title, post.body, post.tags]);
 
   const canSave = draftTitle.trim().length > 0 && draftBody.trim().length > 0 && !busy;
 
@@ -328,7 +345,7 @@ function PostCard({ post, onChanged, identity }: { post: BulletinPost; onChanged
     setBusy(true);
     setError(null);
     try {
-      await updateBulletinPost(post.id, draftTitle, draftBody);
+      await updateBulletinPost(post.id, draftTitle, draftBody, parseTags(draftTags));
       setEditing(false);
       onChanged();
     } catch (e) {
@@ -336,7 +353,7 @@ function PostCard({ post, onChanged, identity }: { post: BulletinPost; onChanged
     } finally {
       setBusy(false);
     }
-  }, [post.id, draftTitle, draftBody, onChanged]);
+  }, [post.id, draftTitle, draftBody, draftTags, onChanged]);
 
   return (
     <Card
@@ -346,6 +363,7 @@ function PostCard({ post, onChanged, identity }: { post: BulletinPost; onChanged
           <AuthorTag name={post.author} /> · {formatTime(post.created_at)}
           <EditedMark editedAt={post.edited_at} /> · {replies}{" "}
           {replies === 1 ? "reply" : "replies"}
+          <TagList tags={post.tags} onTagClick={onTagClick} />
         </>
       }
       actions={
@@ -390,6 +408,7 @@ function PostCard({ post, onChanged, identity }: { post: BulletinPost; onChanged
             maxLength={1000}
             rows={3}
           />
+          <TagInput value={draftTags} onChange={setDraftTags} ariaLabel="Edit post tags" />
           {error ? <div className="flash" style={{ color: "var(--danger)" }}>{error}</div> : null}
           <div style={{ display: "flex", gap: "var(--space-2)" }}>
             <button type="button" className="btn primary" disabled={!canSave} onClick={() => void save()}>
@@ -419,7 +438,13 @@ function PostCard({ post, onChanged, identity }: { post: BulletinPost; onChanged
 // notes over months, so the view lazy-loads instead of fetching every post).
 const PAGE_SIZE = 20;
 
-export default function BulletinSection({ query = "" }: { query?: string }) {
+export default function BulletinSection({
+  query = "",
+  onTagClick,
+}: {
+  query?: string;
+  onTagClick?: (tag: string) => void;
+}) {
   const [posts, setPosts] = useState<BulletinPost[] | null>(null);
   const [total, setTotal] = useState(0);
   const [failed, setFailed] = useState(false);
@@ -504,7 +529,9 @@ export default function BulletinSection({ query = "" }: { query?: string }) {
           />
         </Card>
       ) : (
-        visible.map((post) => <PostCard key={post.id} post={post} onChanged={reload} identity={identity} />)
+        visible.map((post) => (
+          <PostCard key={post.id} post={post} onChanged={reload} identity={identity} onTagClick={onTagClick} />
+        ))
       )}
       {posts !== null && posts.length < total ? (
         <div style={{ marginTop: "var(--space-3)" }}>

@@ -7,7 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from app.services import bulletin_service
+from app.services import bulletin_service, tag_service
 
 router = APIRouter(prefix="/api/bulletin", tags=["bulletin"])
 
@@ -16,6 +16,7 @@ class PostCreate(BaseModel):
     title: str
     body: str
     author: str | None = None
+    tags: list[str] | None = None
 
 
 class CommentCreate(BaseModel):
@@ -27,6 +28,12 @@ class CommentCreate(BaseModel):
 class PostUpdate(BaseModel):
     title: str
     body: str
+    # None = leave tags unchanged; [] = clear them.
+    tags: list[str] | None = None
+
+
+class TagsUpdate(BaseModel):
+    tags: list[str]
 
 
 class CommentUpdate(BaseModel):
@@ -55,6 +62,8 @@ def create_post(body: PostCreate) -> dict:
         post_id = bulletin_service.create_post(body.title, body.body, body.author)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if body.tags:
+        tag_service.set_post_tags(post_id, body.tags)
     return {"id": post_id}
 
 
@@ -67,7 +76,18 @@ def update_post(post_id: int, body: PostUpdate) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not found:
         raise HTTPException(status_code=404, detail="Post not found")
+    if body.tags is not None:
+        tag_service.set_post_tags(post_id, body.tags)
     return {"ok": True}
+
+
+@router.put("/posts/{post_id}/tags")
+def set_post_tags(post_id: int, body: TagsUpdate) -> dict:
+    """Replace the tag set of an existing post."""
+    if bulletin_service.get_post(post_id) is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+    tag_service.set_post_tags(post_id, body.tags)
+    return {"tags": tag_service.tags_for_posts([post_id]).get(post_id, [])}
 
 
 @router.delete("/posts/{post_id}")
