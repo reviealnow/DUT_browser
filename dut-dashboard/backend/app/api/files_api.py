@@ -6,8 +6,9 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
+from pydantic import BaseModel
 
-from app.services import file_service
+from app.services import file_service, tag_service
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 
@@ -43,8 +44,10 @@ def list_files(
 async def upload_file(
     file: UploadFile = File(...),
     uploader: str | None = Form(default=None),
+    tags: str | None = Form(default=None),
 ) -> dict:
-    """Upload a file. `uploader` is the client's free-text display name (optional)."""
+    """Upload a file. `uploader` is the client's free-text display name
+    (optional); `tags` is an optional comma-separated tag list."""
     try:
         file_id = file_service.save_uploaded_file(file.filename or "", file.file, uploader)
     except ValueError as exc:
@@ -52,10 +55,26 @@ async def upload_file(
     finally:
         await file.close()
 
+    if tags:
+        tag_service.set_file_tags(file_id, tags.split(","))
+
     created = file_service.get_file_by_id(file_id)
     if created is None:  # pragma: no cover - defensive
         raise HTTPException(status_code=500, detail="File saved but could not be read back.")
     return created
+
+
+class TagsUpdate(BaseModel):
+    tags: list[str]
+
+
+@router.put("/{file_id}/tags")
+def set_file_tags(file_id: int, body: TagsUpdate) -> dict:
+    """Replace the tag set of an existing file."""
+    if file_service.get_file_by_id(file_id) is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    tag_service.set_file_tags(file_id, body.tags)
+    return {"tags": tag_service.tags_for_files([file_id]).get(file_id, [])}
 
 
 @router.get("/{file_id}/download")

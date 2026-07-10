@@ -15,10 +15,10 @@ from app.db import workspace
 from app.services import file_service
 
 
-def _upload(name: str, data: bytes, uploader: str | None = None) -> dict:
+def _upload(name: str, data: bytes, uploader: str | None = None, tags: str | None = None) -> dict:
     """Drive the async upload endpoint with an in-memory file, as the router does."""
     upload = UploadFile(filename=name, file=io.BytesIO(data))
-    return asyncio.run(files_api.upload_file(file=upload, uploader=uploader))
+    return asyncio.run(files_api.upload_file(file=upload, uploader=uploader, tags=tags))
 
 
 class WorkspaceFilesTests(unittest.TestCase):
@@ -214,6 +214,25 @@ class WorkspaceFilesTests(unittest.TestCase):
         )
         with self.assertRaises(HTTPException) as ctx:
             files_api.preview_file(file_id)
+        self.assertEqual(ctx.exception.status_code, 404)
+
+    def test_upload_with_tags_and_retag(self) -> None:
+        created = _upload("tagged.log", b"x", tags="usage_insight, perf")
+        self.assertEqual(created["tags"], ["perf", "usage_insight"])
+        listed = files_api.list_files()["files"][0]
+        self.assertEqual(listed["tags"], ["perf", "usage_insight"])
+
+        updated = files_api.set_file_tags(created["id"], files_api.TagsUpdate(tags=["perf"]))
+        self.assertEqual(updated["tags"], ["perf"])
+        self.assertEqual(files_api.list_files()["files"][0]["tags"], ["perf"])
+
+    def test_untagged_upload_has_empty_tags(self) -> None:
+        created = _upload("plain.log", b"x")
+        self.assertEqual(created["tags"], [])
+
+    def test_retag_missing_file_is_404(self) -> None:
+        with self.assertRaises(HTTPException) as ctx:
+            files_api.set_file_tags(999, files_api.TagsUpdate(tags=["a"]))
         self.assertEqual(ctx.exception.status_code, 404)
 
     def test_download_missing_file_is_404(self) -> None:
