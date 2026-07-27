@@ -465,8 +465,10 @@ async def terminal_endpoint(ws: WebSocket) -> None:
     explicit (POST /api/serial/terminal/enter|exit), so this only carries bytes.
 
     Keystrokes reach the DUT shell, so this needs the same engineer role as the
-    REST serial API. The cookie is checked before accept() — an unauthorised
-    handshake is refused outright rather than opened and then closed."""
+    REST serial API. The cookie is checked before accept(), so an unauthorised
+    socket is never opened. Note the consequence for the client: refusing a
+    handshake surfaces in the browser as a generic failure (close code 1006),
+    not as 1008 — ask /api/auth/me for the reason rather than reading the code."""
     user = auth_service.user_from_cookie_header(ws.headers.get("cookie"))
     if user is None or auth_service.role_rank(user["role"]) < auth_service.role_rank("engineer"):
         await ws.close(code=1008)
