@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.analyzer_api import router as analyzer_router
+from app.api.auth_api import router as auth_router
 from app.api.bulletin_api import router as bulletin_router
 from app.api.duts_api import router as duts_router
 from app.api.files_api import router as files_router
@@ -31,6 +32,8 @@ from app.websocket.terminal_manager import TerminalManager
 from app.websocket.ws_manager import WebSocketManager
 
 app = FastAPI(title="DUT Local Monitoring Dashboard")
+
+app.include_router(auth_router)
 app.include_router(serial_router)
 app.include_router(analyzer_router)
 app.include_router(duts_router)
