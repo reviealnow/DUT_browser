@@ -6,7 +6,7 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -21,6 +21,7 @@ from app.api.workspace_api import router as workspace_router
 from app.config import ANALYZER_OUTPUT_DIR, FRONTEND_DIST, LOG_DIR, SURVEY_SNAPSHOT_DIR, UPLOAD_DIR
 from app.db.workspace import init_db
 from app.dut.registry import DEFAULT_DUT_ID, DutContext, DutRegistry, build_default_registry
+from app.services import auth_service
 from app.services.analyzer_service import AnalyzerService
 from app.services.capability_report import build_capability_report
 from app.services.site_survey import channel_recommendation, get_site_survey
@@ -33,13 +34,19 @@ from app.websocket.ws_manager import WebSocketManager
 
 app = FastAPI(title="DUT Local Monitoring Dashboard")
 
+# Role map (P71a). Everything that drives the DUT or reaches the filesystem is
+# engineer+; read-only telemetry, the bulletin and the workspace stay open so
+# the dashboard keeps working for an unregistered browser. Gates live here
+# rather than in each router so the whole policy reads in one place.
+_ENGINEER = Depends(auth_service.require_role("engineer"))
+
 app.include_router(auth_router)
-app.include_router(serial_router)
-app.include_router(analyzer_router)
+app.include_router(serial_router, dependencies=[_ENGINEER])
+app.include_router(analyzer_router, dependencies=[_ENGINEER])
 app.include_router(duts_router)
-app.include_router(files_router)
+app.include_router(files_router, dependencies=[_ENGINEER])
 app.include_router(bulletin_router)
-app.include_router(settings_router)
+app.include_router(settings_router, dependencies=[_ENGINEER])
 app.include_router(workspace_router)
 
 
@@ -325,7 +332,7 @@ def get_wifi_channel_recommendation_last(dut: str = DEFAULT_DUT_ID) -> dict:
     return {**cached, "cached": True}
 
 
-@app.get("/api/logs")
+@app.get("/api/logs", dependencies=[_ENGINEER])
 def list_logs() -> dict:
     """Browse saved artifacts: DUT session logs and analyzer outputs (read-only,
     newest first). Download session logs via /api/serial/logs/{name} and analyzer
@@ -355,7 +362,7 @@ def list_logs() -> dict:
     return {"sessions": sessions, "artifacts": artifacts, "surveys": surveys}
 
 
-@app.get("/api/download/{file_name}")
+@app.get("/api/download/{file_name}", dependencies=[_ENGINEER])
 def download_file(file_name: str) -> FileResponse:
     safe_name = Path(file_name).name
     if safe_name != file_name:
@@ -368,7 +375,7 @@ def download_file(file_name: str) -> FileResponse:
     return FileResponse(path=file_path, filename=safe_name, media_type="application/octet-stream")
 
 
-@app.get("/api/download/survey/{file_name}")
+@app.get("/api/download/survey/{file_name}", dependencies=[_ENGINEER])
 def download_survey(file_name: str) -> FileResponse:
     """Serve a persisted site-survey snapshot (json or csv) as a download.
     Name validated against traversal; only .json/.csv under SURVEY_SNAPSHOT_DIR."""
@@ -383,7 +390,7 @@ def download_survey(file_name: str) -> FileResponse:
     return FileResponse(path=file_path, filename=safe_name, media_type="application/octet-stream")
 
 
-@app.get("/api/download/preview/{file_name}")
+@app.get("/api/download/preview/{file_name}", dependencies=[_ENGINEER])
 def preview_file(file_name: str) -> FileResponse:
     """Serve an analyzer PNG plot inline (image/png, no attachment) so it can
     render in an <img> for the Downloads preview. PNG-only, under
@@ -419,7 +426,7 @@ def _tail_lines(path: Path, lines: int, cap: int = _TAIL_CAP_BYTES) -> tuple[lis
     return parts[-lines:], truncated
 
 
-@app.get("/api/logs/tail")
+@app.get("/api/logs/tail", dependencies=[_ENGINEER])
 def tail_log(name: str, lines: int = 200) -> dict:
     """Read the last `lines` lines of a session log (dut-session-*.log) for an
     in-place peek in the Downloads view. Read-only, bounded, session logs only."""
@@ -455,7 +462,16 @@ async def websocket_endpoint(ws: WebSocket) -> None:
 async def terminal_endpoint(ws: WebSocket) -> None:
     """Raw interactive serial terminal. Output is broadcast via TerminalManager;
     input (keystrokes) is written straight to the serial port. Mode switching is
-    explicit (POST /api/serial/terminal/enter|exit), so this only carries bytes."""
+    explicit (POST /api/serial/terminal/enter|exit), so this only carries bytes.
+
+    Keystrokes reach the DUT shell, so this needs the same engineer role as the
+    REST serial API. The cookie is checked before accept() — an unauthorised
+    handshake is refused outright rather than opened and then closed."""
+    user = auth_service.user_from_cookie_header(ws.headers.get("cookie"))
+    if user is None or auth_service.role_rank(user["role"]) < auth_service.role_rank("engineer"):
+        await ws.close(code=1008)
+        return
+
     dut_id = ws.query_params.get("dut", DEFAULT_DUT_ID)
     try:
         context = app.state.dut_registry.get(dut_id)
