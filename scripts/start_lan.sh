@@ -11,6 +11,7 @@
 #
 # Both bind 0.0.0.0. Overridable via env vars:
 #   BIND_HOST (default 0.0.0.0) · BACKEND_PORT (default 8000) · FRONTEND_PORT (default 5173)
+#   DUT_ENGINEER_PASSCODE · DUT_ADMIN_PASSCODE (generated on first launch if unset)
 #   NOTE (dev only): the Vite proxy targets 127.0.0.1:8000 (frontend/vite.config.ts);
 #   changing BACKEND_PORT in dev also requires updating that proxy target.
 #
@@ -33,6 +34,33 @@ if [ -z "${DUT_APP_VERSION:-}" ]; then
 fi
 export DUT_APP_VERSION
 echo "[start_lan] version: $DUT_APP_VERSION"
+
+# Registering as engineer or admin needs the shared passcode for that role, and
+# an unset passcode LOCKS the role — on a fresh deploy that leaves the Serial
+# Console, Files and Downloads unreachable for everyone, with no admin able to
+# open them. Generate a stable pair on first launch rather than shipping a
+# default passcode in the repo. An admin can rotate them later via
+# POST /api/auth/passcodes; the stored value then takes precedence over these.
+PASSCODE_FILE="$ROOT_DIR/dut-dashboard/data/role-passcodes.env"
+if [ -z "${DUT_ENGINEER_PASSCODE:-}" ] || [ -z "${DUT_ADMIN_PASSCODE:-}" ]; then
+  if [ ! -f "$PASSCODE_FILE" ]; then
+    mkdir -p "$(dirname "$PASSCODE_FILE")"
+    (
+      umask 077
+      {
+        echo "engineer=$(head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | cut -c1-12)"
+        echo "admin=$(head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | cut -c1-12)"
+      } > "$PASSCODE_FILE"
+    )
+    echo "[start_lan] generated role passcodes -> $PASSCODE_FILE"
+  fi
+  # Fill only what the operator did not supply, so an explicit env var wins.
+  DUT_ENGINEER_PASSCODE="${DUT_ENGINEER_PASSCODE:-$(sed -n 's/^engineer=//p' "$PASSCODE_FILE")}"
+  DUT_ADMIN_PASSCODE="${DUT_ADMIN_PASSCODE:-$(sed -n 's/^admin=//p' "$PASSCODE_FILE")}"
+fi
+export DUT_ENGINEER_PASSCODE DUT_ADMIN_PASSCODE
+echo "[start_lan] engineer passcode: $DUT_ENGINEER_PASSCODE"
+echo "[start_lan] admin passcode:    $DUT_ADMIN_PASSCODE"
 
 PROD=0
 for arg in "$@"; do
