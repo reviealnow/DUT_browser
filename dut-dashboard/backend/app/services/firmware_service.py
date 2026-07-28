@@ -22,13 +22,20 @@ import hashlib
 import os
 import time
 from typing import Callable
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import httpx
 
 from app.db import workspace
 
 UPGRADE_PATH = "/ap/systemctl/sysFwUpgrade"
+
+# The /ap/* API family answers on 10443, not 443. Verified on AP6_840E: :443
+# serves the web UI and 404s every /ap path, while :10443 returns 200 -- and
+# 10443 is also the only port the repo's own scripts/sysMon.sh ever calls. A
+# management address given without a port therefore gets this one, not https's
+# default 443, which would silently 404 at flash time.
+DEFAULT_MGMT_PORT = 10443
 
 _USER_KEY = "dut_api_user"
 _PASSWORD_KEY = "dut_api_password"
@@ -105,16 +112,23 @@ def is_dry_run() -> bool:
 
 
 def normalise_mgmt_url(value: str) -> str:
-    """Accept `1.2.3.4`, `https://1.2.3.4`, or a full base URL; return an origin.
+    """Accept `1.2.3.4`, `1.2.3.4:10443`, or a full base URL; return an origin.
 
-    Defaults to https because the management API is TLS-only (with a self-signed
-    cert, hence verify=False below).
+    Scheme defaults to https (the management API is TLS-only, with a self-signed
+    cert -- hence verify=False below) and the port to DEFAULT_MGMT_PORT. An
+    explicit port is always kept, so a device that really does serve /ap on 443
+    can be pointed at by writing it out.
     """
     cleaned = (value or "").strip().rstrip("/")
     if not cleaned:
         return ""
     if "://" not in cleaned:
         cleaned = f"https://{cleaned}"
+    parsed = urlsplit(cleaned)
+    if parsed.port is None:
+        cleaned = urlunsplit(
+            (parsed.scheme, f"{parsed.hostname}:{DEFAULT_MGMT_PORT}", parsed.path, "", "")
+        ).rstrip("/")
     return cleaned
 
 
@@ -181,13 +195,17 @@ def wait_for_flash_start(
         sleep(_FLASH_POLL_SECONDS)
 
 
-def _stream_file(path: str):
+def _read_image(path: str) -> bytes:
+    """Load the image into memory for the PUT.
+
+    Deliberately not a streaming generator: Digest auth sends the request twice
+    (unauthenticated probe, then the authenticated retry), and a generator body
+    is consumed by the first attempt -- which risks handing a device that is
+    about to flash itself an empty image. At 32-38 MB, and capped by
+    MAX_UPLOAD_BYTES, buying that guarantee with memory is the right trade.
+    """
     with open(path, "rb") as handle:
-        while True:
-            chunk = handle.read(_CHUNK)
-            if not chunk:
-                break
-            yield chunk
+        return handle.read()
 
 
 def run_upgrade(
@@ -254,14 +272,17 @@ def run_upgrade(
         with build() as client:
             response = client.put(
                 url,
-                content=_stream_file(path),
+                content=_read_image(path),
                 headers={
                     "Content-Type": "application/octet-stream",
                     # curl's `-H "Expect:"` equivalent: the DUT does not answer
                     # the 100-continue handshake, so never wait for it.
                     "Expect": "",
                 },
-                auth=(user, password),
+                # Digest, not Basic: the DUT answers an unauthenticated request
+                # with `WWW-Authenticate: Digest qop="auth"`, and Basic
+                # credentials are simply rejected (verified on AP6_840E).
+                auth=httpx.DigestAuth(user, password),
             )
     except httpx.HTTPError as exc:
         raise FirmwareError(f"Could not reach the DUT at {url}: {exc}") from exc
