@@ -48,6 +48,22 @@ export function humanizeApiError(error: unknown): string {
   return detail;
 }
 
+/**
+ * Fired on any 401 so AuthContext can re-check /api/auth/me. A 401 alone does
+ * NOT mean the session died — guest-visible sections legitimately receive 401
+ * from engineer-gated endpoints — so listeners must confirm against /me before
+ * downgrading, and 403 never triggers anything (the session is fine, the role
+ * is just too low).
+ */
+export const AUTH_UNAUTHORIZED_EVENT = "dut:auth-unauthorized";
+
+async function fail(response: Response): Promise<never> {
+  if (response.status === 401) {
+    window.dispatchEvent(new Event(AUTH_UNAUTHORIZED_EVENT));
+  }
+  throw new Error(await response.text());
+}
+
 async function post<T>(url: string, body: unknown): Promise<T> {
   const response = await fetch(url, {
     method: "POST",
@@ -55,7 +71,7 @@ async function post<T>(url: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   });
   if (!response.ok) {
-    throw new Error(await response.text());
+    await fail(response);
   }
   return (await response.json()) as T;
 }
@@ -63,7 +79,7 @@ async function post<T>(url: string, body: unknown): Promise<T> {
 async function get<T>(url: string): Promise<T> {
   const response = await fetch(url);
   if (!response.ok) {
-    throw new Error(await response.text());
+    await fail(response);
   }
   return (await response.json()) as T;
 }
@@ -75,7 +91,7 @@ async function put<T>(url: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   });
   if (!response.ok) {
-    throw new Error(await response.text());
+    await fail(response);
   }
   return (await response.json()) as T;
 }
@@ -696,4 +712,47 @@ export async function getLastChannelRecommendation(
   dutId = DEFAULT_DUT_ID,
 ): Promise<LastChannelRecommendationResult> {
   return get<LastChannelRecommendationResult>(`/api/wifi/channel-recommendation/last?dut=${dutId}`);
+}
+
+// --- Auth (P71b) -----------------------------------------------------------
+
+export type Role = "guest" | "engineer" | "admin";
+
+export type AuthUser = {
+  username: string;
+  display_name: string;
+  role: Role;
+};
+
+export type RegisterParams = {
+  username: string;
+  display_name?: string;
+  role: Role;
+  passcode?: string;
+};
+
+/**
+ * The current session, or null when there is none. An anonymous browser is a
+ * normal state (it browses as guest), so "no session" is a value here — not an
+ * error — and this deliberately bypasses `get()` so a plain 401 does not fire
+ * the unauthorized event at every anonymous page load.
+ */
+export async function getMe(): Promise<AuthUser | null> {
+  const response = await fetch("/api/auth/me");
+  if (response.status === 401) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return (await response.json()) as AuthUser;
+}
+
+/** Register (or re-register to change role); the session cookie rides the response. */
+export async function registerAuth(params: RegisterParams): Promise<AuthUser> {
+  return post<AuthUser>("/api/auth/register", params);
+}
+
+export async function logoutAuth(): Promise<{ ok: boolean }> {
+  return post<{ ok: boolean }>("/api/auth/logout", {});
 }
