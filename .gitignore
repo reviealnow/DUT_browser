@@ -34,3 +34,11 @@ dut-dashboard/data/
 # gitignore does not already cover it.
 **/.claude/settings.local.json
 **/.claude/settings.json
+
+# Firmware images staged for an upgrade. Vendor build artifacts, ~34 MB per model
+# and five models per release, so they must never reach the history. Both types
+# are covered: signed bundles for the web-UI transport, encrypted images for the
+# management API.
+test_*-signed/
+*.tar.gz.sig
+*-encrypt_*.bin
