@@ -12,6 +12,8 @@
 # Both bind 0.0.0.0. Overridable via env vars:
 #   BIND_HOST (default 0.0.0.0) · BACKEND_PORT (default 8000) · FRONTEND_PORT (default 5173)
 #   DUT_ENGINEER_PASSCODE · DUT_ADMIN_PASSCODE (generated on first launch if unset)
+#   DUT_LAN_SSID (Wi-Fi name shown to guests; auto-detected on macOS when unset)
+#   DUT_LAN_PSK  (optional; with DUT_LAN_SSID, also prints a join-Wi-Fi QR)
 #   NOTE (dev only): the Vite proxy targets 127.0.0.1:8000 (frontend/vite.config.ts);
 #   changing BACKEND_PORT in dev also requires updating that proxy target.
 #
@@ -115,6 +117,77 @@ else
   echo "[start_lan] frontend -> http://${BIND_HOST}:${FRONTEND_PORT}   <-- open this on the LAN"
   (cd "$FRONTEND_DIR" && exec npm run dev -- --host "$BIND_HOST" --port "$FRONTEND_PORT") &
   PIDS+=($!)
+fi
+
+# --- Guest onboarding: LAN URL + QR ------------------------------------------
+# Landing is guest-by-default (no login needed to browse), so a scannable QR is
+# the whole onboarding: join the Wi-Fi, scan, watch. Engineers log in from the
+# toolbar with the passcode printed above. All best-effort — any failure here
+# degrades to the plain-text URLs already printed and never kills the launcher.
+
+detect_lan_ip() {
+  # macOS: ask the common interfaces directly; Linux: hostname -I.
+  local ip
+  for iface in en0 en1 en2; do
+    ip="$(ipconfig getifaddr "$iface" 2>/dev/null || true)"
+    [ -n "$ip" ] && { echo "$ip"; return; }
+  done
+  hostname -I 2>/dev/null | awk '{print $1}'
+}
+
+detect_ssid() {
+  # Operator override first; else current association (macOS; fails silently
+  # on wired-only hosts and newer macOS that dropped the airport tooling).
+  if [ -n "${DUT_LAN_SSID:-}" ]; then
+    echo "$DUT_LAN_SSID"
+    return
+  fi
+  local wifi_dev
+  wifi_dev="$(networksetup -listallhardwareports 2>/dev/null | awk '/Wi-Fi/{getline; print $2; exit}')"
+  [ -n "$wifi_dev" ] || return 0
+  networksetup -getairportnetwork "$wifi_dev" 2>/dev/null \
+    | sed -n 's/^Current Wi-Fi Network: //p'
+}
+
+print_qr() {
+  # ASCII QR via the venv's qrcode package (in requirements). If it is missing
+  # (pre-existing venv that skipped the new dep), just skip the QR.
+  python3 - "$1" <<'PY' 2>/dev/null || true
+import sys
+try:
+    import qrcode
+except ImportError:
+    sys.exit(0)
+qr = qrcode.QRCode(border=1)
+qr.add_data(sys.argv[1])
+qr.make()
+qr.print_ascii(invert=True)
+PY
+}
+
+LAN_IP="$(detect_lan_ip || true)"
+if [ -n "$LAN_IP" ]; then
+  if [ "$PROD" -eq 1 ]; then
+    DASH_URL="http://${LAN_IP}:${BACKEND_PORT}"
+  else
+    DASH_URL="http://${LAN_IP}:${FRONTEND_PORT}"
+  fi
+  SSID="$(detect_ssid || true)"
+  echo
+  if [ -n "$SSID" ]; then
+    echo "[start_lan] guests: join Wi-Fi \"$SSID\", then scan to open the dashboard:"
+    if [ -n "${DUT_LAN_PSK:-}" ] && [ -n "${DUT_LAN_SSID:-}" ]; then
+      # Wi-Fi join QR (standard WIFI: payload). Only for the operator-supplied
+      # pair — never echoes a password we merely guessed at.
+      echo "[start_lan] 1) join the Wi-Fi:"
+      print_qr "WIFI:T:WPA;S:${DUT_LAN_SSID};P:${DUT_LAN_PSK};;"
+      echo "[start_lan] 2) open the dashboard:"
+    fi
+  else
+    echo "[start_lan] guests: scan to open the dashboard (set DUT_LAN_SSID to show the Wi-Fi name):"
+  fi
+  print_qr "$DASH_URL"
+  echo "[start_lan] dashboard: $DASH_URL   (browsing = guest, no login needed)"
 fi
 
 echo "[start_lan] running. Press Ctrl-C to stop."

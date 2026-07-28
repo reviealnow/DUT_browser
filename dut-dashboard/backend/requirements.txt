@@ -7,3 +7,6 @@ websockets
 pandas
 matplotlib
 pytest
+# Launcher-only (scripts/start_lan.sh): ASCII QR for the LAN join flow. Pure
+# python, never imported by the backend itself.
+qrcode
