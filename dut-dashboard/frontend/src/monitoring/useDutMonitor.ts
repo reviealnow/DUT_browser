@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_DUT_ID } from "../api/dut";
 import { getConsoleTail, getSnapshots } from "../api/rest";
 import { connectDashboardWebSocket, SnapshotPayload } from "../api/websocket";
+import { setFirmwareProgress } from "./firmwareStore";
 import { setSurveyProgress } from "./siteSurveyStore";
 import { useCrashKeywords } from "./useCrashKeywords";
 
@@ -208,6 +209,16 @@ export function useDutMonitor(dutId: string = DEFAULT_DUT_ID): DutMonitorState {
             iface: event.iface,
             index: event.index,
             total: event.total,
+          });
+          return;
+        }
+        if (event.type === "firmware_progress") {
+          // Same module-store pattern as the survey: the Firmware panel may not
+          // be mounted when the flash starts, and must not miss stages.
+          setFirmwareProgress(dutId, {
+            stage: event.stage,
+            detail: event.detail,
+            dryRun: event.dry_run,
           });
         }
       },

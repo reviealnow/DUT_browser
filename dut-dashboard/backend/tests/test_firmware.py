@@ -214,3 +214,29 @@ class ConfigTests(FirmwareTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DryRunOverrideTests(FirmwareTestCase):
+    """A request may make a run safer, never riskier."""
+
+    def test_a_request_can_ask_for_a_rehearsal(self) -> None:
+        file_id = self._upload_image()
+        firmware_service.set_upgrade_template("sysupgrade -n {url}")
+        self._login("admin")
+        with patch.object(firmware_service, "is_dry_run", return_value=False):
+            body = self.client.post(
+                "/api/firmware/upgrade", json={"file_id": file_id, "dry_run": True}
+            ).json()
+        self.assertTrue(body["dry_run"])
+        self.assertEqual(self.context.serial_worker.commands, [])
+
+    def test_a_request_cannot_switch_off_a_deployment_dry_run(self) -> None:
+        file_id = self._upload_image()
+        firmware_service.set_upgrade_template("sysupgrade -n {url}")
+        self._login("admin")
+        with patch.object(firmware_service, "is_dry_run", return_value=True):
+            body = self.client.post(
+                "/api/firmware/upgrade", json={"file_id": file_id, "dry_run": False}
+            ).json()
+        self.assertTrue(body["dry_run"], "DUT_FIRMWARE_DRY_RUN must not be overridable")
+        self.assertEqual(self.context.serial_worker.commands, [])

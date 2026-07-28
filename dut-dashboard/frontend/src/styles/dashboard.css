@@ -1669,3 +1669,42 @@ body {
   flex-direction: column;
   gap: var(--space-1);
 }
+
+/* --- Firmware (P72b): destructive action + progress ------------------------ */
+
+/* A flash can brick the DUT, so its buttons are the only red ones in the app. */
+.btn.danger-btn {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.btn.danger-btn:hover:not(:disabled) {
+  background: var(--danger);
+  color: #fff;
+}
+
+.btn.danger-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.fw-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.fw-progress-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.fw-progress-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}

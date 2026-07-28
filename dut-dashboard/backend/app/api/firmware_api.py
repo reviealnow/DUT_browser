@@ -22,6 +22,10 @@ router = APIRouter(prefix="/api/firmware", tags=["firmware"])
 class UpgradeBody(BaseModel):
     file_id: int
     dut: str = DEFAULT_DUT_ID
+    # True forces a rehearsal. None uses the deployment default. False is NOT a
+    # way to switch a real flash on: DUT_FIRMWARE_DRY_RUN is a safety flag, so
+    # a request can only ever make a run safer, never riskier.
+    dry_run: bool | None = None
 
 
 class TemplateBody(BaseModel):
@@ -96,6 +100,9 @@ async def upgrade(
         )
 
     port = request.url.port or (443 if request.url.scheme == "https" else 80)
+    # OR, never override: a deployment-wide dry run cannot be switched off from
+    # the browser, but any caller may ask for a rehearsal.
+    dry_run = firmware_service.is_dry_run() or bool(body.dry_run)
     try:
         return await asyncio.to_thread(
             firmware_service.run_upgrade,
@@ -103,6 +110,7 @@ async def upgrade(
             row,
             port,
             emit,
+            dry_run,
         )
     except firmware_service.FirmwareError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
