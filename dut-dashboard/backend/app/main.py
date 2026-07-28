@@ -34,10 +34,13 @@ from app.websocket.ws_manager import WebSocketManager
 
 app = FastAPI(title="DUT Local Monitoring Dashboard")
 
-# Role map (P71a). Everything that drives the DUT or reaches the filesystem is
-# engineer+; read-only telemetry, the bulletin and the workspace stay open so
-# the dashboard keeps working for an unregistered browser. Gates live here
-# rather than in each router so the whole policy reads in one place.
+# Role map (P71a, workspace split revised for P71b). Everything that drives the
+# DUT, reaches the filesystem or exposes workspace content (files, bulletin and
+# the tag search that spans both) is engineer+; read-only telemetry stays open
+# so the dashboard keeps working for an unregistered guest browser. Gates live
+# here rather than in each router so the whole policy reads in one place — the
+# one exception is settings_api, which splits per-route (open GET so guest
+# crash detection uses the same keyword list as engineers, engineer PUT).
 _ENGINEER = Depends(auth_service.require_role("engineer"))
 
 app.include_router(auth_router)
@@ -45,9 +48,9 @@ app.include_router(serial_router, dependencies=[_ENGINEER])
 app.include_router(analyzer_router, dependencies=[_ENGINEER])
 app.include_router(duts_router)
 app.include_router(files_router, dependencies=[_ENGINEER])
-app.include_router(bulletin_router)
-app.include_router(settings_router, dependencies=[_ENGINEER])
-app.include_router(workspace_router)
+app.include_router(bulletin_router, dependencies=[_ENGINEER])
+app.include_router(settings_router)
+app.include_router(workspace_router, dependencies=[_ENGINEER])
 
 
 @app.on_event("startup")

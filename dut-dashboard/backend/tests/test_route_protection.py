@@ -29,23 +29,24 @@ from app.services import auth_service, file_service
 ENGINEER_ROUTES = [
     "/api/files",
     "/api/serial/ports",
-    "/api/settings/crash-keywords",
     "/api/logs",
     "/api/logs/tail?name=nope.log",
     "/api/download/nope.csv",
     "/api/download/survey/nope.json",
     "/api/download/preview/nope.png",
     "/api/analyzer/memory",
+    "/api/bulletin/posts",
+    "/api/workspace/tags",
 ]
 
-# Guest-facing surfaces stay open in P71a: the frontend auth gate lands in P71b,
-# and read-only telemetry must keep working for an unregistered browser.
+# Read-only telemetry stays open so an unregistered guest browser keeps
+# working. crash-keywords GET is deliberately open (guest crash detection must
+# use the same keyword list as engineers) while its PUT is engineer.
 OPEN_ROUTES = [
     "/health",
     "/api/version",
     "/api/whoami",
-    "/api/bulletin/posts",
-    "/api/workspace/tags",
+    "/api/settings/crash-keywords",
 ]
 
 
@@ -118,6 +119,17 @@ class RouteProtectionTests(unittest.TestCase):
     def test_admin_inherits_engineer_access(self) -> None:
         self._login("admin")
         self.assertEqual(self.client.get("/api/files").status_code, 200)
+
+    def test_crash_keywords_get_is_open_but_put_is_engineer(self) -> None:
+        """The split-gated settings route: everyone reads the same keyword list,
+        only engineers edit it."""
+        body = {"keywords": ["kernel panic"]}
+        self.assertEqual(self.client.get("/api/settings/crash-keywords").status_code, 200)
+        self.assertEqual(self.client.put("/api/settings/crash-keywords", json=body).status_code, 401)
+        self._login("guest")
+        self.assertEqual(self.client.put("/api/settings/crash-keywords", json=body).status_code, 403)
+        self._login("engineer")
+        self.assertEqual(self.client.put("/api/settings/crash-keywords", json=body).status_code, 200)
 
     def test_open_routes_need_no_session(self) -> None:
         for route in OPEN_ROUTES:
