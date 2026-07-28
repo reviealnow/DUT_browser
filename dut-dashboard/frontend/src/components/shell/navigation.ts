@@ -12,7 +12,8 @@ export type SectionId =
   | "downloads"
   | "files"
   | "bulletin"
-  | "settings";
+  | "settings"
+  | "firmware";
 
 export type NavGroup = "Monitoring" | "Workspace" | "System";
 
@@ -43,6 +44,7 @@ export const NAV_ITEMS: NavItem[] = [
   { id: "files", label: "Files", icon: "🗂", title: "Files", subtitle: "Shared file workspace", group: "Workspace", minRole: "engineer" },
   { id: "bulletin", label: "Bulletin", icon: "📌", title: "Bulletin", subtitle: "Team notes and replies", group: "Workspace", minRole: "engineer" },
   { id: "settings", label: "Settings", icon: "⚙", title: "Settings", subtitle: "Dashboard configuration", group: "System", minRole: "engineer" },
+  { id: "firmware", label: "Upgrade Firmware", icon: "⚡", title: "Upgrade Firmware", subtitle: "Flash a DUT from the Files workspace", group: "System", minRole: "admin" },
 ];
 
 export function canAccess(item: NavItem, role: Role): boolean {

@@ -797,6 +797,46 @@ export type InviteSummary = {
   exhausted: boolean;
 };
 
+// --- Firmware (P72b) -------------------------------------------------------
+
+export type FirmwareConfig = {
+  /** False when no upgrade command is set — a real flash will be refused. */
+  configured: boolean;
+  template: string;
+  dry_run: boolean;
+};
+
+export type FirmwareResult = {
+  ok: boolean;
+  dry_run: boolean;
+  url: string;
+  command: string;
+  output?: string;
+};
+
+export async function getFirmwareConfig(): Promise<FirmwareConfig> {
+  return get<FirmwareConfig>("/api/firmware/config");
+}
+
+export async function setFirmwareTemplate(template: string): Promise<FirmwareConfig> {
+  return put<FirmwareConfig>("/api/firmware/config", { template });
+}
+
+/** Long-running: resolves only when the DUT reports back (or the flash times out). */
+export async function upgradeFirmware(
+  fileId: number,
+  dutId = DEFAULT_DUT_ID,
+  dryRun = false,
+): Promise<FirmwareResult> {
+  // dryRun only ever makes a run safer — the backend ORs it with the
+  // deployment flag, so false cannot switch a forced dry run off.
+  return post<FirmwareResult>("/api/firmware/upgrade", {
+    file_id: fileId,
+    dut: dutId,
+    dry_run: dryRun,
+  });
+}
+
 // --- Audit (P71d) ----------------------------------------------------------
 
 export type UserRecord = {
