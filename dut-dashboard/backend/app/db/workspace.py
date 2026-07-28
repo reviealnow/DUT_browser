@@ -106,6 +106,28 @@ CREATE TABLE IF NOT EXISTS users (
 """
 
 
+# Invite links (P71c). A row is a capability: whoever holds the raw token can
+# claim `role` once (or `max_uses` times) without knowing the shared passcode.
+# Only the SHA-256 hash is stored -- reading this table must never yield a
+# working invite -- and `used_count`/`revoked_at`/`expires_at` are what a
+# redemption checks, all in one conditional UPDATE so concurrent scans of a
+# single-use link cannot both win.
+AUTH_TOKENS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS auth_tokens (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  token_hash TEXT NOT NULL UNIQUE,
+  role TEXT NOT NULL CHECK(role IN ('guest','engineer','admin')),
+  label TEXT,
+  created_by TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  expires_at TIMESTAMP,
+  max_uses INTEGER NOT NULL DEFAULT 1,
+  used_count INTEGER NOT NULL DEFAULT 0,
+  revoked_at TIMESTAMP
+);
+"""
+
+
 def _db_path() -> Path:
     return WORKSPACE_DB
 
@@ -141,6 +163,7 @@ def init_db() -> None:
         conn.execute(FILE_TAGS_SCHEMA)
         conn.execute(POST_TAGS_SCHEMA)
         conn.execute(USERS_SCHEMA)
+        conn.execute(AUTH_TOKENS_SCHEMA)
         _ensure_column(conn, "bulletin_posts", "edited_at")
         _ensure_column(conn, "bulletin_comments", "edited_at")
         conn.commit()
