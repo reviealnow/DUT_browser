@@ -1467,3 +1467,166 @@ body {
 .diff-table th, .diff-table td { padding: var(--space-1) var(--space-2); border: 1px solid var(--border); }
 .diff-config { color: var(--ok, #16a34a); }
 .diff-observed { color: var(--warn, #b45309); }
+
+/* --- Auth (P71b): login modal + identity pill ------------------------------ */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 30, 55, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  z-index: 60; /* above the mobile nav drawer (40) */
+}
+
+.modal {
+  background: var(--panel);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: var(--space-5);
+  width: 100%;
+  max-width: 380px;
+}
+
+.modal-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.modal-sub {
+  color: var(--muted);
+  font-size: 13px;
+  margin: var(--space-1) 0 var(--space-4);
+}
+
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.modal-label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.modal-form .input {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  color: var(--ink);
+  background: var(--panel);
+}
+
+.modal-form .input:focus {
+  outline: 2px solid var(--accent-weak);
+  border-color: var(--accent);
+}
+
+.modal .flash {
+  background: var(--danger-weak);
+  color: var(--danger);
+  border-radius: 8px;
+  padding: var(--space-2) var(--space-3);
+  font-size: 13px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+/* Identity chunk in the toolbar: display name + role pill + login/logout. */
+.auth-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+.auth-chip .auth-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pill.role-engineer {
+  background: var(--accent-weak);
+  color: var(--accent);
+}
+
+.pill.role-admin {
+  background: var(--warn-weak);
+  color: var(--warn);
+}
+
+/* --- Invites (P71c): admin card in Settings -------------------------------- */
+
+.invite-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
+.invite-form .modal-label {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+
+.invite-result {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent-weak);
+}
+
+/* The QR is a scannable target, so it needs a floor size and a white quiet
+   zone regardless of the surrounding tint. */
+.invite-qr {
+  width: 180px;
+  height: 180px;
+  background: #fff;
+  padding: var(--space-2);
+  border-radius: 8px;
+}
+
+.invite-url {
+  font-size: 12px;
+  word-break: break-all;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: var(--space-2) var(--space-3);
+  max-width: 100%;
+}
+
+/* Five columns do not fit a phone. Scroll the table inside its own box rather
+   than letting it clip (unreachable Revoke buttons) or push the page sideways. */
+.invite-table-wrap {
+  margin-top: var(--space-4);
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.invite-table {
+  min-width: 420px;
+}

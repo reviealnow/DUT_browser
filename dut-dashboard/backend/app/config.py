@@ -19,11 +19,13 @@ ANALYZER_OUTPUT_DIR = LOG_DIR / "analyzer_output"
 # Persisted site-survey snapshots (json+csv pairs; runtime state, gitignored).
 SURVEY_SNAPSHOT_DIR = LOG_DIR / "site-surveys"
 
-# Workspace module (LAN file-sharing + bulletin). Shared-trust model: no auth,
-# uploader/author are free text. All runtime state lives under data/ (gitignored).
+# Workspace module (LAN file-sharing + bulletin). Uploader/author stay free
+# text. All runtime state lives under data/ (gitignored).
 DATA_DIR = BASE_DIR / "data"
 WORKSPACE_DB = DATA_DIR / "workspace.db"
 UPLOAD_DIR = DATA_DIR / "uploads"
+# HMAC key for session cookies; generated on first use, never committed.
+SESSION_SECRET_FILE = DATA_DIR / "session_secret"
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
 ALLOWED_EXTENSIONS = {
     "csv",

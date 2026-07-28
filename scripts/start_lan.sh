@@ -11,6 +11,11 @@
 #
 # Both bind 0.0.0.0. Overridable via env vars:
 #   BIND_HOST (default 0.0.0.0) · BACKEND_PORT (default 8000) · FRONTEND_PORT (default 5173)
+#   DUT_ENGINEER_PASSCODE · DUT_ADMIN_PASSCODE (generated on first launch if unset)
+#   DUT_LAN_SSID (Wi-Fi name shown to guests; auto-detected on macOS when unset)
+#   DUT_LAN_PSK  (optional; with DUT_LAN_SSID, also prints a join-Wi-Fi QR)
+#   DUT_QR_INVITE=engineer|admin (optional; QR carries a single-use invite for
+#                that role instead of the plain guest URL)
 #   NOTE (dev only): the Vite proxy targets 127.0.0.1:8000 (frontend/vite.config.ts);
 #   changing BACKEND_PORT in dev also requires updating that proxy target.
 #
@@ -33,6 +38,33 @@ if [ -z "${DUT_APP_VERSION:-}" ]; then
 fi
 export DUT_APP_VERSION
 echo "[start_lan] version: $DUT_APP_VERSION"
+
+# Registering as engineer or admin needs the shared passcode for that role, and
+# an unset passcode LOCKS the role — on a fresh deploy that leaves the Serial
+# Console, Files and Downloads unreachable for everyone, with no admin able to
+# open them. Generate a stable pair on first launch rather than shipping a
+# default passcode in the repo. An admin can rotate them later via
+# POST /api/auth/passcodes; the stored value then takes precedence over these.
+PASSCODE_FILE="$ROOT_DIR/dut-dashboard/data/role-passcodes.env"
+if [ -z "${DUT_ENGINEER_PASSCODE:-}" ] || [ -z "${DUT_ADMIN_PASSCODE:-}" ]; then
+  if [ ! -f "$PASSCODE_FILE" ]; then
+    mkdir -p "$(dirname "$PASSCODE_FILE")"
+    (
+      umask 077
+      {
+        echo "engineer=$(head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | cut -c1-12)"
+        echo "admin=$(head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | cut -c1-12)"
+      } > "$PASSCODE_FILE"
+    )
+    echo "[start_lan] generated role passcodes -> $PASSCODE_FILE"
+  fi
+  # Fill only what the operator did not supply, so an explicit env var wins.
+  DUT_ENGINEER_PASSCODE="${DUT_ENGINEER_PASSCODE:-$(sed -n 's/^engineer=//p' "$PASSCODE_FILE")}"
+  DUT_ADMIN_PASSCODE="${DUT_ADMIN_PASSCODE:-$(sed -n 's/^admin=//p' "$PASSCODE_FILE")}"
+fi
+export DUT_ENGINEER_PASSCODE DUT_ADMIN_PASSCODE
+echo "[start_lan] engineer passcode: $DUT_ENGINEER_PASSCODE"
+echo "[start_lan] admin passcode:    $DUT_ADMIN_PASSCODE"
 
 PROD=0
 for arg in "$@"; do
@@ -87,6 +119,93 @@ else
   echo "[start_lan] frontend -> http://${BIND_HOST}:${FRONTEND_PORT}   <-- open this on the LAN"
   (cd "$FRONTEND_DIR" && exec npm run dev -- --host "$BIND_HOST" --port "$FRONTEND_PORT") &
   PIDS+=($!)
+fi
+
+# --- Guest onboarding: LAN URL + QR ------------------------------------------
+# Landing is guest-by-default (no login needed to browse), so a scannable QR is
+# the whole onboarding: join the Wi-Fi, scan, watch. Engineers log in from the
+# toolbar with the passcode printed above. All best-effort — any failure here
+# degrades to the plain-text URLs already printed and never kills the launcher.
+
+detect_lan_ip() {
+  # macOS: ask the common interfaces directly; Linux: hostname -I.
+  local ip
+  for iface in en0 en1 en2; do
+    ip="$(ipconfig getifaddr "$iface" 2>/dev/null || true)"
+    [ -n "$ip" ] && { echo "$ip"; return; }
+  done
+  hostname -I 2>/dev/null | awk '{print $1}'
+}
+
+detect_ssid() {
+  # Operator override first; else current association (macOS; fails silently
+  # on wired-only hosts and newer macOS that dropped the airport tooling).
+  if [ -n "${DUT_LAN_SSID:-}" ]; then
+    echo "$DUT_LAN_SSID"
+    return
+  fi
+  local wifi_dev
+  wifi_dev="$(networksetup -listallhardwareports 2>/dev/null | awk '/Wi-Fi/{getline; print $2; exit}')"
+  [ -n "$wifi_dev" ] || return 0
+  networksetup -getairportnetwork "$wifi_dev" 2>/dev/null \
+    | sed -n 's/^Current Wi-Fi Network: //p'
+}
+
+print_qr() {
+  # ASCII QR via the venv's qrcode package (in requirements). If it is missing
+  # (pre-existing venv that skipped the new dep), just skip the QR.
+  python3 - "$1" <<'PY' 2>/dev/null || true
+import sys
+try:
+    import qrcode
+except ImportError:
+    sys.exit(0)
+qr = qrcode.QRCode(border=1)
+qr.add_data(sys.argv[1])
+qr.make()
+qr.print_ascii(invert=True)
+PY
+}
+
+LAN_IP="$(detect_lan_ip || true)"
+if [ -n "$LAN_IP" ]; then
+  if [ "$PROD" -eq 1 ]; then
+    DASH_URL="http://${LAN_IP}:${BACKEND_PORT}"
+  else
+    DASH_URL="http://${LAN_IP}:${FRONTEND_PORT}"
+  fi
+  SSID="$(detect_ssid || true)"
+  echo
+  if [ -n "$SSID" ]; then
+    echo "[start_lan] guests: join Wi-Fi \"$SSID\", then scan to open the dashboard:"
+    if [ -n "${DUT_LAN_PSK:-}" ] && [ -n "${DUT_LAN_SSID:-}" ]; then
+      # Wi-Fi join QR (standard WIFI: payload). Only for the operator-supplied
+      # pair — never echoes a password we merely guessed at.
+      echo "[start_lan] 1) join the Wi-Fi:"
+      print_qr "WIFI:T:WPA;S:${DUT_LAN_SSID};P:${DUT_LAN_PSK};;"
+      echo "[start_lan] 2) open the dashboard:"
+    fi
+  else
+    echo "[start_lan] guests: scan to open the dashboard (set DUT_LAN_SSID to show the Wi-Fi name):"
+  fi
+
+  # Default QR is the plain dashboard URL: browsing is guest-by-default, so a
+  # token would buy nothing and would write a users row per scan. Opt in with
+  # DUT_QR_INVITE=engineer|admin to mint a single-use invite instead, so the
+  # scanner lands already holding that role and never types the passcode.
+  SCAN_URL="$DASH_URL"
+  if [ -n "${DUT_QR_INVITE:-}" ]; then
+    INVITE_TOKEN="$(cd "$BACKEND_DIR" && python3 -m app.invite_cli mint \
+      --role "$DUT_QR_INVITE" --label launcher --max-uses 1 2>/dev/null || true)"
+    if [ -n "$INVITE_TOKEN" ]; then
+      SCAN_URL="${DASH_URL}/?invite=${INVITE_TOKEN}"
+      echo "[start_lan] QR carries a single-use ${DUT_QR_INVITE} invite (expires in 7 days)"
+    else
+      echo "[start_lan] WARNING: could not mint a ${DUT_QR_INVITE} invite — QR falls back to the plain URL"
+    fi
+  fi
+  print_qr "$SCAN_URL"
+  echo "[start_lan] dashboard: $DASH_URL   (browsing = guest, no login needed)"
 fi
 
 echo "[start_lan] running. Press Ctrl-C to stop."

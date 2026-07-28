@@ -1,6 +1,7 @@
 import { Fragment, useEffect } from "react";
 
-import { NAV_ITEMS, SectionId } from "./navigation";
+import { useAuth } from "../../monitoring/AuthContext";
+import { SectionId, visibleNavItems } from "./navigation";
 
 type Props = {
   active: SectionId;
@@ -12,6 +13,11 @@ type Props = {
 };
 
 export default function Sidebar({ active, onSelect, open, onClose }: Props) {
+  // Role-filtered nav (cosmetic; the backend enforces). Group headers are
+  // derived from the filtered list, so a group whose every item is hidden
+  // leaves no orphan header behind.
+  const { role } = useAuth();
+  const items = visibleNavItems(role);
   // While the mobile drawer is open, Esc closes it and the page behind it is
   // locked from scrolling. Both are no-ops on desktop (open stays false there).
   useEffect(() => {
@@ -44,10 +50,10 @@ export default function Sidebar({ active, onSelect, open, onClose }: Props) {
           </div>
         </div>
         <nav className="nav">
-          {NAV_ITEMS.map((item, index) => (
+          {items.map((item, index) => (
             <Fragment key={item.id}>
               {/* A group header is rendered whenever the group changes. */}
-              {index === 0 || NAV_ITEMS[index - 1].group !== item.group ? (
+              {index === 0 || items[index - 1].group !== item.group ? (
                 <div className="nav-section">{item.group}</div>
               ) : null}
               <button

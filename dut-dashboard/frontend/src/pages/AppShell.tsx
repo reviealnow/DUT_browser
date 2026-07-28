@@ -7,9 +7,12 @@ import DutSwitcher from "../components/DutSwitcher";
 import { DEFAULT_DUT_ID } from "../api/dut";
 import { applyAccent, loadSettings } from "../monitoring/useSettings";
 import { Card, EmptyState, KpiCard } from "../components/shell/Card";
+import InviteRedeemDialog from "../components/InviteRedeemDialog";
+import LoginDialog from "../components/LoginDialog";
 import Sidebar from "../components/shell/Sidebar";
 import Topbar from "../components/shell/Topbar";
-import { NAV_ITEMS, SectionId } from "../components/shell/navigation";
+import { canAccess, NAV_ITEMS, SectionId } from "../components/shell/navigation";
+import { AuthProvider, useAuth } from "../monitoring/AuthContext";
 import { useAppVersion } from "../monitoring/useAppVersion";
 import { DutMonitorProvider } from "../monitoring/DutMonitorContext";
 import { DutMonitorState, DutStatus, useDutMonitor } from "../monitoring/useDutMonitor";
@@ -46,7 +49,21 @@ const PHASE3_HINT = "Trend charts and live views arrive in Phase 3.";
  * (see useDutMonitor). No backend changes; no metrics invented.
  */
 export default function AppShell() {
+  // Session state wraps the whole shell: Sidebar filters nav by role and the
+  // toolbar shows the identity chip. Guest-by-default — no blocking gate.
+  return (
+    <AuthProvider>
+      <AppShellInner />
+    </AuthProvider>
+  );
+}
+
+function AppShellInner() {
   const [active, setActive] = useState<SectionId>("overview");
+  const { user, role, logout } = useAuth();
+  const [loginOpen, setLoginOpen] = useState(false);
+  // Invite token lifted out of the URL on first render (see the effect below).
+  const [inviteToken, setInviteToken] = useState<string | null>(null);
   // Mobile nav drawer (off-canvas). Inert on desktop — the sidebar is always
   // visible there and the hamburger that toggles this is hidden via CSS.
   const [navOpen, setNavOpen] = useState(false);
@@ -73,11 +90,43 @@ export default function AppShell() {
     applyAccent(loadSettings().accent);
   }, []);
 
+  // Arriving from an invite QR: take the token into state and strip it from the
+  // URL immediately, so a single-use credential does not linger in the address
+  // bar, the history entry, or anything the user might screenshot or share.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("invite");
+    if (!token) {
+      return;
+    }
+    setInviteToken(token);
+    params.delete("invite");
+    const query = params.toString();
+    window.history.replaceState(
+      {},
+      "",
+      window.location.pathname + (query ? `?${query}` : "") + window.location.hash,
+    );
+  }, []);
+
   useEffect(() => {
     if (active === "console") {
       setConsoleLoaded(true);
     }
   }, [active]);
+
+  // Role guard: on logout/demotion, leave any section the new role cannot see
+  // and unmount the Serial Console — it stays mounted across nav by design, so
+  // without this a logged-out browser would keep holding the /ws/term socket.
+  const activeAllowed = canAccess(NAV_ITEMS.find((item) => item.id === active) ?? NAV_ITEMS[0], role);
+  useEffect(() => {
+    if (!activeAllowed) {
+      setActive("overview");
+    }
+    if (role === "guest") {
+      setConsoleLoaded(false);
+    }
+  }, [activeAllowed, role]);
 
   return (
     <DutMonitorProvider value={monitor}>
@@ -124,9 +173,29 @@ export default function AppShell() {
                 lastEventAgeSec={monitor.lastEventAgeSec}
                 onConnect={() => setActive("console")}
               />
+              {user ? (
+                <span className="auth-chip">
+                  <span className="auth-name" title={user.username}>
+                    {user.display_name}
+                  </span>
+                  <span className={`pill role-${user.role}`}>{user.role}</span>
+                  <button type="button" className="btn" onClick={() => void logout()}>
+                    Logout
+                  </button>
+                </span>
+              ) : (
+                <button type="button" className="btn" onClick={() => setLoginOpen(true)}>
+                  Login
+                </button>
+              )}
             </div>
           }
           />
+          {inviteToken ? (
+            <InviteRedeemDialog token={inviteToken} onClose={() => setInviteToken(null)} />
+          ) : loginOpen ? (
+            <LoginDialog onClose={() => setLoginOpen(false)} />
+          ) : null}
           {updateAvailable ? (
             <UpdateBanner onReload={() => window.location.reload()} onDismiss={dismiss} />
           ) : null}
@@ -148,7 +217,12 @@ export default function AppShell() {
             ) : null}
             {active !== "console" ? (
               <Suspense fallback={<SectionLoading />}>
-                {wsSearch !== null && (active === "files" || active === "bulletin") ? (
+                {!activeAllowed ? (
+                  // Transient guard (the effect above bounces to Overview next
+                  // tick) and the honest answer if a section is ever reached
+                  // above the viewer's role.
+                  <EmptyState icon="🔒" message="Engineer login required" hint="Use Login in the toolbar." />
+                ) : wsSearch !== null && (active === "files" || active === "bulletin") ? (
                   <WorkspaceSearchResults
                     query={wsSearch}
                     onTagClick={setWsSearch}
@@ -453,6 +527,7 @@ function LiveMemoryBody({ monitor }: { monitor: DutMonitorState }) {
 function PostAnalysisMemoryBody() {
   const [series, setSeries] = useState<MemorySeries | null>(null);
   const [failed, setFailed] = useState(false);
+  const { role } = useAuth();
 
   const load = () => {
     setFailed(false);
@@ -465,7 +540,13 @@ function PostAnalysisMemoryBody() {
   }, []);
 
   if (failed) {
-    return <EmptyState icon="🧠" message="Could not load memory data" hint="Is the backend reachable?" />;
+    // The analyzer feed is engineer-gated, so for a guest the failure is the
+    // expected 403/401 — say so instead of blaming the backend.
+    return role === "guest" ? (
+      <EmptyState icon="🔒" message="Post-analysis memory needs an engineer login" hint="Live memory still streams here while the DUT runs sysMon." />
+    ) : (
+      <EmptyState icon="🧠" message="Could not load memory data" hint="Is the backend reachable?" />
+    );
   }
   if (!series) {
     return <EmptyState icon="🧠" message="Loading…" />;

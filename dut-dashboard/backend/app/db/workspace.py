@@ -1,9 +1,10 @@
-"""SQLite layer for the Workspace module (file sharing + bulletin).
+"""SQLite layer for the Workspace module (file sharing + bulletin) and auth.
 
-Shared-trust model: there is no users table and no auth. The original LAN
-File Server schema referenced a users table via foreign keys; here the
-`uploaded_by`/`created_by` columns become free-text `uploader`/`author`
-(nullable), populated from the client's Settings display name or left NULL.
+Workspace rows stay shared-trust: `uploaded_by`/`created_by` from the original
+LAN File Server schema are free-text `uploader`/`author` columns (nullable),
+populated from the client's Settings display name or left NULL. The `users`
+table added for role-based auth is deliberately NOT wired to them by foreign
+key, so existing rows keep their free-text authorship.
 
 One short-lived connection per call keeps this dependency-free and safe for the
 app's low write volume; `PRAGMA foreign_keys=ON` enables the bulletin cascade.
@@ -91,6 +92,42 @@ CREATE TABLE IF NOT EXISTS post_tags (
 """
 
 
+# Role-based auth (P71a). `role` is the only privilege source; the CHECK keeps
+# an unknown role out of the DB so the role ladder never sees a value it cannot
+# rank. Registration is self-service, gated by a shared per-role passcode.
+USERS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT NOT NULL UNIQUE,
+  display_name TEXT,
+  role TEXT NOT NULL CHECK(role IN ('guest','engineer','admin')),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+
+# Invite links (P71c). A row is a capability: whoever holds the raw token can
+# claim `role` once (or `max_uses` times) without knowing the shared passcode.
+# Only the SHA-256 hash is stored -- reading this table must never yield a
+# working invite -- and `used_count`/`revoked_at`/`expires_at` are what a
+# redemption checks, all in one conditional UPDATE so concurrent scans of a
+# single-use link cannot both win.
+AUTH_TOKENS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS auth_tokens (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  token_hash TEXT NOT NULL UNIQUE,
+  role TEXT NOT NULL CHECK(role IN ('guest','engineer','admin')),
+  label TEXT,
+  created_by TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  expires_at TIMESTAMP,
+  max_uses INTEGER NOT NULL DEFAULT 1,
+  used_count INTEGER NOT NULL DEFAULT 0,
+  revoked_at TIMESTAMP
+);
+"""
+
+
 def _db_path() -> Path:
     return WORKSPACE_DB
 
@@ -125,6 +162,8 @@ def init_db() -> None:
         conn.execute(TAGS_SCHEMA)
         conn.execute(FILE_TAGS_SCHEMA)
         conn.execute(POST_TAGS_SCHEMA)
+        conn.execute(USERS_SCHEMA)
+        conn.execute(AUTH_TOKENS_SCHEMA)
         _ensure_column(conn, "bulletin_posts", "edited_at")
         _ensure_column(conn, "bulletin_comments", "edited_at")
         conn.commit()
