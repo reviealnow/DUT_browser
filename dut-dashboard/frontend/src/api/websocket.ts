@@ -65,7 +65,7 @@ export type DashboardEvent =
     }
   | {
       type: "firmware_progress";
-      stage: "preparing" | "publishing" | "instructing" | "flashing" | "done";
+      stage: "verifying" | "connecting" | "uploading" | "applying" | "done";
       detail: string;
       dry_run: boolean;
     };

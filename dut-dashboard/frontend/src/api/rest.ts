@@ -348,6 +348,8 @@ export type WorkspaceFile = {
   tags?: string[];
   /** False when the name is unverified client-supplied text (pre-P71d rows). */
   uploader_verified?: boolean;
+  /** SHA-256 of the stored bytes; null for rows uploaded before P72b. */
+  sha256?: string | null;
 };
 
 export type FilesStats = {
@@ -828,41 +830,53 @@ export type InviteSummary = {
 
 // --- Firmware (P72b) -------------------------------------------------------
 
+export type FirmwareDut = { id: string; label: string; mgmt_url: string };
+
 export type FirmwareConfig = {
-  /** False when no upgrade command is set — a real flash will be refused. */
-  configured: boolean;
-  template: string;
+  duts: FirmwareDut[];
+  /** Whether DUT API credentials are stored — the password is never returned. */
+  has_credentials: boolean;
+  user: string;
   dry_run: boolean;
+  upgrade_path: string;
 };
 
 export type FirmwareResult = {
   ok: boolean;
   dry_run: boolean;
   url: string;
-  command: string;
-  output?: string;
+  sha256: string;
+  size: number;
+  status?: number;
+  /** True/false once the console was watched; null when none was attached. */
+  flash_started?: boolean | null;
+  detail?: string;
 };
 
 export async function getFirmwareConfig(): Promise<FirmwareConfig> {
   return get<FirmwareConfig>("/api/firmware/config");
 }
 
-export async function setFirmwareTemplate(template: string): Promise<FirmwareConfig> {
-  return put<FirmwareConfig>("/api/firmware/config", { template });
+export async function setFirmwareCredentials(user: string, password: string): Promise<void> {
+  await put<{ has_credentials: boolean }>("/api/firmware/credentials", { user, password });
 }
 
-/** Long-running: resolves only when the DUT reports back (or the flash times out). */
+export async function setDutMgmtUrl(dut: string, mgmtUrl: string): Promise<FirmwareDut> {
+  return put<FirmwareDut>("/api/firmware/mgmt-url", { dut, mgmt_url: mgmtUrl });
+}
+
 export async function upgradeFirmware(
   fileId: number,
   dutId = DEFAULT_DUT_ID,
-  dryRun = false,
+  opts: { dryRun?: boolean; expectedSha256?: string } = {},
 ): Promise<FirmwareResult> {
   // dryRun only ever makes a run safer — the backend ORs it with the
   // deployment flag, so false cannot switch a forced dry run off.
   return post<FirmwareResult>("/api/firmware/upgrade", {
     file_id: fileId,
     dut: dutId,
-    dry_run: dryRun,
+    dry_run: opts.dryRun ?? false,
+    expected_sha256: opts.expectedSha256 || null,
   });
 }
 

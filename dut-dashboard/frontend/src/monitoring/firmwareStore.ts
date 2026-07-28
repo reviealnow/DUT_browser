@@ -8,10 +8,10 @@
  */
 
 export const FIRMWARE_STAGES = [
-  "preparing",
-  "publishing",
-  "instructing",
-  "flashing",
+  "verifying",
+  "connecting",
+  "uploading",
+  "applying",
   "done",
 ] as const;
 
