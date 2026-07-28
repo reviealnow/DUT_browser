@@ -45,6 +45,9 @@ ALLOWED_EXTENSIONS = {
     "pcapng",
     "pdf",
     "png",
+    # Customer-signed firmware images for the admin upgrade flow (P72b). Real
+    # ones run 32-38 MB, comfortably inside MAX_UPLOAD_BYTES.
+    "sig",
     "txt",
 }
 # Host-side Wi-Fi survey (Source B for SSID capability reconciliation).
