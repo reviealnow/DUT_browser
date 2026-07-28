@@ -14,6 +14,7 @@ from app.api.analyzer_api import router as analyzer_router
 from app.api.auth_api import router as auth_router
 from app.api.bulletin_api import router as bulletin_router
 from app.api.duts_api import router as duts_router
+from app.api.firmware_api import router as firmware_router
 from app.api.files_api import router as files_router
 from app.api.serial_api import router as serial_router
 from app.api.settings_api import router as settings_router
@@ -47,6 +48,9 @@ app.include_router(auth_router)
 app.include_router(serial_router, dependencies=[_ENGINEER])
 app.include_router(analyzer_router, dependencies=[_ENGINEER])
 app.include_router(duts_router)
+# firmware_api gates per-route: admin for everything except the image fetch,
+# which the DUT's cookieless curl authorises with a single-use token.
+app.include_router(firmware_router)
 app.include_router(files_router, dependencies=[_ENGINEER])
 app.include_router(bulletin_router, dependencies=[_ENGINEER])
 app.include_router(settings_router)
