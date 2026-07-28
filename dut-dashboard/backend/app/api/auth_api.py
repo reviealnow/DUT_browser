@@ -196,5 +196,7 @@ def redeem(body: RedeemBody, request: Request, response: Response) -> dict:
     invite = invite_service.consume_invite(body.token)
     if invite is None:
         raise HTTPException(status_code=403, detail=_INVITE_REJECTED)
-    user = auth_service.create_or_update_user(username, display_name, invite["role"])
+    user = auth_service.create_or_update_user(
+        username, display_name, invite["role"], via="invite", invite_id=invite["id"]
+    )
     return _issue_session(request, response, user)
