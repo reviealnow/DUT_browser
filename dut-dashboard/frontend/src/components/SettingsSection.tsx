@@ -313,6 +313,7 @@ function InvitesCard() {
         {invites.length === 0 ? (
           <div className="setting-hint">No invites yet.</div>
         ) : (
+          <div className="invite-table-wrap">
           <table className="filetable invite-table">
             <thead>
               <tr>
@@ -350,6 +351,7 @@ function InvitesCard() {
               })}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </Card>

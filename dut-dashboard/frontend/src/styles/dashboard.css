@@ -1619,6 +1619,14 @@ body {
   max-width: 100%;
 }
 
-.invite-table {
+/* Five columns do not fit a phone. Scroll the table inside its own box rather
+   than letting it clip (unreachable Revoke buttons) or push the page sideways. */
+.invite-table-wrap {
   margin-top: var(--space-4);
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.invite-table {
+  min-width: 420px;
 }
