@@ -1,192 +1,304 @@
-"""Admin firmware upgrade: hand the DUT a URL and tell it to flash (P72b).
+"""Admin firmware upgrade against the DUT's management API (P72b).
 
-Transport, decided 2026-07-28 after the roadmap's original plan turned out not
-to work: the backend has no network path to the DUT -- every interaction goes
-over the serial console -- and the `https://127.0.0.1:10443` calls in
-scripts/sysMon.sh only reach the DUT because that script RUNS ON the DUT. From
-the dashboard host, 127.0.0.1 is the dashboard host.
+    PUT https://<dut>/ap/systemctl/sysFwUpgrade
+    Content-Type: application/octet-stream
+    body = the customer-signed .sig image
 
-So the upgrade is driven the same way as every other DUT command: the image is
-published on the dashboard's own HTTP port behind a single-use token, and the
-DUT is told over serial to fetch and flash it. Serial itself is far too slow to
-carry a multi-megabyte image at 115200 baud.
+An earlier draft had the DUT fetch the image itself over serial, because the
+only DUT API calls in the repo (scripts/sysMon.sh) target
+`https://127.0.0.1:10443` -- which only reaches the DUT from scripts running ON
+the DUT. The real endpoint is reachable at the DUT's own LAN address, so the
+backend uploads the body directly and serial is not involved at all.
 
-The flash command is NOT hardcoded. `upgrade_command_template` comes from
-settings/env and is empty by default, because guessing an upgrade endpoint on
-real hardware risks bricking it. Empty means the real flash is refused; dry-run
-still works, so the whole UI is exercisable without a configured DUT.
+Two things are deliberately not in this file:
+  * credentials -- read from settings/env, never source, and never logged;
+  * a default management address -- unset means refuse, because PUTting a
+    firmware image at a guessed host is not a mistake worth risking.
 """
 
 from __future__ import annotations
 
+import hashlib
 import os
-import secrets
-import socket
-import threading
 import time
 from typing import Callable
+from urllib.parse import urljoin
+
+import httpx
 
 from app.db import workspace
 
-# settings key + env fallback, mirroring the passcode idiom in auth_service.
-_TEMPLATE_KEY = "firmware_upgrade_cmd"
-_TEMPLATE_ENV = "DUT_FIRMWARE_UPGRADE_CMD"
-_HOST_IP_ENV = "DUT_HOST_LAN_IP"
+UPGRADE_PATH = "/ap/systemctl/sysFwUpgrade"
+
+_USER_KEY = "dut_api_user"
+_PASSWORD_KEY = "dut_api_password"
+_USER_ENV = "DUT_API_USER"
+_PASSWORD_ENV = "DUT_API_PASSWORD"
 _DRY_RUN_ENV = "DUT_FIRMWARE_DRY_RUN"
 
-# How long the image URL stays fetchable. Generous: a slow LAN pull on a busy AP
-# is normal, and the token is single-DUT, single-upgrade anyway.
-IMAGE_TOKEN_TTL_SECONDS = 30 * 60
+# The DUT writes flash while the request is open, so the read timeout is long;
+# connect stays short so an unreachable address fails fast instead of hanging.
+UPLOAD_TIMEOUT = httpx.Timeout(connect=10.0, read=900.0, write=900.0, pool=10.0)
 
-# The flash itself can outlast any sane serial RPC, so the command is issued
-# with a long ceiling; the DUT usually resets before it returns.
-FLASH_TIMEOUT_SECONDS = 600.0
+STAGES = ("verifying", "connecting", "uploading", "applying", "done")
 
-# Ordered stages, so the UI can render a determinate bar without inventing one.
-STAGES = ("preparing", "publishing", "instructing", "flashing", "done")
+# The DUT prints this on its serial console when a real upgrade starts. A 200
+# from the API only means the request was accepted; this is the only evidence
+# the device actually began flashing, so it is checked rather than assumed.
+FLASH_STARTED_MARKER = "wifix_downloader.sh"
+FLASH_START_WAIT_SECONDS = 30.0
+_FLASH_POLL_SECONDS = 1.0
 
-_image_tokens: dict[str, dict] = {}
-_lock = threading.Lock()
+_CHUNK = 1024 * 1024
 
 
 class FirmwareError(RuntimeError):
-    """Anything that stops an upgrade before the DUT is touched."""
+    """Refused before the DUT was touched."""
+
+
+class FirmwareAuthError(FirmwareError):
+    """The DUT rejected the credentials.
+
+    Raised rather than retried or fallen back on: per the operator, a refusal
+    here means the device is not on the expected defaults, and that is a
+    finding to report, not something to work around.
+    """
+
+
+class ChecksumMismatch(FirmwareError):
+    """The image on disk is not the image the operator expected."""
 
 
 # --------------------------------------------------------------------------
 # Configuration
 
 
-def get_upgrade_template() -> str:
-    """Shell command run ON the DUT, with `{url}` substituted.
+def get_credentials() -> tuple[str, str]:
+    """DUT API user/password from settings, falling back to env.
 
-    Empty means no upgrade endpoint has been configured, and the real flash is
-    refused rather than guessed -- a wrong command on real hardware bricks it.
+    Never defaulted and never hardcoded: the repo is shared, and a factory
+    password committed to it is a password published to everyone who clones it.
     """
-    row = workspace.query_one("SELECT value FROM settings WHERE key = ?", (_TEMPLATE_KEY,))
-    if row is not None:
-        return str(row["value"])
-    return os.getenv(_TEMPLATE_ENV, "")
+    user_row = workspace.query_one("SELECT value FROM settings WHERE key = ?", (_USER_KEY,))
+    pass_row = workspace.query_one("SELECT value FROM settings WHERE key = ?", (_PASSWORD_KEY,))
+    user = str(user_row["value"]) if user_row is not None else os.getenv(_USER_ENV, "")
+    password = str(pass_row["value"]) if pass_row is not None else os.getenv(_PASSWORD_ENV, "")
+    return user, password
 
 
-def set_upgrade_template(template: str) -> None:
+def set_credentials(user: str, password: str) -> None:
     workspace.execute(
-        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-        (_TEMPLATE_KEY, template),
+        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (_USER_KEY, user)
+    )
+    workspace.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (_PASSWORD_KEY, password)
     )
 
 
+def has_credentials() -> bool:
+    user, password = get_credentials()
+    return bool(user and password)
+
+
 def is_dry_run() -> bool:
-    """Dry run streams the real stages but never issues the flash command."""
     return os.getenv(_DRY_RUN_ENV, "").strip() not in ("", "0", "false", "False")
 
 
-def host_lan_ip() -> str:
-    """The dashboard's LAN address, as the DUT would have to reach it.
+def normalise_mgmt_url(value: str) -> str:
+    """Accept `1.2.3.4`, `https://1.2.3.4`, or a full base URL; return an origin.
 
-    The UDP connect never sends a packet; it just asks the routing table which
-    local address would be used, which is the one a device on the LAN can reach.
+    Defaults to https because the management API is TLS-only (with a self-signed
+    cert, hence verify=False below).
     """
-    override = os.getenv(_HOST_IP_ENV, "").strip()
-    if override:
-        return override
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        sock.connect(("8.8.8.8", 80))
-        return sock.getsockname()[0]
-    except OSError:
-        return "127.0.0.1"
-    finally:
-        sock.close()
+    cleaned = (value or "").strip().rstrip("/")
+    if not cleaned:
+        return ""
+    if "://" not in cleaned:
+        cleaned = f"https://{cleaned}"
+    return cleaned
 
 
 # --------------------------------------------------------------------------
-# Single-use image tokens
+# Checksum
 
 
-def publish_image(path: str, ttl: float = IMAGE_TOKEN_TTL_SECONDS) -> str:
-    """Make `path` fetchable once, via an unguessable token.
+def file_sha256(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(_CHUNK), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
-    The DUT's curl carries no session cookie, so the image cannot sit behind the
-    engineer gate; a single-use expiring token is what stands in for that.
+
+def verify_checksum(recorded: str | None, path: str, expected: str | None) -> str:
+    """Re-hash the bytes on disk and check them against what is expected.
+
+    The stored digest is not trusted on its own: it proves what was uploaded,
+    not what is on disk now. `expected` is the customer's published checksum,
+    optional but compared when given.
     """
-    token = secrets.token_urlsafe(24)
-    with _lock:
-        _image_tokens[token] = {"path": path, "expires_at": time.time() + ttl, "used": False}
-    return token
-
-
-def claim_image(token: str) -> str | None:
-    """Resolve a token to its path exactly once; None if unknown/expired/used."""
-    now = time.time()
-    with _lock:
-        entry = _image_tokens.get(token)
-        if entry is None or entry["used"] or entry["expires_at"] <= now:
-            return None
-        entry["used"] = True
-        return str(entry["path"])
-
-
-def revoke_image(token: str) -> None:
-    with _lock:
-        _image_tokens.pop(token, None)
-
-
-def _purge_expired(now: float | None = None) -> None:
-    stamp = time.time() if now is None else now
-    with _lock:
-        for token in [t for t, e in _image_tokens.items() if e["expires_at"] <= stamp]:
-            del _image_tokens[token]
+    actual = file_sha256(path)
+    if recorded and recorded.lower() != actual:
+        raise ChecksumMismatch(
+            "The file on disk no longer matches the checksum recorded at upload."
+        )
+    if expected:
+        wanted = expected.strip().lower()
+        if wanted != actual:
+            raise ChecksumMismatch(
+                f"Checksum mismatch: expected {wanted}, file is {actual}."
+            )
+    return actual
 
 
 # --------------------------------------------------------------------------
-# The upgrade itself
+# The upgrade
+
+
+def wait_for_flash_start(
+    console_lines: Callable[[], list[str]],
+    timeout: float | None = None,
+    now: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> bool:
+    """Watch the serial console for the DUT's own "upgrade starting" line.
+
+    Returns False on timeout rather than raising: the upgrade may still be
+    running, and the honest report is "accepted, but not observed starting" --
+    not a failure the operator should act on by power-cycling a flashing device.
+
+    `timeout` resolves at call time, not as a default argument: a default would
+    bind FLASH_START_WAIT_SECONDS once at import and silently ignore any later
+    change to it.
+    """
+    deadline = now() + (FLASH_START_WAIT_SECONDS if timeout is None else timeout)
+    while True:
+        for line in console_lines():
+            if FLASH_STARTED_MARKER in line:
+                return True
+        if now() >= deadline:
+            return False
+        sleep(_FLASH_POLL_SECONDS)
+
+
+def _stream_file(path: str):
+    with open(path, "rb") as handle:
+        while True:
+            chunk = handle.read(_CHUNK)
+            if not chunk:
+                break
+            yield chunk
 
 
 def run_upgrade(
-    worker,
+    mgmt_url: str,
     file_row: dict,
-    port: int,
     on_progress: Callable[[dict], None],
+    expected_sha256: str | None = None,
     dry_run: bool | None = None,
+    console_lines: Callable[[], list[str]] | None = None,
+    client_factory: Callable[[], httpx.Client] | None = None,
 ) -> dict:
-    """Publish the image, tell the DUT to flash it, and stream stage events.
+    """Verify the image, then PUT it to the DUT. Runs on a worker thread.
 
-    Runs on a worker thread: the flash command occupies the serial link for
-    minutes, and `on_progress` is the same emit-from-thread bridge the site
-    survey uses.
+    Checksum first, deliberately: an upload that starts before the bytes are
+    verified has already put a bad image on the wire.
     """
     dry = is_dry_run() if dry_run is None else dry_run
-    template = get_upgrade_template()
-    if not dry and not template:
+    origin = normalise_mgmt_url(mgmt_url)
+    path = file_row["filepath"]
+
+    on_progress({"stage": "verifying", "detail": file_row["filename"], "dry_run": dry})
+    actual = verify_checksum(file_row.get("sha256"), path, expected_sha256)
+
+    if not origin:
         raise FirmwareError(
-            "No upgrade command configured. Set the DUT's upgrade endpoint in"
-            f" settings ({_TEMPLATE_KEY}) or {_TEMPLATE_ENV} before flashing."
+            "No management address configured for this DUT. Set it before upgrading."
+        )
+    if not dry and not has_credentials():
+        raise FirmwareError(
+            "No DUT API credentials configured. Set them in the Firmware section"
+            f" (or {_USER_ENV}/{_PASSWORD_ENV}) before upgrading."
         )
 
-    _purge_expired()
-    on_progress({"stage": "preparing", "detail": file_row["filename"], "dry_run": dry})
+    url = urljoin(origin + "/", UPGRADE_PATH.lstrip("/"))
+    on_progress({"stage": "connecting", "detail": url, "dry_run": dry})
 
-    token = publish_image(file_row["filepath"])
-    url = f"http://{host_lan_ip()}:{port}/api/firmware/image/{token}"
-    on_progress({"stage": "publishing", "detail": url, "dry_run": dry})
+    if dry:
+        on_progress(
+            {"stage": "uploading", "detail": "dry run — nothing sent", "dry_run": True}
+        )
+        on_progress({"stage": "applying", "detail": "dry run", "dry_run": True})
+        on_progress({"stage": "done", "detail": "dry run complete", "dry_run": True})
+        return {
+            "ok": True,
+            "dry_run": True,
+            "url": url,
+            "sha256": actual,
+            "size": file_row["size"],
+        }
 
+    user, password = get_credentials()
+    on_progress(
+        {
+            "stage": "uploading",
+            "detail": f"{file_row['filename']} → {url} (do not power off)",
+            "dry_run": False,
+        }
+    )
+
+    # verify=False: the DUT serves its management API with a self-signed cert,
+    # the same reason scripts/sysMon.sh uses `curl -k`.
+    build = client_factory or (lambda: httpx.Client(verify=False, timeout=UPLOAD_TIMEOUT))
     try:
-        command = template.replace("{url}", url) if template else ""
-        on_progress({"stage": "instructing", "detail": command or "(dry run)", "dry_run": dry})
+        with build() as client:
+            response = client.put(
+                url,
+                content=_stream_file(path),
+                headers={
+                    "Content-Type": "application/octet-stream",
+                    # curl's `-H "Expect:"` equivalent: the DUT does not answer
+                    # the 100-continue handshake, so never wait for it.
+                    "Expect": "",
+                },
+                auth=(user, password),
+            )
+    except httpx.HTTPError as exc:
+        raise FirmwareError(f"Could not reach the DUT at {url}: {exc}") from exc
 
-        if dry:
-            # Stream the shape of a real run without touching the DUT, so the
-            # UI is verifiable on hardware nobody wants to risk.
-            on_progress({"stage": "flashing", "detail": "dry run — no command sent", "dry_run": True})
-            time.sleep(0.1)
-            on_progress({"stage": "done", "detail": "dry run complete", "dry_run": True})
-            return {"ok": True, "dry_run": True, "url": url, "command": command}
+    if response.status_code in (401, 403):
+        raise FirmwareAuthError(
+            f"The DUT rejected the API credentials ({response.status_code})."
+            " Check whether this device is still on its expected defaults."
+        )
+    if response.status_code >= 400:
+        raise FirmwareError(
+            f"The DUT refused the upgrade ({response.status_code}): {response.text[:200]}"
+        )
 
-        on_progress({"stage": "flashing", "detail": "command sent — do not power off", "dry_run": False})
-        output = worker.capture_command(command, timeout=FLASH_TIMEOUT_SECONDS)
-        on_progress({"stage": "done", "detail": "DUT reported completion", "dry_run": False})
-        return {"ok": True, "dry_run": False, "url": url, "command": command, "output": output}
-    finally:
-        # One upgrade, one fetch: the token dies with the attempt either way.
-        revoke_image(token)
+    # A 200 only says the DUT accepted the bytes. Confirm it actually started by
+    # watching its console for the marker it prints when the flash begins.
+    on_progress(
+        {"stage": "applying", "detail": "waiting for the DUT to start flashing", "dry_run": False}
+    )
+    started = wait_for_flash_start(console_lines) if console_lines is not None else None
+    if started is False:
+        detail = (
+            f"upgrade accepted, but '{FLASH_STARTED_MARKER}' was not seen on the console"
+            f" within {int(FLASH_START_WAIT_SECONDS)}s — check the DUT before retrying"
+        )
+    elif started:
+        detail = f"DUT is flashing ({FLASH_STARTED_MARKER} seen)"
+    else:
+        detail = "upgrade accepted (no console attached to confirm)"
+    on_progress({"stage": "done", "detail": detail, "dry_run": False})
+    return {
+        "ok": True,
+        "dry_run": False,
+        "url": url,
+        "sha256": actual,
+        "size": file_row["size"],
+        "status": response.status_code,
+        "flash_started": started,
+        "detail": detail,
+    }
