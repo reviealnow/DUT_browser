@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
 
-from app.services import file_service, tag_service
+from app.services import auth_service, file_service, tag_service
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 
@@ -45,11 +45,26 @@ async def upload_file(
     file: UploadFile = File(...),
     uploader: str | None = Form(default=None),
     tags: str | None = Form(default=None),
+    # Annotated with a real default so calling this function directly (as the
+    # service-level tests do) means "no session" instead of handing the body a
+    # raw Depends object.
+    user: Annotated[dict | None, Depends(auth_service.optional_user)] = None,
 ) -> dict:
-    """Upload a file. `uploader` is the client's free-text display name
-    (optional); `tags` is an optional comma-separated tag list."""
+    """Upload a file. `tags` is an optional comma-separated tag list.
+
+    Authorship comes from the session when there is one: the `uploader` form
+    field is IGNORED rather than trusted, so an authenticated caller cannot
+    file an upload under someone else's name. It is only honoured for
+    sessionless callers, whose name stays unverified."""
+    if user is not None:
+        uploader = user["display_name"] or user["username"]
     try:
-        file_id = file_service.save_uploaded_file(file.filename or "", file.file, uploader)
+        file_id = file_service.save_uploaded_file(
+            file.filename or "",
+            file.file,
+            uploader,
+            uploader_user_id=user["id"] if user else None,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     finally:

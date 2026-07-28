@@ -56,10 +56,19 @@ def _unique_filename(original_name: str) -> str:
     return candidate.name
 
 
-def save_uploaded_file(filename: str, fileobj: BinaryIO, uploader: str | None) -> int:
+def save_uploaded_file(
+    filename: str,
+    fileobj: BinaryIO,
+    uploader: str | None,
+    uploader_user_id: int | None = None,
+) -> int:
     """Validate, store the upload under UPLOAD_DIR, and record it. `fileobj` is a
     binary file-like (e.g. Starlette UploadFile.file). Enforces the size cap while
-    streaming so an oversized file is rejected without being fully buffered."""
+    streaming so an oversized file is rejected without being fully buffered.
+
+    `uploader_user_id` is set when a session backed the upload; a NULL id means
+    the name is unverified client-supplied text (pre-P71d rows, or an
+    unauthenticated caller)."""
     if not filename:
         raise ValueError("No file selected.")
     if not allowed_file(filename):
@@ -87,8 +96,9 @@ def save_uploaded_file(filename: str, fileobj: BinaryIO, uploader: str | None) -
 
     clean_uploader = uploader.strip() if uploader and uploader.strip() else None
     return execute(
-        "INSERT INTO files (filename, filepath, size, uploader) VALUES (?, ?, ?, ?)",
-        (stored_name, str(save_path), size, clean_uploader),
+        "INSERT INTO files (filename, filepath, size, uploader, uploader_user_id)"
+        " VALUES (?, ?, ?, ?, ?)",
+        (stored_name, str(save_path), size, clean_uploader, uploader_user_id),
     )
 
 
@@ -121,7 +131,8 @@ def list_files(
     against FILE_SORTS / asc|desc (the API layer does this)."""
     order_by = FILE_SORTS[sort].format(o="ASC" if order == "asc" else "DESC")
     sql = f"""
-        SELECT id, filename, size, uploader, uploaded_at
+        SELECT id, filename, size, uploader, uploaded_at,
+               uploader_user_id IS NOT NULL AS uploader_verified
         FROM files
         {"WHERE filename LIKE ? ESCAPE '\\'" if q else ""}
         ORDER BY {order_by}
