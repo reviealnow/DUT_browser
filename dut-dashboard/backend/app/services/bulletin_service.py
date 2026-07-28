@@ -30,12 +30,18 @@ def _clean_author(author: str | None) -> str | None:
     return author.strip() if author and author.strip() else None
 
 
-def create_post(title: str, body: str, author: str | None = None) -> int:
+def create_post(
+    title: str,
+    body: str,
+    author: str | None = None,
+    author_user_id: int | None = None,
+) -> int:
     clean_title = _validate_text(title, "Post title", POST_TITLE_LIMIT)
     clean_body = _validate_text(body, "Post content", POST_BODY_LIMIT)
     return execute(
-        "INSERT INTO bulletin_posts (title, body, author) VALUES (?, ?, ?)",
-        (clean_title, clean_body, _clean_author(author)),
+        "INSERT INTO bulletin_posts (title, body, author, author_user_id)"
+        " VALUES (?, ?, ?, ?)",
+        (clean_title, clean_body, _clean_author(author), author_user_id),
     )
 
 
@@ -44,6 +50,7 @@ def create_comment(
     body: str,
     author: str | None = None,
     parent_comment_id: int | None = None,
+    author_user_id: int | None = None,
 ) -> int:
     post = query_one("SELECT id FROM bulletin_posts WHERE id = ?", (post_id,))
     if post is None:
@@ -61,10 +68,10 @@ def create_comment(
 
     return execute(
         """
-        INSERT INTO bulletin_comments (post_id, parent_comment_id, body, author)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO bulletin_comments (post_id, parent_comment_id, body, author, author_user_id)
+        VALUES (?, ?, ?, ?, ?)
         """,
-        (post_id, parent_comment_id, clean_body, _clean_author(author)),
+        (post_id, parent_comment_id, clean_body, _clean_author(author), author_user_id),
     )
 
 
@@ -98,7 +105,8 @@ def update_comment(comment_id: int, body: str) -> bool:
 
 def get_post(post_id: int) -> dict | None:
     row = query_one(
-        "SELECT id, title, body, author, created_at, edited_at"
+        "SELECT id, title, body, author, created_at, edited_at,"
+        " author_user_id IS NOT NULL AS author_verified"
         " FROM bulletin_posts WHERE id = ?",
         (post_id,),
     )
@@ -138,7 +146,8 @@ def list_posts(limit: int | None = None, offset: int = 0, q: str | None = None) 
     title/body substring (case-insensitive). Comments are only fetched for the
     returned page."""
     posts_sql = f"""
-        SELECT id, title, body, author, created_at, edited_at
+        SELECT id, title, body, author, created_at, edited_at,
+               author_user_id IS NOT NULL AS author_verified
         FROM bulletin_posts
         {f"WHERE {_POSTS_MATCH}" if q else ""}
         ORDER BY created_at DESC, id DESC
@@ -154,7 +163,8 @@ def list_posts(limit: int | None = None, offset: int = 0, q: str | None = None) 
         placeholders = ", ".join("?" for _ in post_ids)
         comments = query_all(
             f"""
-            SELECT id, post_id, parent_comment_id, body, author, created_at, edited_at
+            SELECT id, post_id, parent_comment_id, body, author, created_at, edited_at,
+                   author_user_id IS NOT NULL AS author_verified
             FROM bulletin_comments
             WHERE post_id IN ({placeholders})
             ORDER BY created_at ASC, id ASC

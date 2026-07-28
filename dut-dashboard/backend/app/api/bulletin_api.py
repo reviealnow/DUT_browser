@@ -1,15 +1,27 @@
-"""Bulletin board API (shared-trust model — no auth, author is free text)."""
+"""Bulletin board API.
+
+Authorship is bound to the session (P71d): a client-supplied `author` is only
+honoured when there is no session, and such rows are flagged unverified.
+"""
 
 from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from app.services import bulletin_service, tag_service
+from app.services import auth_service, bulletin_service, tag_service
 
 router = APIRouter(prefix="/api/bulletin", tags=["bulletin"])
+
+
+def _attributed(claimed: str | None, user: dict | None) -> tuple[str | None, int | None]:
+    """Resolve the name to record. A session always wins over the client's
+    claim; without one the free-text name is kept but stays unverified."""
+    if user is None:
+        return claimed, None
+    return (user["display_name"] or user["username"]), user["id"]
 
 
 class PostCreate(BaseModel):
@@ -57,9 +69,17 @@ def list_posts(
 
 
 @router.post("/posts")
-def create_post(body: PostCreate) -> dict:
+def create_post(
+    body: PostCreate,
+    user: Annotated[dict | None, Depends(auth_service.optional_user)] = None,
+) -> dict:
+    """Authorship comes from the session when there is one — `body.author` is
+    ignored rather than trusted, so nobody can post under another name."""
+    author, author_user_id = _attributed(body.author, user)
     try:
-        post_id = bulletin_service.create_post(body.title, body.body, body.author)
+        post_id = bulletin_service.create_post(
+            body.title, body.body, author, author_user_id=author_user_id
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if body.tags:
@@ -99,10 +119,16 @@ def delete_post(post_id: int) -> dict:
 
 
 @router.post("/posts/{post_id}/comments")
-def create_comment(post_id: int, body: CommentCreate) -> dict:
+def create_comment(
+    post_id: int,
+    body: CommentCreate,
+    user: Annotated[dict | None, Depends(auth_service.optional_user)] = None,
+) -> dict:
+    author, author_user_id = _attributed(body.author, user)
     try:
         comment_id = bulletin_service.create_comment(
-            post_id, body.body, body.author, body.parent_comment_id
+            post_id, body.body, author, body.parent_comment_id,
+            author_user_id=author_user_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
