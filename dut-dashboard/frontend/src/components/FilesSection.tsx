@@ -238,7 +238,7 @@ function SharedFilesTable({
                     <TagList tags={row.tags} onTagClick={onTagClick} />
                   </td>
                   <td>{formatSize(row.size)}</td>
-                  <td><AuthorTag name={row.uploader} /></td>
+                  <td><AuthorTag name={row.uploader} verified={row.uploader_verified} /></td>
                   <td>
                     <div className="row-actions">
                       <button

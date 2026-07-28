@@ -102,6 +102,14 @@ def save_uploaded_file(
     )
 
 
+def _with_bool_flags(row: dict) -> dict:
+    """SQLite returns 0/1 for a boolean expression; JSON consumers checking
+    `=== false` would silently miss a 0, so coerce before the row leaves."""
+    if "uploader_verified" in row:
+        row["uploader_verified"] = bool(row["uploader_verified"])
+    return row
+
+
 # Whitelisted sort keys -> ORDER BY fragments (id tiebreak keeps pages stable).
 # "date" is the default and matches the pre-sort behaviour (newest first).
 FILE_SORTS = {
@@ -142,7 +150,7 @@ def list_files(
         sql += " LIMIT ? OFFSET ?"
         params += (limit, offset)
     rows = query_all(sql, params)
-    files = [dict(r) for r in rows]
+    files = [_with_bool_flags(dict(r)) for r in rows]
     tag_map = tag_service.tags_for_files([f["id"] for f in files])
     for f in files:
         f["tags"] = tag_map.get(f["id"], [])

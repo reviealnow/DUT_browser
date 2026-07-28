@@ -317,6 +317,8 @@ export type WorkspaceFile = {
   uploader: string | null;
   uploaded_at: string;
   tags?: string[];
+  /** False when the name is unverified client-supplied text (pre-P71d rows). */
+  uploader_verified?: boolean;
 };
 
 export type FilesStats = {
@@ -430,6 +432,7 @@ export type BulletinComment = {
   author: string | null;
   created_at: string;
   edited_at: string | null;
+  author_verified?: boolean;
   replies: BulletinComment[];
 };
 
@@ -440,6 +443,7 @@ export type BulletinPost = {
   author: string | null;
   created_at: string;
   edited_at: string | null;
+  author_verified?: boolean;
   comments: BulletinComment[];
   tags?: string[];
 };
@@ -792,6 +796,38 @@ export type InviteSummary = {
   revoked: boolean;
   exhausted: boolean;
 };
+
+// --- Audit (P71d) ----------------------------------------------------------
+
+export type UserRecord = {
+  id: number;
+  username: string;
+  display_name: string | null;
+  role: Role;
+  created_at: string;
+  updated_at: string | null;
+  last_seen_at: string | null;
+};
+
+export type RoleChange = {
+  id: number;
+  username: string;
+  from_role: Role | null;
+  to_role: Role;
+  via: "register" | "invite" | "cli";
+  invite_id: number | null;
+  changed_at: string;
+};
+
+export async function listUsers(): Promise<UserRecord[]> {
+  const result = await get<{ users: UserRecord[] }>("/api/auth/users");
+  return result.users;
+}
+
+export async function listRoleChanges(limit = 100): Promise<RoleChange[]> {
+  const result = await get<{ changes: RoleChange[] }>(`/api/auth/role-changes?limit=${limit}`);
+  return result.changes;
+}
 
 export async function createInvite(params: InviteParams): Promise<CreatedInvite> {
   return post<CreatedInvite>("/api/auth/invites", params);

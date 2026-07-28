@@ -230,7 +230,7 @@ function ReplyNote({ reply, onChanged }: { reply: BulletinComment; onChanged: ()
         <p>{reply.body}</p>
       )}
       <div className="meta">
-        <AuthorTag name={reply.author} /> · {formatTime(reply.created_at)}
+        <AuthorTag name={reply.author} verified={reply.author_verified} /> · {formatTime(reply.created_at)}
         <EditedMark editedAt={reply.edited_at} /> ·{" "}
         <button type="button" className="linklike" onClick={() => setEditing((v) => !v)}>
           Edit
@@ -268,7 +268,7 @@ function CommentThread({
         <p>{comment.body}</p>
       )}
       <div className="meta">
-        <AuthorTag name={comment.author} /> · {formatTime(comment.created_at)}
+        <AuthorTag name={comment.author} verified={comment.author_verified} /> · {formatTime(comment.created_at)}
         <EditedMark editedAt={comment.edited_at} /> ·{" "}
         <button type="button" className="linklike" onClick={() => setReplying((v) => !v)}>
           Reply
@@ -360,7 +360,7 @@ function PostCard({
       title={post.title}
       subtitle={
         <>
-          <AuthorTag name={post.author} /> · {formatTime(post.created_at)}
+          <AuthorTag name={post.author} verified={post.author_verified} /> · {formatTime(post.created_at)}
           <EditedMark editedAt={post.edited_at} /> · {replies}{" "}
           {replies === 1 ? "reply" : "replies"}
           <TagList tags={post.tags} onTagClick={onTagClick} />

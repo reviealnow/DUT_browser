@@ -6,8 +6,12 @@ import {
   humanizeApiError,
   InviteSummary,
   listInvites,
+  listRoleChanges,
+  listUsers,
   revokeInvite,
   Role,
+  RoleChange,
+  UserRecord,
 } from "../api/rest";
 import { useAuth } from "../monitoring/AuthContext";
 import { useCrashKeywords } from "../monitoring/useCrashKeywords";
@@ -151,7 +155,87 @@ export default function SettingsSection() {
         </div>
       </Card>
       <InvitesCard />
+      <UsersCard />
     </>
+  );
+}
+
+/**
+ * Admin-only audit view. `users.role` only ever holds the current value, so the
+ * role-change log below it is the only record of how someone got their
+ * privileges — that is why both are shown together.
+ */
+function UsersCard() {
+  const { role } = useAuth();
+  const [users, setUsers] = useState<UserRecord[]>([]);
+  const [changes, setChanges] = useState<RoleChange[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const isAdmin = role === "admin";
+
+  useEffect(() => {
+    if (!isAdmin) {
+      return;
+    }
+    Promise.all([listUsers(), listRoleChanges(50)])
+      .then(([u, c]) => {
+        setUsers(u);
+        setChanges(c);
+      })
+      .catch((err) => setError(humanizeApiError(err)));
+  }, [isAdmin]);
+
+  if (!isAdmin) {
+    return null;
+  }
+
+  return (
+    <Card title="Users" subtitle="Who has registered, and how they got their role">
+      <div className="settings-list">
+        {error ? <div className="flash">{error}</div> : null}
+        <div className="invite-table-wrap">
+          <table className="filetable invite-table">
+            <thead>
+              <tr>
+                <th>USER</th>
+                <th>ROLE</th>
+                <th>REGISTERED</th>
+                <th>LAST SEEN</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((user) => (
+                <tr key={user.id}>
+                  <td>{user.display_name || user.username}</td>
+                  <td>
+                    <span className={`pill role-${user.role}`}>{user.role}</span>
+                  </td>
+                  <td>{user.created_at}</td>
+                  <td>{user.last_seen_at ?? "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="setting-label" style={{ marginTop: "var(--space-4)" }}>
+          Role history
+        </div>
+        {changes.length === 0 ? (
+          <div className="setting-hint">No role changes recorded yet.</div>
+        ) : (
+          <ul className="role-history">
+            {changes.map((change) => (
+              <li key={change.id}>
+                <strong>{change.username}</strong>: {change.from_role ?? "new"} →{" "}
+                {change.to_role} via {change.via}
+                {change.invite_id !== null ? ` #${change.invite_id}` : ""} ·{" "}
+                <span className="setting-hint">{change.changed_at}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </Card>
   );
 }
 

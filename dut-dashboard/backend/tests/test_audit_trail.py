@@ -119,7 +119,9 @@ class AuthorshipTests(AuditTestCase):
         self._upload(claimed="somebody-else")
         [row] = self.client.get("/api/files").json()["files"]
         self.assertEqual(row["uploader"], "Nelson C")
-        self.assertTrue(row["uploader_verified"])
+        # assertIs, not assertTrue: SQLite hands back 0/1, and a client
+        # checking `=== false` would silently miss an integer 0.
+        self.assertIs(row["uploader_verified"], True)
 
     def test_a_session_overrides_a_spoofed_post_author(self) -> None:
         self._login("engineer", "nelson")
@@ -131,7 +133,7 @@ class AuthorshipTests(AuditTestCase):
         self.assertEqual(response.status_code, 200)
         [post] = self.client.get("/api/bulletin/posts").json()["posts"]
         self.assertEqual(post["author"], "Nelson C")
-        self.assertTrue(post["author_verified"])
+        self.assertIs(post["author_verified"], True)
 
     def test_a_comment_is_attributed_to_the_session(self) -> None:
         self._login("engineer", "nelson")
@@ -146,7 +148,7 @@ class AuthorshipTests(AuditTestCase):
         [post] = self.client.get("/api/bulletin/posts").json()["posts"]
         [comment] = post["comments"]
         self.assertEqual(comment["author"], "Nelson C")
-        self.assertTrue(comment["author_verified"])
+        self.assertIs(comment["author_verified"], True)
 
     def test_rows_without_a_session_stay_unverified(self) -> None:
         """Pre-P71d rows and sessionless writes keep their free-text name and
@@ -156,7 +158,7 @@ class AuthorshipTests(AuditTestCase):
         self._login("admin")
         [row] = self.client.get("/api/files").json()["files"]
         self.assertEqual(row["uploader"], "amy")
-        self.assertFalse(row["uploader_verified"])
+        self.assertIs(row["uploader_verified"], False)
 
 
 class AuditEndpointTests(AuditTestCase):
