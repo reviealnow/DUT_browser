@@ -135,6 +135,25 @@ def set_passcodes(
     }
 
 
+# --- Audit (P71d) ----------------------------------------------------------
+
+
+@router.get("/users")
+def list_users(_admin: dict = Depends(auth_service.require_role("admin"))) -> dict:
+    """Who has registered, at what role, and when they were last seen."""
+    return {"users": auth_service.list_users()}
+
+
+@router.get("/role-changes")
+def list_role_changes(
+    limit: int = 100,
+    _admin: dict = Depends(auth_service.require_role("admin")),
+) -> dict:
+    """Append-only privilege history, newest first. `users.role` only holds the
+    current value, so this is the only record of how someone got it."""
+    return {"changes": auth_service.list_role_changes(limit)}
+
+
 # --- Invite links (P71c) ---------------------------------------------------
 
 
