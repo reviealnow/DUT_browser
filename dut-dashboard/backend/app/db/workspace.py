@@ -199,6 +199,10 @@ def init_db() -> None:
         # NULL id marks a row whose free-text name predates session binding and
         # was never verified, which the UI must show as such.
         _ensure_column(conn, "files", "uploader_user_id", "INTEGER")
+        # SHA-256 of the stored bytes, computed at upload (P72b). Nullable: rows
+        # predating it have no checksum, and a firmware upgrade refuses to use
+        # a file whose checksum was never recorded.
+        _ensure_column(conn, "files", "sha256", "TEXT")
         _ensure_column(conn, "bulletin_posts", "author_user_id", "INTEGER")
         _ensure_column(conn, "bulletin_comments", "author_user_id", "INTEGER")
         _ensure_column(conn, "bulletin_posts", "edited_at")

@@ -12,6 +12,7 @@ guarded by `resolve_download_path`.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -80,6 +81,9 @@ def save_uploaded_file(
     save_path = UPLOAD_DIR / stored_name
 
     size = 0
+    # Digest as we stream: a firmware image is tens of megabytes, so re-reading
+    # the file afterwards just to hash it would double the I/O.
+    digest = hashlib.sha256()
     try:
         with save_path.open("wb") as out:
             while True:
@@ -89,6 +93,7 @@ def save_uploaded_file(
                 size += len(chunk)
                 if size > MAX_UPLOAD_BYTES:
                     raise ValueError(f"File exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit.")
+                digest.update(chunk)
                 out.write(chunk)
     except ValueError:
         save_path.unlink(missing_ok=True)
@@ -96,9 +101,9 @@ def save_uploaded_file(
 
     clean_uploader = uploader.strip() if uploader and uploader.strip() else None
     return execute(
-        "INSERT INTO files (filename, filepath, size, uploader, uploader_user_id)"
-        " VALUES (?, ?, ?, ?, ?)",
-        (stored_name, str(save_path), size, clean_uploader, uploader_user_id),
+        "INSERT INTO files (filename, filepath, size, uploader, uploader_user_id, sha256)"
+        " VALUES (?, ?, ?, ?, ?, ?)",
+        (stored_name, str(save_path), size, clean_uploader, uploader_user_id, digest.hexdigest()),
     )
 
 
@@ -139,7 +144,7 @@ def list_files(
     against FILE_SORTS / asc|desc (the API layer does this)."""
     order_by = FILE_SORTS[sort].format(o="ASC" if order == "asc" else "DESC")
     sql = f"""
-        SELECT id, filename, size, uploader, uploaded_at,
+        SELECT id, filename, size, uploader, uploaded_at, sha256,
                uploader_user_id IS NOT NULL AS uploader_verified
         FROM files
         {"WHERE filename LIKE ? ESCAPE '\\'" if q else ""}
@@ -170,7 +175,7 @@ def count_files(q: str | None = None) -> int:
 
 def get_file_by_id(file_id: int) -> dict | None:
     row = query_one(
-        "SELECT id, filename, filepath, size, uploader, uploaded_at FROM files WHERE id = ?",
+        "SELECT id, filename, filepath, size, uploader, uploaded_at, sha256 FROM files WHERE id = ?",
         (file_id,),
     )
     if row is None:

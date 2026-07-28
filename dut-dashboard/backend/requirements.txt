@@ -7,6 +7,9 @@ websockets
 pandas
 matplotlib
 pytest
+# HTTP client for the admin firmware PUT to the DUT's management API, and
+# what fastapi's TestClient already runs on.
+httpx
 # ASCII QR for the launcher's LAN join flow, and SVG QR for invite links
 # (services/invite_service.qr_svg, imported lazily so a missing install only
 # costs the QR, not the invite). Pure python, no native deps.
