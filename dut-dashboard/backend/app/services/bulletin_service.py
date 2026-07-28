@@ -26,6 +26,14 @@ def _validate_text(value: str, field_name: str, limit: int) -> str:
     return cleaned
 
 
+def _with_bool_flags(row: dict) -> dict:
+    """SQLite returns 0/1 for a boolean expression; JSON consumers checking
+    `=== false` would silently miss a 0, so coerce before the row leaves."""
+    if "author_verified" in row:
+        row["author_verified"] = bool(row["author_verified"])
+    return row
+
+
 def _clean_author(author: str | None) -> str | None:
     return author.strip() if author and author.strip() else None
 
@@ -110,7 +118,7 @@ def get_post(post_id: int) -> dict | None:
         " FROM bulletin_posts WHERE id = ?",
         (post_id,),
     )
-    return dict(row) if row is not None else None
+    return _with_bool_flags(dict(row)) if row is not None else None
 
 
 def delete_post(post_id: int) -> None:
@@ -178,7 +186,7 @@ def list_posts(limit: int | None = None, offset: int = 0, q: str | None = None) 
     comments_by_post: dict[int, list[dict]] = defaultdict(list)
 
     for row in comments:
-        comment = dict(row)
+        comment = _with_bool_flags(dict(row))
         comment["replies"] = []
         replies_by_parent[comment["parent_comment_id"]].append(comment)
 
@@ -190,7 +198,7 @@ def list_posts(limit: int | None = None, offset: int = 0, q: str | None = None) 
 
     result = []
     for row in posts:
-        post = dict(row)
+        post = _with_bool_flags(dict(row))
         post["comments"] = comments_by_post.get(post["id"], [])
         post["tags"] = tag_map.get(post["id"], [])
         result.append(post)

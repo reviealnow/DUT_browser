@@ -108,7 +108,7 @@ export default function WorkspaceSearchResults({
                         </td>
                         <td>{formatSize(file.size)}</td>
                         <td>
-                          <AuthorTag name={file.uploader} />
+                          <AuthorTag name={file.uploader} verified={file.uploader_verified} />
                         </td>
                         <td>
                           <div className="row-actions">
@@ -140,7 +140,7 @@ export default function WorkspaceSearchResults({
                   </h4>
                   <p>{post.body}</p>
                   <div className="meta">
-                    <AuthorTag name={post.author} /> · {post.created_at.replace("T", " ")}
+                    <AuthorTag name={post.author} verified={post.author_verified} /> · {post.created_at.replace("T", " ")}
                   </div>
                 </div>
               ))}
