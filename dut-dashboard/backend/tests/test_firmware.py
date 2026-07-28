@@ -95,9 +95,17 @@ class FirmwareTestCase(unittest.TestCase):
     def _upload_image(self, data: bytes = IMAGE_BYTES) -> int:
         return file_service.save_uploaded_file("AP6_v2.sig", io.BytesIO(data), "root")
 
+    def auth_schemes(self) -> list[str]:
+        """Which auth scheme the client offered, per request that carried one."""
+        return [
+            self.requests[i].headers["authorization"].split()[0].lower()
+            for i in range(len(self.requests))
+            if "authorization" in self.requests[i].headers
+        ]
+
     def _ready(self, status: int = 200) -> None:
         """A DUT that is addressable, credentialed and answers `status`."""
-        self.context.mgmt_url = "https://192.0.2.10"
+        self.context.mgmt_url = "https://192.0.2.10:10443"
         firmware_service.set_credentials("admin", "secret")
         self.context.console_buffer.lines = [
             f"Execute {firmware_service.FLASH_STARTED_MARKER} ..."
@@ -105,6 +113,16 @@ class FirmwareTestCase(unittest.TestCase):
 
         def handler(request: httpx.Request) -> httpx.Response:
             self.requests.append(request)
+            # Mimic the real device: challenge an unauthenticated request with
+            # Digest, so the client's auth handshake is actually exercised
+            # rather than short-circuited by an immediate 200.
+            if "authorization" not in request.headers:
+                return httpx.Response(
+                    401,
+                    headers={
+                        "WWW-Authenticate": 'Digest qop="auth", realm="localhost", nonce="abc123"'
+                    },
+                )
             return httpx.Response(status, text="ok")
 
         transport = httpx.MockTransport(handler)
@@ -158,7 +176,7 @@ class CredentialTests(FirmwareTestCase):
 
     def test_credentials_are_required_for_a_real_upgrade(self) -> None:
         file_id = self._upload_image()
-        self.context.mgmt_url = "https://192.0.2.10"
+        self.context.mgmt_url = "https://192.0.2.10:10443"
         self._login("admin")
         response = self.client.post(
             "/api/firmware/upgrade", json={"file_id": file_id, "dry_run": False}
@@ -170,7 +188,7 @@ class CredentialTests(FirmwareTestCase):
         """Per the operator: a 401 means the device is off its expected defaults,
         which is a finding to report, not something to retry around."""
         file_id = self._upload_image()
-        self._ready(status=401)
+        self._ready(status=401)  # rejects even the authenticated retry
         self._login("admin")
         response = self.client.post(
             "/api/firmware/upgrade", json={"file_id": file_id, "dry_run": False}
@@ -224,12 +242,25 @@ class UpgradeTests(FirmwareTestCase):
             "/api/firmware/upgrade", json={"file_id": file_id, "dry_run": False}
         )
         self.assertEqual(response.status_code, 200, response.text)
-        [sent] = self.requests
+        sent = self.requests[-1]
         self.assertEqual(sent.method, "PUT")
-        self.assertEqual(str(sent.url), "https://192.0.2.10/ap/systemctl/sysFwUpgrade")
+        self.assertEqual(str(sent.url), "https://192.0.2.10:10443/ap/systemctl/sysFwUpgrade")
         self.assertEqual(sent.headers["content-type"], "application/octet-stream")
         self.assertEqual(sent.content, IMAGE_BYTES)
-        self.assertIn("authorization", sent.headers)
+        # Digest, not Basic: httpx probes unauthenticated, is challenged, then
+        # retries with the header — so the scheme is asserted on the retry.
+        self.assertEqual(set(self.auth_schemes()), {"digest"})
+
+    def test_the_authenticated_retry_still_carries_the_whole_image(self) -> None:
+        """Digest sends the request twice. A streaming body would be consumed by
+        the probe, handing a device about to flash itself an empty image."""
+        file_id = self._upload_image()
+        self._ready()
+        self._login("admin")
+        self.client.post("/api/firmware/upgrade", json={"file_id": file_id, "dry_run": False})
+        authed = [r for r in self.requests if "authorization" in r.headers]
+        self.assertTrue(authed, "the authenticated attempt is the one that flashes")
+        self.assertEqual(authed[-1].content, IMAGE_BYTES)
 
     def test_a_missing_management_address_refuses_before_anything_is_sent(self) -> None:
         file_id = self._upload_image()
@@ -323,23 +354,24 @@ class FlashConfirmationTests(FirmwareTestCase):
 
 
 class MgmtUrlTests(FirmwareTestCase):
-    def test_a_bare_ip_is_normalised_to_https(self) -> None:
+    def test_a_bare_ip_gets_https_and_the_api_port(self) -> None:
+        """443 would 404 every /ap path — verified on AP6_840E."""
         self._login("admin")
         body = self.client.put("/api/firmware/mgmt-url", json={"mgmt_url": "192.0.2.10"}).json()
-        self.assertEqual(body["mgmt_url"], "https://192.0.2.10")
+        self.assertEqual(body["mgmt_url"], "https://192.0.2.10:10443")
 
-    def test_an_explicit_scheme_and_port_are_kept(self) -> None:
+    def test_an_explicit_port_is_never_overridden(self) -> None:
         self._login("admin")
         body = self.client.put(
-            "/api/firmware/mgmt-url", json={"mgmt_url": "https://192.0.2.10:10443/"}
+            "/api/firmware/mgmt-url", json={"mgmt_url": "https://192.0.2.10:443/"}
         ).json()
-        self.assertEqual(body["mgmt_url"], "https://192.0.2.10:10443")
+        self.assertEqual(body["mgmt_url"], "https://192.0.2.10:443")
 
     def test_config_lists_the_duts_and_their_addresses(self) -> None:
         self._login("admin")
         self.client.put("/api/firmware/mgmt-url", json={"mgmt_url": "192.0.2.10"})
         config = self.client.get("/api/firmware/config").json()
-        self.assertEqual(config["duts"][0]["mgmt_url"], "https://192.0.2.10")
+        self.assertEqual(config["duts"][0]["mgmt_url"], "https://192.0.2.10:10443")
         self.assertEqual(config["upgrade_path"], "/ap/systemctl/sysFwUpgrade")
 
 
