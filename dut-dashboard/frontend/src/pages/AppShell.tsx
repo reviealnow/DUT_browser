@@ -501,6 +501,7 @@ function LiveMemoryBody({ monitor }: { monitor: DutMonitorState }) {
 function PostAnalysisMemoryBody() {
   const [series, setSeries] = useState<MemorySeries | null>(null);
   const [failed, setFailed] = useState(false);
+  const { role } = useAuth();
 
   const load = () => {
     setFailed(false);
@@ -513,7 +514,13 @@ function PostAnalysisMemoryBody() {
   }, []);
 
   if (failed) {
-    return <EmptyState icon="🧠" message="Could not load memory data" hint="Is the backend reachable?" />;
+    // The analyzer feed is engineer-gated, so for a guest the failure is the
+    // expected 403/401 — say so instead of blaming the backend.
+    return role === "guest" ? (
+      <EmptyState icon="🔒" message="Post-analysis memory needs an engineer login" hint="Live memory still streams here while the DUT runs sysMon." />
+    ) : (
+      <EmptyState icon="🧠" message="Could not load memory data" hint="Is the backend reachable?" />
+    );
   }
   if (!series) {
     return <EmptyState icon="🧠" message="Loading…" />;
