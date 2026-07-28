@@ -756,3 +756,69 @@ export async function registerAuth(params: RegisterParams): Promise<AuthUser> {
 export async function logoutAuth(): Promise<{ ok: boolean }> {
   return post<{ ok: boolean }>("/api/auth/logout", {});
 }
+
+// --- Invite links (P71c) ---------------------------------------------------
+
+export type InviteParams = {
+  role: Role;
+  label?: string;
+  /** Hours until expiry; null means the invite never expires. */
+  expires_in_hours?: number | null;
+  max_uses?: number;
+};
+
+/** The create response — the ONLY place `token`/`url_path`/`qr_svg` ever exist. */
+export type CreatedInvite = {
+  id: number;
+  role: Role;
+  label: string | null;
+  token: string;
+  url_path: string;
+  qr_svg: string | null;
+  expires_at: string | null;
+  max_uses: number;
+};
+
+/** List shape: no token, no hash — an issued invite can never be re-read. */
+export type InviteSummary = {
+  id: number;
+  role: Role;
+  label: string | null;
+  created_by: string | null;
+  created_at: string;
+  expires_at: string | null;
+  max_uses: number;
+  used_count: number;
+  revoked: boolean;
+  exhausted: boolean;
+};
+
+export async function createInvite(params: InviteParams): Promise<CreatedInvite> {
+  return post<CreatedInvite>("/api/auth/invites", params);
+}
+
+export async function listInvites(): Promise<InviteSummary[]> {
+  const result = await get<{ invites: InviteSummary[] }>("/api/auth/invites");
+  return result.invites;
+}
+
+export async function revokeInvite(id: number): Promise<void> {
+  const response = await fetch(`/api/auth/invites/${id}`, { method: "DELETE" });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+}
+
+/** Trade an invite token for a session. The role comes from the invite, so it
+ * is only known once this resolves — there is no way to inspect one first. */
+export async function redeemInvite(
+  token: string,
+  username: string,
+  displayName?: string,
+): Promise<AuthUser> {
+  return post<AuthUser>("/api/auth/redeem", {
+    token,
+    username,
+    display_name: displayName,
+  });
+}

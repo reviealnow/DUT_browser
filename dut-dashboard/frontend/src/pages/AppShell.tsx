@@ -7,6 +7,7 @@ import DutSwitcher from "../components/DutSwitcher";
 import { DEFAULT_DUT_ID } from "../api/dut";
 import { applyAccent, loadSettings } from "../monitoring/useSettings";
 import { Card, EmptyState, KpiCard } from "../components/shell/Card";
+import InviteRedeemDialog from "../components/InviteRedeemDialog";
 import LoginDialog from "../components/LoginDialog";
 import Sidebar from "../components/shell/Sidebar";
 import Topbar from "../components/shell/Topbar";
@@ -61,6 +62,8 @@ function AppShellInner() {
   const [active, setActive] = useState<SectionId>("overview");
   const { user, role, logout } = useAuth();
   const [loginOpen, setLoginOpen] = useState(false);
+  // Invite token lifted out of the URL on first render (see the effect below).
+  const [inviteToken, setInviteToken] = useState<string | null>(null);
   // Mobile nav drawer (off-canvas). Inert on desktop — the sidebar is always
   // visible there and the hamburger that toggles this is hidden via CSS.
   const [navOpen, setNavOpen] = useState(false);
@@ -85,6 +88,25 @@ function AppShellInner() {
   // Apply the saved accent on load so the theme persists across reloads.
   useEffect(() => {
     applyAccent(loadSettings().accent);
+  }, []);
+
+  // Arriving from an invite QR: take the token into state and strip it from the
+  // URL immediately, so a single-use credential does not linger in the address
+  // bar, the history entry, or anything the user might screenshot or share.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("invite");
+    if (!token) {
+      return;
+    }
+    setInviteToken(token);
+    params.delete("invite");
+    const query = params.toString();
+    window.history.replaceState(
+      {},
+      "",
+      window.location.pathname + (query ? `?${query}` : "") + window.location.hash,
+    );
   }, []);
 
   useEffect(() => {
@@ -169,7 +191,11 @@ function AppShellInner() {
             </div>
           }
           />
-          {loginOpen ? <LoginDialog onClose={() => setLoginOpen(false)} /> : null}
+          {inviteToken ? (
+            <InviteRedeemDialog token={inviteToken} onClose={() => setInviteToken(null)} />
+          ) : loginOpen ? (
+            <LoginDialog onClose={() => setLoginOpen(false)} />
+          ) : null}
           {updateAvailable ? (
             <UpdateBanner onReload={() => window.location.reload()} onDismiss={dismiss} />
           ) : null}

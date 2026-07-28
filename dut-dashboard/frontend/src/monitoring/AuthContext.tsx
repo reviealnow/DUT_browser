@@ -23,6 +23,7 @@ import {
   AuthUser,
   getMe,
   logoutAuth,
+  redeemInvite,
   registerAuth,
   RegisterParams,
   Role,
@@ -38,6 +39,8 @@ export type AuthState = {
   /** True until the initial /api/auth/me check resolves. */
   loading: boolean;
   login: (params: RegisterParams) => Promise<AuthUser>;
+  /** Trade an invite token for a session; the role comes from the invite. */
+  redeem: (token: string, username: string, displayName?: string) => Promise<AuthUser>;
   logout: () => Promise<void>;
 };
 
@@ -84,6 +87,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return logged;
   }, []);
 
+  const redeem = useCallback(async (token: string, username: string, displayName?: string) => {
+    const joined = await redeemInvite(token, username, displayName);
+    setUser(joined);
+    return joined;
+  }, []);
+
   const logout = useCallback(async () => {
     await logoutAuth();
     setUser(null);
@@ -91,7 +100,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const role: Role = user?.role ?? "guest";
   return (
-    <AuthContext.Provider value={{ user, role, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, role, loading, login, redeem, logout }}>
       {children}
     </AuthContext.Provider>
   );
