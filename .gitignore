@@ -19,3 +19,8 @@ dut-dashboard/logs/.mplconfig/
 
 # Workspace module runtime state (SQLite DB + uploaded files)
 dut-dashboard/data/
+
+# Signed firmware bundles staged for an upgrade. Vendor build artifacts, ~34 MB
+# per model and five models per release, so they must never reach the history.
+test_*-signed/
+*.tar.gz.sig
