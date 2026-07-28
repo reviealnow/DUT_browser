@@ -14,6 +14,8 @@
 #   DUT_ENGINEER_PASSCODE · DUT_ADMIN_PASSCODE (generated on first launch if unset)
 #   DUT_LAN_SSID (Wi-Fi name shown to guests; auto-detected on macOS when unset)
 #   DUT_LAN_PSK  (optional; with DUT_LAN_SSID, also prints a join-Wi-Fi QR)
+#   DUT_QR_INVITE=engineer|admin (optional; QR carries a single-use invite for
+#                that role instead of the plain guest URL)
 #   NOTE (dev only): the Vite proxy targets 127.0.0.1:8000 (frontend/vite.config.ts);
 #   changing BACKEND_PORT in dev also requires updating that proxy target.
 #
@@ -186,7 +188,23 @@ if [ -n "$LAN_IP" ]; then
   else
     echo "[start_lan] guests: scan to open the dashboard (set DUT_LAN_SSID to show the Wi-Fi name):"
   fi
-  print_qr "$DASH_URL"
+
+  # Default QR is the plain dashboard URL: browsing is guest-by-default, so a
+  # token would buy nothing and would write a users row per scan. Opt in with
+  # DUT_QR_INVITE=engineer|admin to mint a single-use invite instead, so the
+  # scanner lands already holding that role and never types the passcode.
+  SCAN_URL="$DASH_URL"
+  if [ -n "${DUT_QR_INVITE:-}" ]; then
+    INVITE_TOKEN="$(cd "$BACKEND_DIR" && python3 -m app.invite_cli mint \
+      --role "$DUT_QR_INVITE" --label launcher --max-uses 1 2>/dev/null || true)"
+    if [ -n "$INVITE_TOKEN" ]; then
+      SCAN_URL="${DASH_URL}/?invite=${INVITE_TOKEN}"
+      echo "[start_lan] QR carries a single-use ${DUT_QR_INVITE} invite (expires in 7 days)"
+    else
+      echo "[start_lan] WARNING: could not mint a ${DUT_QR_INVITE} invite — QR falls back to the plain URL"
+    fi
+  fi
+  print_qr "$SCAN_URL"
   echo "[start_lan] dashboard: $DASH_URL   (browsing = guest, no login needed)"
 fi
 
