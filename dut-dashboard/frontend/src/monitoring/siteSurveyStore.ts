@@ -89,28 +89,37 @@ export function runSurvey(dutId: string): Promise<void> {
 }
 
 /**
- * Everything captured once, the moment a DUT is connected: the site survey
- * prescan, then the Wi-Fi clients and SSID capability context snapshots.
+ * Everything captured once, the moment a DUT is connected: the Wi-Fi clients
+ * and SSID capability context snapshots, then the site survey prescan.
  *
- * The three share one serial capture gate, so they run **in sequence** — firing
+ * The two share one serial capture gate, so they run **in sequence** — firing
  * them together would just make them queue behind each other anyway, and a
- * queued capture can time out. That makes connect measurably slower (the survey
- * alone is ~28 sequential `iw` captures); the trade is deliberate, because this
- * is the fixed "what the site looked like on arrival" reference a log
- * downloaded days later is bundled with.
+ * queued capture can time out. Connect is measurably slower for it; the trade
+ * is deliberate, because this is the fixed "what the site looked like on
+ * arrival" reference a log downloaded days later is bundled with.
+ *
+ * **The order matters and is not arbitrary.** capture_command returns when its
+ * sentinel arrives *or its timeout expires*, but the DUT keeps transmitting
+ * either way. A survey on an AP with ~29 VAPs leaves tens of thousands of
+ * `iw scan` lines still draining at 115200 baud, so a capture started right
+ * after it has its whole window filled by that backlog and reads nothing of its
+ * own — measured on an AP6_840E, clients+capability returned 0 VAPs in 17.7s
+ * straight after a survey, and 29 VAPs in 5.3s on an idle line. Connect is the
+ * one moment the line is guaranteed quiet, so the short captures take it and
+ * the survey, whose trailing output harms only whatever follows it, goes last.
  *
  * Fire-and-forget: both steps swallow their own errors, so nothing here can
  * fail a connect. Wi-Fi Clients and SSID Capability keep their own
  * on-section-entry fetches — this is additional, not a replacement.
  */
 export async function runConnectCaptures(dutId: string): Promise<void> {
-  await runSurvey(dutId);
   try {
     await captureDutContext(dutId);
   } catch {
     // The endpoint already reports per-kind failures without raising; this only
     // catches transport-level errors, which must not surface on the connect.
   }
+  await runSurvey(dutId);
 }
 
 /**
