@@ -197,6 +197,42 @@ class CredentialTests(FirmwareTestCase):
         self.assertIn("rejected the API credentials", response.json()["detail"])
 
 
+class RejectionTests(FirmwareTestCase):
+    def test_a_malformed_refusal_is_reported_as_a_rejection_not_a_network_error(self) -> None:
+        """AP6_840E answers a refused image with a bare error line where an HTTP
+        header belongs. That is the DUT saying no, not the network failing."""
+        file_id = self._upload_image()
+        self.context.mgmt_url = "https://192.0.2.10:10443"
+        firmware_service.set_credentials("admin", "secret")
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if "authorization" not in request.headers:
+                return httpx.Response(
+                    401,
+                    headers={"WWW-Authenticate": 'Digest qop="auth", realm="l", nonce="n"'},
+                )
+            raise httpx.RemoteProtocolError(
+                "illegal header line: bytearray(b\"Can't open FW.signauture.st1 for reading\")"
+            )
+
+        transport = httpx.MockTransport(handler)
+        self._stack.enter_context(
+            patch.object(
+                firmware_service,
+                "run_upgrade",
+                _with_mock_transport(firmware_service.run_upgrade, transport),
+            )
+        )
+        self._login("admin")
+        response = self.client.post(
+            "/api/firmware/upgrade", json={"file_id": file_id, "dry_run": False}
+        )
+        self.assertEqual(response.status_code, 502)
+        detail = response.json()["detail"]
+        self.assertIn("upgrade handler refused it", detail)
+        self.assertIn("FW.signauture.st1", detail, "the DUT's own complaint must survive")
+
+
 class ChecksumTests(FirmwareTestCase):
     def test_a_wrong_expected_checksum_blocks_the_upload(self) -> None:
         file_id = self._upload_image()
@@ -250,6 +286,17 @@ class UpgradeTests(FirmwareTestCase):
         # Digest, not Basic: httpx probes unauthenticated, is challenged, then
         # retries with the header — so the scheme is asserted on the retry.
         self.assertEqual(set(self.auth_schemes()), {"digest"})
+
+    def test_no_expect_header_is_ever_sent(self) -> None:
+        """An empty `Expect:` is a literal empty header, not a removal — the DUT
+        answers that with 417 Expectation Failed. httpx never adds one, so the
+        header must simply be absent."""
+        file_id = self._upload_image()
+        self._ready()
+        self._login("admin")
+        self.client.post("/api/firmware/upgrade", json={"file_id": file_id, "dry_run": False})
+        for request in self.requests:
+            self.assertNotIn("expect", [k.lower() for k in request.headers])
 
     def test_the_authenticated_retry_still_carries_the_whole_image(self) -> None:
         """Digest sends the request twice. A streaming body would be consumed by

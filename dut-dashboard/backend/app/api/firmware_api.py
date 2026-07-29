@@ -133,6 +133,9 @@ async def upgrade(body: UpgradeBody, request: Request, _admin: dict = _ADMIN) ->
     except firmware_service.ChecksumMismatch as exc:
         # 409: the request was well-formed, the bytes are not what was expected.
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except firmware_service.FirmwareRejected as exc:
+        # 502: we reached the DUT, the DUT said no.
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     except firmware_service.FirmwareAuthError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except firmware_service.FirmwareError as exc:
