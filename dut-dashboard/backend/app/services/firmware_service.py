@@ -76,6 +76,16 @@ class ChecksumMismatch(FirmwareError):
     """The image on disk is not the image the operator expected."""
 
 
+class FirmwareRejected(FirmwareError):
+    """The DUT received the image and its upgrade handler refused it.
+
+    Distinct from a transport failure because the operator's next step is
+    completely different: the image or the device state is wrong, not the
+    network. Seen on AP6_840E, which reports such failures as a bare error line
+    where an HTTP header belongs, producing a malformed response.
+    """
+
+
 # --------------------------------------------------------------------------
 # Configuration
 
@@ -273,17 +283,24 @@ def run_upgrade(
             response = client.put(
                 url,
                 content=_read_image(path),
-                headers={
-                    "Content-Type": "application/octet-stream",
-                    # curl's `-H "Expect:"` equivalent: the DUT does not answer
-                    # the 100-continue handshake, so never wait for it.
-                    "Expect": "",
-                },
+                # No Expect header at all. curl adds `Expect: 100-continue` for
+                # large bodies, which is why the documented curl passes
+                # `-H "Expect:"` to REMOVE it -- but httpx never adds it, and an
+                # empty string here is sent as a literal empty header, which the
+                # DUT answers with 417 Expectation Failed (seen on AP6_840E).
+                headers={"Content-Type": "application/octet-stream"},
                 # Digest, not Basic: the DUT answers an unauthenticated request
                 # with `WWW-Authenticate: Digest qop="auth"`, and Basic
                 # credentials are simply rejected (verified on AP6_840E).
                 auth=httpx.DigestAuth(user, password),
             )
+    except httpx.RemoteProtocolError as exc:
+        # The bytes arrived and the DUT answered -- just not with valid HTTP.
+        # Its complaint is the only diagnostic there is, so surface it verbatim
+        # rather than calling this a connectivity problem, which it is not.
+        raise FirmwareRejected(
+            f"The DUT received the image but its upgrade handler refused it: {exc}"
+        ) from exc
     except httpx.HTTPError as exc:
         raise FirmwareError(f"Could not reach the DUT at {url}: {exc}") from exc
 
