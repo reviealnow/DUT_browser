@@ -26,7 +26,7 @@ from app.services.analyzer_service import AnalyzerService
 from app.services.capability_report import build_capability_report
 from app.services.site_survey import channel_recommendation, get_site_survey
 from app.services.survey_cache import last_recommendation, remember_recommendation
-from app.services import survey_snapshot
+from app.services import context_snapshot, survey_snapshot
 from app.services.wifi_clients import discover_vaps, get_ssid_capabilities, parse_apstats, parse_wlanconfig_list
 from app.services.wifi_survey import get_wifi_survey
 from app.websocket.terminal_manager import TerminalManager
@@ -171,20 +171,9 @@ def get_wifi_clients(dut: str = DEFAULT_DUT_ID) -> dict:
     only; briefly pauses sysmon parsing during the captures."""
     worker = resolve_dut(app, dut).serial_worker
     try:
-        iwconfig_text = worker.capture_command("iwconfig", timeout=6.0)
+        clients, vaps = _capture_clients(worker)
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    vaps = discover_vaps(iwconfig_text)
-    clients: list[dict] = []
-    for vap in vaps:
-        try:
-            out = worker.capture_command(f"wlanconfig {vap['iface']} list", timeout=6.0)
-        except RuntimeError:
-            continue
-        for client in parse_wlanconfig_list(out, vap["iface"]):
-            client["ssid"] = vap["ssid"]
-            clients.append(client)
 
     return {
         "clients": clients,
@@ -254,6 +243,68 @@ def get_wifi_capability_report(dut: str = DEFAULT_DUT_ID) -> dict:
     report = build_capability_report(ssids, survey)
     report["captured_at_a"] = captured_at_a
     return report
+
+
+def _capture_clients(worker) -> tuple[list[dict], list[dict]]:
+    """Associated clients per active VAP — the same two-step capture the
+    /api/wifi/clients endpoint performs, factored out so the connect-time
+    context capture does not duplicate it."""
+    vaps = discover_vaps(worker.capture_command("iwconfig", timeout=6.0))
+    clients: list[dict] = []
+    for vap in vaps:
+        try:
+            out = worker.capture_command(f"wlanconfig {vap['iface']} list", timeout=6.0)
+        except RuntimeError:
+            continue
+        for client in parse_wlanconfig_list(out, vap["iface"]):
+            client["ssid"] = vap["ssid"]
+            clients.append(client)
+    return clients, vaps
+
+
+@app.post("/api/wifi/context-capture", dependencies=[_ENGINEER])
+def capture_dut_context(dut: str = DEFAULT_DUT_ID) -> dict:
+    """Persist the DUT's Wi-Fi clients and SSID capability as connect-time context.
+
+    Fired once when a DUT is connected, alongside the site-survey prescan, so a
+    log downloaded later carries what the site looked like on arrival. sysMon
+    logs both of these every step as a time series — that remains the primary
+    source; this is the fixed arrival reference point.
+
+    Engineer-gated rather than open like the sibling read-only /api/wifi routes:
+    it writes to disk, and the only thing that triggers it (connecting a DUT) is
+    engineer-gated already.
+
+    Never raises: each kind is captured and written independently and reports its
+    own outcome, so one failure (or no serial at all) neither blocks the other
+    nor surfaces as a failed connect.
+    """
+    captures: list[dict] = []
+    try:
+        worker = resolve_dut(app, dut).serial_worker
+    except HTTPException:
+        raise
+    captured_at = datetime.now().isoformat(timespec="seconds")
+
+    def record(kind: str, capture) -> None:
+        try:
+            paths = capture()
+        except Exception as exc:  # noqa: BLE001 — context capture is best-effort
+            logging.getLogger(__name__).warning("context capture %s failed for %s: %s", kind, dut, exc)
+            captures.append({"kind": kind, "ok": False, "error": str(exc), "files": []})
+        else:
+            captures.append({"kind": kind, "ok": True, "error": None, "files": [p.name for p in paths]})
+
+    def clients_capture() -> list[Path]:
+        clients, vaps = _capture_clients(worker)
+        return context_snapshot.write_clients(dut, clients, vaps, captured_at)
+
+    def capability_capture() -> list[Path]:
+        return context_snapshot.write_capability(dut, get_ssid_capabilities(worker), captured_at)
+
+    record(context_snapshot.WIFI_CLIENTS, clients_capture)
+    record(context_snapshot.SSID_CAPABILITY, capability_capture)
+    return {"dut": dut, "captured_at": captured_at, "captures": captures}
 
 
 def _survey_progress_emitter(dut: str):
@@ -359,10 +410,28 @@ def list_logs() -> dict:
                 continue
         return sorted(items, key=lambda item: item["mtime"], reverse=True)
 
-    sessions = entries(LOG_DIR.glob("dut-session-*.log")) if LOG_DIR.is_dir() else []
+    session_paths = list(LOG_DIR.glob("dut-session-*.log")) if LOG_DIR.is_dir() else []
+    sessions = entries(session_paths)
     artifacts = entries(ANALYZER_OUTPUT_DIR.glob("*")) if ANALYZER_OUTPUT_DIR.is_dir() else []
     surveys = survey_snapshot.list_snapshots()
-    return {"sessions": sessions, "artifacts": artifacts, "surveys": surveys}
+
+    # How much connect-time context each session log's own time window covers, so
+    # Downloads can say "no context captured during this session" for logs that
+    # predate the feature instead of looking broken. The snapshot index is built
+    # once and shared across every session row.
+    snapshot_index = context_snapshot.snapshot_entries()
+    by_name = {path.name: path for path in session_paths}
+    for session in sessions:
+        session["context_count"] = len(
+            context_snapshot.select_for_session(by_name[session["name"]], entries=snapshot_index)
+        )
+
+    return {
+        "sessions": sessions,
+        "artifacts": artifacts,
+        "surveys": surveys,
+        "context": context_snapshot.list_snapshots(),
+    }
 
 
 @app.get("/api/download/{file_name}", dependencies=[_ENGINEER])
@@ -387,6 +456,27 @@ def download_survey(file_name: str) -> FileResponse:
         raise HTTPException(status_code=400, detail="Invalid file name")
 
     file_path = SURVEY_SNAPSHOT_DIR / safe_name
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return FileResponse(path=file_path, filename=safe_name, media_type="application/octet-stream")
+
+
+@app.get("/api/download/context/{kind}/{file_name}", dependencies=[_ENGINEER])
+def download_context(kind: str, file_name: str) -> FileResponse:
+    """Serve a persisted connect-time context capture (json or csv) as a download.
+    The kind must be a known one (which fixes the directory) and the name is
+    validated against traversal, exactly like /api/download/survey."""
+    try:
+        directory = context_snapshot.dir_for(kind)
+    except KeyError:
+        raise HTTPException(status_code=400, detail="Invalid context kind") from None
+
+    safe_name = Path(file_name).name
+    if safe_name != file_name or not safe_name.lower().endswith((".json", ".csv")):
+        raise HTTPException(status_code=400, detail="Invalid file name")
+
+    file_path = directory / safe_name
     if not file_path.exists() or not file_path.is_file():
         raise HTTPException(status_code=404, detail="File not found")
 

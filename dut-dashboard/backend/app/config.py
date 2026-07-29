@@ -18,6 +18,13 @@ ANALYZER_SCRIPT = TOOLS_DIR / "analyzer3.py"
 ANALYZER_OUTPUT_DIR = LOG_DIR / "analyzer_output"
 # Persisted site-survey snapshots (json+csv pairs; runtime state, gitignored).
 SURVEY_SNAPSHOT_DIR = LOG_DIR / "site-surveys"
+# Connect-time DUT context captures other than the site survey (Wi-Fi clients,
+# SSID capability), one subdirectory per kind. Site surveys keep their original
+# directory above so the P68 files stay where users already look for them.
+CONTEXT_DIR = LOG_DIR / "context"
+# Per-session context copied out for an analyzed log. Deliberately NOT under
+# ANALYZER_OUTPUT_DIR, which analyzer_service clears on every run.
+CONTEXT_BUNDLE_DIR = LOG_DIR / "context-bundles"
 
 # Workspace module (LAN file-sharing + bulletin). Uploader/author stay free
 # text. All runtime state lives under data/ (gitignored).

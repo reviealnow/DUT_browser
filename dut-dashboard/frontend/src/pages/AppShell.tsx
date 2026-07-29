@@ -17,7 +17,7 @@ import { useAppVersion } from "../monitoring/useAppVersion";
 import { DutMonitorProvider } from "../monitoring/DutMonitorContext";
 import { DutMonitorState, DutStatus, useDutMonitor } from "../monitoring/useDutMonitor";
 import { useWifiScan, wifiScanForDut, WifiScanProvider } from "../monitoring/WifiScanContext";
-import { runSurvey } from "../monitoring/siteSurveyStore";
+import { runConnectCaptures } from "../monitoring/siteSurveyStore";
 import { OverviewBandReco } from "../components/BandRecoSummary";
 
 // Heavy sections are loaded on demand so the initial bundle only carries the
@@ -210,7 +210,7 @@ function AppShellInner() {
                   <Dashboard
                     active={active === "console"}
                     dutId={selectedDut}
-                    onSerialOpened={(id) => void runSurvey(id)}
+                    onSerialOpened={(id) => void runConnectCaptures(id)}
                   />
                 </Suspense>
               </div>

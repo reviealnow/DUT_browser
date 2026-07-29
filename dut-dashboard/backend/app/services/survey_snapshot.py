@@ -101,15 +101,6 @@ def latest_for(dut_id: str) -> list[Path]:
     return [p for p in (base.with_suffix(".json"), base.with_suffix(".csv")) if p.is_file()]
 
 
-def latest_all() -> list[Path]:
-    """Newest snapshot pair for every DUT that has one (for log-ZIP bundling)."""
-    duts = {dut for dut, _, ext, _ in _snapshot_names() if ext == "json"}
-    paths: list[Path] = []
-    for dut in sorted(duts):
-        paths.extend(latest_for(dut))
-    return paths
-
-
 def list_snapshots() -> list[dict]:
     """All snapshot files as {name,size,mtime}, newest first (for /api/logs)."""
     items: list[dict] = []

@@ -33,6 +33,7 @@ ENGINEER_ROUTES = [
     "/api/logs/tail?name=nope.log",
     "/api/download/nope.csv",
     "/api/download/survey/nope.json",
+    "/api/download/context/wifi-clients/nope.json",
     "/api/download/preview/nope.png",
     "/api/analyzer/memory",
     "/api/bulletin/posts",
@@ -130,6 +131,14 @@ class RouteProtectionTests(unittest.TestCase):
         self.assertEqual(self.client.put("/api/settings/crash-keywords", json=body).status_code, 403)
         self._login("engineer")
         self.assertEqual(self.client.put("/api/settings/crash-keywords", json=body).status_code, 200)
+
+    def test_context_capture_is_engineer_only(self) -> None:
+        """The one POST on /api/wifi: its siblings are open read-only telemetry,
+        but this one writes captures to disk, so it takes the engineer gate."""
+        route = "/api/wifi/context-capture"
+        self.assertEqual(self.client.post(route).status_code, 401)
+        self._login("guest")
+        self.assertEqual(self.client.post(route).status_code, 403)
 
     def test_open_routes_need_no_session(self) -> None:
         for route in OPEN_ROUTES:

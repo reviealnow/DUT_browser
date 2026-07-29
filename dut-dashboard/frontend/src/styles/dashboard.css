@@ -917,6 +917,14 @@ body {
   margin-bottom: var(--space-2);
 }
 
+/* Per-session context summary under a log's name (P73). Its own line so a long
+   log name and the note never fight for the same row on a narrow screen. */
+.context-note {
+  display: block;
+  color: var(--faint);
+  font-size: 11px;
+}
+
 /* Site Survey neighbor filters (display-only: band segmented + SSID/BSSID search). */
 .survey-filterbar {
   display: flex;

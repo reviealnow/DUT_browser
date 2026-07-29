@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import shutil
 import subprocess
 import sys
@@ -19,7 +18,7 @@ from serial.tools import list_ports
 
 from app.config import ANALYZER_SCRIPT, LOG_DIR
 from app.dut.registry import DEFAULT_DUT_ID, DutContext
-from app.services import survey_snapshot
+from app.services import context_snapshot
 
 router = APIRouter(prefix="/api/serial", tags=["serial"])
 
@@ -181,22 +180,18 @@ def run_analyzer_for_session(session_dir: Path) -> None:
         raise DownloadWorkflowError(f"analyzer3.py execution failed: {message}", status_code=500)
 
 
-def bundle_survey_snapshots(session_dir: Path) -> None:
-    """Copy the newest persisted site-survey pair of every DUT into
-    ``session_dir/site-survey/`` so the log ZIP carries the survey context.
+def bundle_session_context(session_dir: Path, log_path: Path) -> list[Path]:
+    """Copy the context captured *while this log was recording* into
+    ``session_dir/context/<kind>/`` so the ZIP carries the on-arrival picture.
 
-    Best-effort: a missing snapshot or copy error must never fail the download.
+    Selection is by the log's own time window. Until P73 this copied the newest
+    survey of every DUT regardless of the log's age, so a ZIP for last week's log
+    was handed today's survey; an empty window now yields nothing at all.
+
+    Best-effort: bundle_context swallows its own errors, so a missing or
+    unreadable capture can never fail the download.
     """
-    try:
-        paths = survey_snapshot.latest_all()
-        if not paths:
-            return
-        dest_dir = session_dir / "site-survey"
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        for path in paths:
-            shutil.copy2(path, dest_dir / path.name)
-    except Exception:  # noqa: BLE001 — bundling is best-effort
-        logging.getLogger(__name__).exception("failed to bundle survey snapshots")
+    return context_snapshot.bundle_context(session_dir, log_path)
 
 
 def zip_session_dir(session_dir: Path) -> Path:
@@ -328,7 +323,7 @@ def download_log(file_name: str) -> FileResponse:
         session_dir = create_dut_session_dir()
         log_path = save_downloaded_log_to_session(file_name=safe_name, session_dir=session_dir)
         ensure_log_has_minimum_snapshots(log_path=log_path)
-        bundle_survey_snapshots(session_dir)
+        bundle_session_context(session_dir, source_log_path)
         run_analyzer_for_session(session_dir=session_dir)
         zip_path = zip_session_dir(session_dir=session_dir)
     except DownloadWorkflowError as exc:
