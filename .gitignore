@@ -25,9 +25,12 @@ dut-dashboard/logs/context-bundles/
 # Workspace module runtime state (SQLite DB + uploaded files)
 dut-dashboard/data/
 
-# Claude Code per-machine state. launch.json IS tracked (below) so everyone gets
-# working run configs; settings.local.json is not — it accumulates one entry per
-# approved command, including absolute scratch paths and DUT credentials typed
-# into curl. Never commit it.
-.claude/settings.local.json
-.claude/settings.json
+# Claude Code per-machine state. launch.json IS tracked so everyone gets working
+# run configs; settings.local.json is not — it accumulates one entry per approved
+# command, including absolute scratch paths and DUT credentials typed into curl.
+# Never commit it. The `**/` matters: a pattern containing a slash is anchored to
+# this file's directory, so a bare `.claude/...` would leave any nested copy
+# (e.g. dut-dashboard/.claude/) unignored for anyone whose personal global
+# gitignore does not already cover it.
+**/.claude/settings.local.json
+**/.claude/settings.json
