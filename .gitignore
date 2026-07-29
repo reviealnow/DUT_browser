@@ -24,3 +24,10 @@ dut-dashboard/logs/context-bundles/
 
 # Workspace module runtime state (SQLite DB + uploaded files)
 dut-dashboard/data/
+
+# Claude Code per-machine state. launch.json IS tracked (below) so everyone gets
+# working run configs; settings.local.json is not — it accumulates one entry per
+# approved command, including absolute scratch paths and DUT credentials typed
+# into curl. Never commit it.
+.claude/settings.local.json
+.claude/settings.json

@@ -1,0 +1,26 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "backend",
+      "runtimeExecutable": "../../.venv/bin/uvicorn",
+      "runtimeArgs": ["app.main:app", "--port", "8000"],
+      "cwd": "dut-dashboard/backend",
+      "port": 8000
+    },
+    {
+      "name": "frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "dut-dashboard/frontend",
+      "port": 5173
+    },
+    {
+      "name": "backend-8001",
+      "runtimeExecutable": "../../.venv/bin/uvicorn",
+      "runtimeArgs": ["app.main:app", "--port", "8001"],
+      "cwd": "dut-dashboard/backend",
+      "port": 8001
+    }
+  ]
+}
