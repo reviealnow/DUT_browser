@@ -16,6 +16,11 @@ dut-dashboard/logs/dut-session-*.log
 dut-dashboard/logs/dut-session-*/
 dut-dashboard/logs/dut-session-*.zip
 dut-dashboard/logs/.mplconfig/
+# Captured DUT context: site surveys (P68) plus the connect-time snapshots and
+# per-log bundles added in P73. All runtime capture data, never committed.
+dut-dashboard/logs/site-surveys/
+dut-dashboard/logs/context/
+dut-dashboard/logs/context-bundles/
 
 # Workspace module runtime state (SQLite DB + uploaded files)
 dut-dashboard/data/
