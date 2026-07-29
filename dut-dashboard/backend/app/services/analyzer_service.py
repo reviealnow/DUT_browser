@@ -7,7 +7,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-from app.config import ANALYZER_OUTPUT_DIR, ANALYZER_SCRIPT, LOG_DIR
+from app.config import ANALYZER_OUTPUT_DIR, ANALYZER_SCRIPT, CONTEXT_BUNDLE_DIR, LOG_DIR
+from app.services import context_snapshot
 
 
 _ANALYZER_OUTPUT_SUFFIXES = {".csv", ".png", ".txt"}
@@ -27,6 +28,27 @@ def _clear_analyzer_outputs(output_dir: Path) -> None:
                 item.unlink()
             except OSError:
                 pass
+
+
+def _bundle_context(log_file: Path) -> dict:
+    """Copy the context captured during this log's session next to the analysis.
+
+    Deliberately NOT under ANALYZER_OUTPUT_DIR: _clear_analyzer_outputs wipes
+    that directory on every run, so context placed there would be destroyed by
+    the next Analyze. Each log gets its own stable directory under
+    CONTEXT_BUNDLE_DIR instead, refreshed in place on a re-analyze.
+
+    Best-effort — an analysis must still succeed when its session captured
+    nothing (every log from before P73 is in exactly that state).
+    """
+    stem = log_file.stem
+    if stem in {"", ".", ".."}:
+        return {"dir": None, "files": []}
+    dest = CONTEXT_BUNDLE_DIR / stem
+    written = context_snapshot.bundle_context(dest, log_file)
+    if not written:
+        return {"dir": None, "files": []}
+    return {"dir": str(dest), "files": sorted(p.name for p in written)}
 
 
 def _concise_error(stderr: str, stdout: str) -> str:
@@ -105,5 +127,6 @@ class AnalyzerService:
                 "ok": True,
                 "log_path": str(log_file),
                 "files": sorted(copied_files),
+                "context": _bundle_context(log_file),
                 "stdout": completed.stdout,
             }

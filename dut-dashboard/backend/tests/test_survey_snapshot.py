@@ -85,15 +85,12 @@ class SurveySnapshotTests(unittest.TestCase):
         self._write("lab2")
         self.assertEqual(survey_snapshot.latest_for("ghost"), [])
 
-    def test_latest_all_one_pair_per_dut(self) -> None:
+    def test_latest_for_is_scoped_to_one_hyphenated_dut(self) -> None:
         self._write("lab2")
         self._write("ap6-420e")  # hyphenated id must still parse
-        paths = survey_snapshot.latest_all()
-        duts = {p.name for p in paths}
-        self.assertTrue(any("lab2" in n for n in duts))
-        self.assertTrue(any("ap6-420e" in n for n in duts))
-        # Two DUTs × (json+csv) = 4 files.
-        self.assertEqual(len(paths), 4)
+        paths = survey_snapshot.latest_for("ap6-420e")
+        self.assertEqual(len(paths), 2)  # json + csv
+        self.assertTrue(all("ap6-420e" in p.name for p in paths))
 
     def test_restore_cache_repopulates_recommendations(self) -> None:
         self._write("lab2")
