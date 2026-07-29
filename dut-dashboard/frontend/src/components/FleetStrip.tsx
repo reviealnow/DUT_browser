@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 
 import { closeSerial, humanizeApiError, LastChannelRecommendationResult, openSerial } from "../api/rest";
-import { runSurvey } from "../monitoring/siteSurveyStore";
+import { runConnectCaptures } from "../monitoring/siteSurveyStore";
 import { DutStatus } from "../monitoring/useDutMonitor";
 import { FleetEntry, useFleetMonitor } from "../monitoring/useFleetMonitor";
 import { useFleetRecommendations } from "../monitoring/useLastRecommendation";
@@ -114,11 +114,11 @@ function FleetCard({
     setConnecting(true);
     setError(null);
     // Reopen with the remembered params. On success refresh the registry (so the
-    // card flips to the open/Close state) and kick the P58 connect-time prescan,
-    // exactly like a console-driven open.
+    // card flips to the open/Close state) and kick the connect-time captures
+    // (P58 prescan + P73 context), exactly like a console-driven open.
     openSerial({ port: lastSerial.port, baudrate: lastSerial.baudrate, mode: "serial" }, entry.id)
       .then(() => onClosed())
-      .then(() => void runSurvey(entry.id))
+      .then(() => void runConnectCaptures(entry.id))
       .catch((e) => setError(humanizeApiError(e)))
       .finally(() => setConnecting(false));
   }, [entry.id, lastSerial, onClosed]);

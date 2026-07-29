@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 
 import {
+  captureDutContext,
   ChannelRecommendationResult,
   getChannelRecommendation,
   humanizeApiError,
@@ -85,6 +86,31 @@ export function runSurvey(dutId: string): Promise<void> {
   })();
   inflight.set(dutId, run);
   return run;
+}
+
+/**
+ * Everything captured once, the moment a DUT is connected: the site survey
+ * prescan, then the Wi-Fi clients and SSID capability context snapshots.
+ *
+ * The three share one serial capture gate, so they run **in sequence** — firing
+ * them together would just make them queue behind each other anyway, and a
+ * queued capture can time out. That makes connect measurably slower (the survey
+ * alone is ~28 sequential `iw` captures); the trade is deliberate, because this
+ * is the fixed "what the site looked like on arrival" reference a log
+ * downloaded days later is bundled with.
+ *
+ * Fire-and-forget: both steps swallow their own errors, so nothing here can
+ * fail a connect. Wi-Fi Clients and SSID Capability keep their own
+ * on-section-entry fetches — this is additional, not a replacement.
+ */
+export async function runConnectCaptures(dutId: string): Promise<void> {
+  await runSurvey(dutId);
+  try {
+    await captureDutContext(dutId);
+  } catch {
+    // The endpoint already reports per-kind failures without raising; this only
+    // catches transport-level errors, which must not surface on the connect.
+  }
 }
 
 /**

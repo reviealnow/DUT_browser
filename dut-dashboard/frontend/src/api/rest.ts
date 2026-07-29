@@ -152,7 +152,16 @@ export type MemorySeries = {
 };
 
 export type LogEntry = { name: string; size: number; mtime: string };
-export type LogList = { sessions: LogEntry[]; artifacts: LogEntry[]; surveys: LogEntry[] };
+/** A session log row also reports how many context files its own time window covers. */
+export type SessionLogEntry = LogEntry & { context_count: number };
+/** A connect-time context capture; `kind` fixes which directory serves it. */
+export type ContextEntry = LogEntry & { kind: string };
+export type LogList = {
+  sessions: SessionLogEntry[];
+  artifacts: LogEntry[];
+  surveys: LogEntry[];
+  context: ContextEntry[];
+};
 
 /** List saved DUT session logs and analyzer artifacts (read-only browse). */
 export async function getLogs(): Promise<LogList> {
@@ -181,12 +190,32 @@ export function getSurveyDownloadUrl(fileName: string): string {
   return `/api/download/survey/${encodeURIComponent(fileName)}`;
 }
 
+/** Download URL for a connect-time context capture (json/csv), keyed by its kind. */
+export function getContextDownloadUrl(kind: string, fileName: string): string {
+  return `/api/download/context/${encodeURIComponent(kind)}/${encodeURIComponent(fileName)}`;
+}
+
+export type ContextCapture = { kind: string; ok: boolean; error: string | null; files: string[] };
+export type ContextCaptureResult = { dut: string; captured_at: string; captures: ContextCapture[] };
+
+/**
+ * Persist the DUT's Wi-Fi clients and SSID capability as connect-time context.
+ * Fired once on connect, after the site-survey prescan (the captures share one
+ * serial gate, so they are sequenced rather than raced). Each kind reports its
+ * own outcome — a failure here must never surface as a failed connect.
+ */
+export async function captureDutContext(dutId = DEFAULT_DUT_ID): Promise<ContextCaptureResult> {
+  return post<ContextCaptureResult>(`/api/wifi/context-capture?dut=${dutId}`, {});
+}
+
 /** Parsed memory series from the latest analyzer run (post-analysis only). */
 export async function getMemory(limit = 500): Promise<MemorySeries> {
   return get<MemorySeries>(`/api/analyzer/memory?limit=${limit}`);
 }
 
-export type AnalyzeResult = { ok: boolean; files: string[] };
+/** Where an Analyze put the session's context, if that session captured any. */
+export type AnalyzeContext = { dir: string | null; files: string[] };
+export type AnalyzeResult = { ok: boolean; files: string[]; context: AnalyzeContext };
 
 /**
  * Run the offline analyzer on a saved session log (by name) and publish its

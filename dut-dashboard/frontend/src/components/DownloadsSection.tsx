@@ -2,8 +2,10 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 
 import {
   analyzeSessionLog,
+  ContextEntry,
   getAnalyzerDownloadUrl,
   getAnalyzerPreviewUrl,
+  getContextDownloadUrl,
   getLogs,
   getLogTail,
   getSerialLogDownloadUrl,
@@ -11,6 +13,7 @@ import {
   humanizeApiError,
   LogEntry,
   LogList,
+  SessionLogEntry,
 } from "../api/rest";
 import { Card, EmptyState } from "./shell/Card";
 
@@ -104,8 +107,50 @@ function FileTable({ rows, hrefFor }: { rows: LogEntry[]; hrefFor: (name: string
   );
 }
 
+const NO_CONTEXT_HINT = "no context captured during this session";
+
+/**
+ * Context capture table. Same shape as the artifact table but the download URL
+ * needs the capture's kind, which fixes the directory it is served from.
+ */
+function ContextTable({ rows }: { rows: ContextEntry[] }) {
+  return (
+    <table className="filetable">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Kind</th>
+          <th>Size</th>
+          <th>Modified</th>
+          <th aria-label="download" />
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => (
+          <tr key={`${row.kind}/${row.name}`}>
+            <td className="filetable-name">{row.name}</td>
+            <td>{row.kind}</td>
+            <td>{formatSize(row.size)}</td>
+            <td>{formatTime(row.mtime)}</td>
+            <td>
+              <a
+                className="btn"
+                href={getContextDownloadUrl(row.kind, row.name)}
+                download
+                style={{ padding: "2px 10px" }}
+              >
+                Download
+              </a>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 /** Session-log table where each row expands to lazily peek the log's tail. */
-function SessionLogTable({ rows, onAnalyzed }: { rows: LogEntry[]; onAnalyzed: () => void }) {
+function SessionLogTable({ rows, onAnalyzed }: { rows: SessionLogEntry[]; onAnalyzed: () => void }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [tailByName, setTailByName] = useState<Record<string, TailCell>>({});
   const [analyzing, setAnalyzing] = useState<Set<string>>(new Set());
@@ -116,7 +161,13 @@ function SessionLogTable({ rows, onAnalyzed }: { rows: LogEntry[]; onAnalyzed: (
     setAnalyzing((prev) => new Set(prev).add(name));
     try {
       const result = await analyzeSessionLog(name);
-      setNotice({ tone: "ok", message: `Analyzed ${name} — ${result.files.length} output file(s) ready below.` });
+      const context = result.context?.files.length
+        ? `${result.context.files.length} context file(s) bundled alongside.`
+        : `No context was captured during that session.`;
+      setNotice({
+        tone: "ok",
+        message: `Analyzed ${name} — ${result.files.length} output file(s) ready below. ${context}`,
+      });
       onAnalyzed(); // refresh the Analyzer outputs card
     } catch (e) {
       setNotice({ tone: "danger", message: humanizeApiError(e) });
@@ -195,6 +246,11 @@ function SessionLogTable({ rows, onAnalyzed }: { rows: LogEntry[]; onAnalyzed: (
                   {expanded.has(row.name) ? "▾" : "▸"}
                 </button>
                 {row.name}
+                <span className="context-note">
+                  {row.context_count > 0
+                    ? `${row.context_count} context file(s) from this session`
+                    : NO_CONTEXT_HINT}
+                </span>
               </td>
               <td>{formatSize(row.size)}</td>
               <td>{formatTime(row.mtime)}</td>
@@ -277,10 +333,12 @@ export default function DownloadsSection({ query = "" }: { query?: string }) {
   }
 
   const needle = query.trim().toLowerCase();
-  const match = (rows: LogEntry[]) => (needle ? rows.filter((r) => r.name.toLowerCase().includes(needle)) : rows);
+  const match = <T extends LogEntry>(rows: T[]): T[] =>
+    needle ? rows.filter((r) => r.name.toLowerCase().includes(needle)) : rows;
   const sessions = match(data.sessions);
   const artifacts = match(data.artifacts);
   const surveys = match(data.surveys);
+  const context = match(data.context ?? []);
 
   return (
     <>
@@ -303,6 +361,20 @@ export default function DownloadsSection({ query = "" }: { query?: string }) {
           <FileTable rows={surveys} hrefFor={getSurveyDownloadUrl} />
         ) : (
           <EmptyState icon="📡" message={query ? "No matching surveys" : "No site surveys yet"} hint="Run a Site Survey on a connected DUT to persist one." />
+        )}
+      </Card>
+      <Card
+        title="Connect-time context"
+        subtitle="Wi-Fi clients and SSID capability as captured when each DUT was connected"
+      >
+        {context.length > 0 ? (
+          <ContextTable rows={context} />
+        ) : (
+          <EmptyState
+            icon="📍"
+            message={query ? "No matching context captures" : "No context captured yet"}
+            hint="Connecting a DUT captures its clients and SSID capability automatically."
+          />
         )}
       </Card>
     </>
