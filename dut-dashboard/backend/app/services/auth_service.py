@@ -134,24 +134,70 @@ def verify_token(token: str | None, now: float | None = None) -> dict | None:
 # Users
 
 
-def create_or_update_user(username: str, display_name: str | None, role: str) -> dict:
+def create_or_update_user(
+    username: str,
+    display_name: str | None,
+    role: str,
+    via: str = "register",
+    invite_id: int | None = None,
+) -> dict:
     """Register `username` at `role`, or move an existing name to that role.
 
     Re-registering is how someone upgrades from guest to engineer, so a taken
     username is an update rather than an error. The caller has already checked
-    the passcode for the requested role.
+    the passcode (or spent the invite) for the requested role.
+
+    A role that actually changes is appended to `role_changes` — `users.role`
+    only ever holds the current value, so this log is the only record of how
+    someone got their privileges. `via` distinguishes a passcode registration
+    from an invite redemption or a CLI mint.
     """
     if role not in ROLES:
         raise ValueError(f"unknown role: {role}")
+
+    previous = get_user_by_username(username)
     workspace.execute(
         """
-        INSERT INTO users (username, display_name, role) VALUES (?, ?, ?)
+        INSERT INTO users (username, display_name, role, updated_at)
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(username) DO UPDATE SET display_name = excluded.display_name,
-                                            role = excluded.role
+                                            role = excluded.role,
+                                            updated_at = CURRENT_TIMESTAMP
         """,
         (username, display_name, role),
     )
+    # Only an actual privilege change is worth a row; a plain re-login at the
+    # same role would otherwise bury the real changes in noise.
+    if previous is None or previous["role"] != role:
+        workspace.execute(
+            """
+            INSERT INTO role_changes (username, from_role, to_role, via, invite_id)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (username, previous["role"] if previous else None, role, via, invite_id),
+        )
     return get_user_by_username(username)  # type: ignore[return-value]
+
+
+def list_users() -> list[dict]:
+    rows = workspace.query_all(
+        """
+        SELECT id, username, display_name, role, created_at, updated_at, last_seen_at
+        FROM users ORDER BY username
+        """
+    )
+    return [dict(row) for row in rows]
+
+
+def list_role_changes(limit: int = 100) -> list[dict]:
+    rows = workspace.query_all(
+        """
+        SELECT id, username, from_role, to_role, via, invite_id, changed_at
+        FROM role_changes ORDER BY id DESC LIMIT ?
+        """,
+        (max(1, min(limit, 500)),),
+    )
+    return [dict(row) for row in rows]
 
 
 def get_user_by_username(username: str) -> dict | None:
@@ -240,8 +286,30 @@ def payload_to_user(payload: dict | None) -> dict | None:
     return get_user_by_id(payload["user_id"])
 
 
+# last_seen_at is a liveness hint, not an access log: throttled per user so a
+# busy dashboard does not put a SQLite write in front of every single request.
+LAST_SEEN_THROTTLE_SECONDS = 300
+_last_seen_writes: dict[int, float] = {}
+
+
+def touch_last_seen(user_id: int, now: float | None = None) -> bool:
+    """Record that `user_id` was active. Returns True if it actually wrote."""
+    stamp = time.time() if now is None else now
+    previous = _last_seen_writes.get(user_id)
+    if previous is not None and stamp - previous < LAST_SEEN_THROTTLE_SECONDS:
+        return False
+    _last_seen_writes[user_id] = stamp
+    workspace.execute(
+        "UPDATE users SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ?", (user_id,)
+    )
+    return True
+
+
 def optional_user(request: Request) -> dict | None:
-    return payload_to_user(verify_token(request.cookies.get(COOKIE_NAME)))
+    user = payload_to_user(verify_token(request.cookies.get(COOKIE_NAME)))
+    if user is not None:
+        touch_last_seen(user["id"])
+    return user
 
 
 def current_user(request: Request) -> dict:

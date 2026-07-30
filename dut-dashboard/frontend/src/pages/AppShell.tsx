@@ -7,6 +7,7 @@ import DutSwitcher from "../components/DutSwitcher";
 import { DEFAULT_DUT_ID } from "../api/dut";
 import { applyAccent, loadSettings } from "../monitoring/useSettings";
 import { Card, EmptyState, KpiCard } from "../components/shell/Card";
+import FirmwareSection from "../components/FirmwareSection";
 import InviteRedeemDialog from "../components/InviteRedeemDialog";
 import LoginDialog from "../components/LoginDialog";
 import Sidebar from "../components/shell/Sidebar";
@@ -340,6 +341,8 @@ function renderSection(
       return <BulletinSection query={search} onTagClick={onTagSearch} />;
     case "settings":
       return <SettingsSection />;
+    case "firmware":
+      return <FirmwareSection dutId={selectedDut} />;
     default:
       return null;
   }

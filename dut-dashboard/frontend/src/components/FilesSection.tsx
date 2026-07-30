@@ -225,6 +225,7 @@ function SharedFilesTable({
               <SortHeader label="Filename" col="name" sort={sort} order={order} onSort={onSort} />
               <SortHeader label="Size" col="size" sort={sort} order={order} onSort={onSort} />
               <SortHeader label="Uploader" col="uploader" sort={sort} order={order} onSort={onSort} />
+              <th>SHA-256</th>
               <th aria-label="actions" />
             </tr>
           </thead>
@@ -238,7 +239,8 @@ function SharedFilesTable({
                     <TagList tags={row.tags} onTagClick={onTagClick} />
                   </td>
                   <td>{formatSize(row.size)}</td>
-                  <td><AuthorTag name={row.uploader} /></td>
+                  <td><AuthorTag name={row.uploader} verified={row.uploader_verified} /></td>
+                  <td className="file-sha" title={row.sha256 ?? "no checksum recorded"}>{row.sha256 ? row.sha256.slice(0, 12) : "—"}</td>
                   <td>
                     <div className="row-actions">
                       <button

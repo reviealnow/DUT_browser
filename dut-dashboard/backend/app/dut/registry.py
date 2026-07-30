@@ -68,6 +68,10 @@ class DutContext:
     # Last successful serial-open params ({"port", "baudrate"}), remembered so the
     # Fleet view can offer one-click Connect. None until a serial-mode open.
     last_serial: dict | None = None
+    # Origin of this DUT's management API (e.g. "https://192.168.30.50"), set by
+    # an admin. Empty means the firmware upgrade refuses rather than guessing a
+    # host to PUT an image at.
+    mgmt_url: str = ""
 
 
 class DutRegistry:
@@ -152,6 +156,15 @@ class DutRegistry:
             ctx.last_serial = cleaned
             self._save_locked()
 
+    def record_mgmt_url(self, dut_id: str, mgmt_url: str) -> None:
+        """Set a DUT's management API origin and persist it. Empty clears it."""
+        with self._lock:
+            ctx = self._duts.get(dut_id)
+            if ctx is None:
+                return
+            ctx.mgmt_url = mgmt_url
+            self._save_locked()
+
     def remove_dut(self, dut_id: str) -> None:
         """Stop and drop a DUT (frees its serial port). The default DUT is fixed."""
         if dut_id == DEFAULT_DUT_ID:
@@ -185,6 +198,7 @@ class DutRegistry:
                     "log_path": worker.current_log_path,
                     "removable": ctx.dut_id != DEFAULT_DUT_ID,
                     "last_serial": ctx.last_serial,
+                    "mgmt_url": ctx.mgmt_url,
                 }
             )
         return out
@@ -194,6 +208,8 @@ class DutRegistry:
         entry: dict = {"id": ctx.dut_id, "label": ctx.label}
         if ctx.last_serial is not None:
             entry["last_serial"] = ctx.last_serial
+        if ctx.mgmt_url:
+            entry["mgmt_url"] = ctx.mgmt_url
         return entry
 
     def _save_locked(self) -> None:
@@ -207,7 +223,7 @@ class DutRegistry:
         entries = [
             self._entry_for(ctx)
             for ctx in self._duts.values()
-            if ctx.dut_id != DEFAULT_DUT_ID or ctx.last_serial is not None
+            if ctx.dut_id != DEFAULT_DUT_ID or ctx.last_serial is not None or ctx.mgmt_url
         ]
         try:
             DUTS_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -239,6 +255,9 @@ class DutRegistry:
             if existing is not None:
                 if last_serial is not None:
                     existing.last_serial = last_serial
+                mgmt = entry.get("mgmt_url") if isinstance(entry, dict) else None
+                if isinstance(mgmt, str) and mgmt:
+                    existing.mgmt_url = mgmt
                 continue
             ctx = self.create_dut(dut_id, label=entry.get("label"))
             ctx.last_serial = last_serial

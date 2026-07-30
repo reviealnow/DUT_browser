@@ -128,6 +128,28 @@ CREATE TABLE IF NOT EXISTS auth_tokens (
 """
 
 
+# Append-only privilege history (P71d). `users.role` only ever holds the CURRENT
+# role -- registering again overwrites it -- so without this table "when did this
+# person become admin, and how" is unanswerable. Nothing updates or deletes rows
+# here; `from_role` NULL means a first registration.
+#
+# `via` records how the privilege was obtained. Only 'register' (shared passcode)
+# and 'invite' (redeemed token) are produced today; 'cli' is reserved because
+# SQLite cannot widen a CHECK without rebuilding the table, and a future
+# user-minting CLI would otherwise need a migration.
+ROLE_CHANGES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS role_changes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT NOT NULL,
+  from_role TEXT,
+  to_role TEXT NOT NULL,
+  via TEXT NOT NULL CHECK(via IN ('register','invite','cli')),
+  invite_id INTEGER,
+  changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+
 def _db_path() -> Path:
     return WORKSPACE_DB
 
@@ -145,12 +167,18 @@ def connect() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
-def _ensure_column(conn: sqlite3.Connection, table: str, column: str) -> None:
+def _ensure_column(
+    conn: sqlite3.Connection, table: str, column: str, column_type: str = "TIMESTAMP"
+) -> None:
     """CREATE TABLE IF NOT EXISTS never alters an existing table, so databases
-    created before a column was added to the schema need an ALTER TABLE."""
+    created before a column was added to the schema need an ALTER TABLE.
+
+    `column_type` defaults to TIMESTAMP for the original callers; pass it
+    explicitly for anything else (SQLite cannot add a NOT NULL column without a
+    default, so every column added this way must be nullable)."""
     existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
     if column not in existing:
-        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} TIMESTAMP")
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
 
 
 def init_db() -> None:
@@ -164,6 +192,19 @@ def init_db() -> None:
         conn.execute(POST_TAGS_SCHEMA)
         conn.execute(USERS_SCHEMA)
         conn.execute(AUTH_TOKENS_SCHEMA)
+        conn.execute(ROLE_CHANGES_SCHEMA)
+        _ensure_column(conn, "users", "updated_at")
+        _ensure_column(conn, "users", "last_seen_at")
+        # Verified authorship (P71d). Nullable with no backfill on purpose: a
+        # NULL id marks a row whose free-text name predates session binding and
+        # was never verified, which the UI must show as such.
+        _ensure_column(conn, "files", "uploader_user_id", "INTEGER")
+        # SHA-256 of the stored bytes, computed at upload (P72b). Nullable: rows
+        # predating it have no checksum, and a firmware upgrade refuses to use
+        # a file whose checksum was never recorded.
+        _ensure_column(conn, "files", "sha256", "TEXT")
+        _ensure_column(conn, "bulletin_posts", "author_user_id", "INTEGER")
+        _ensure_column(conn, "bulletin_comments", "author_user_id", "INTEGER")
         _ensure_column(conn, "bulletin_posts", "edited_at")
         _ensure_column(conn, "bulletin_comments", "edited_at")
         conn.commit()

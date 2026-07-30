@@ -12,6 +12,7 @@ guarded by `resolve_download_path`.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -56,10 +57,19 @@ def _unique_filename(original_name: str) -> str:
     return candidate.name
 
 
-def save_uploaded_file(filename: str, fileobj: BinaryIO, uploader: str | None) -> int:
+def save_uploaded_file(
+    filename: str,
+    fileobj: BinaryIO,
+    uploader: str | None,
+    uploader_user_id: int | None = None,
+) -> int:
     """Validate, store the upload under UPLOAD_DIR, and record it. `fileobj` is a
     binary file-like (e.g. Starlette UploadFile.file). Enforces the size cap while
-    streaming so an oversized file is rejected without being fully buffered."""
+    streaming so an oversized file is rejected without being fully buffered.
+
+    `uploader_user_id` is set when a session backed the upload; a NULL id means
+    the name is unverified client-supplied text (pre-P71d rows, or an
+    unauthenticated caller)."""
     if not filename:
         raise ValueError("No file selected.")
     if not allowed_file(filename):
@@ -71,6 +81,9 @@ def save_uploaded_file(filename: str, fileobj: BinaryIO, uploader: str | None) -
     save_path = UPLOAD_DIR / stored_name
 
     size = 0
+    # Digest as we stream: a firmware image is tens of megabytes, so re-reading
+    # the file afterwards just to hash it would double the I/O.
+    digest = hashlib.sha256()
     try:
         with save_path.open("wb") as out:
             while True:
@@ -80,6 +93,7 @@ def save_uploaded_file(filename: str, fileobj: BinaryIO, uploader: str | None) -
                 size += len(chunk)
                 if size > MAX_UPLOAD_BYTES:
                     raise ValueError(f"File exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit.")
+                digest.update(chunk)
                 out.write(chunk)
     except ValueError:
         save_path.unlink(missing_ok=True)
@@ -87,9 +101,18 @@ def save_uploaded_file(filename: str, fileobj: BinaryIO, uploader: str | None) -
 
     clean_uploader = uploader.strip() if uploader and uploader.strip() else None
     return execute(
-        "INSERT INTO files (filename, filepath, size, uploader) VALUES (?, ?, ?, ?)",
-        (stored_name, str(save_path), size, clean_uploader),
+        "INSERT INTO files (filename, filepath, size, uploader, uploader_user_id, sha256)"
+        " VALUES (?, ?, ?, ?, ?, ?)",
+        (stored_name, str(save_path), size, clean_uploader, uploader_user_id, digest.hexdigest()),
     )
+
+
+def _with_bool_flags(row: dict) -> dict:
+    """SQLite returns 0/1 for a boolean expression; JSON consumers checking
+    `=== false` would silently miss a 0, so coerce before the row leaves."""
+    if "uploader_verified" in row:
+        row["uploader_verified"] = bool(row["uploader_verified"])
+    return row
 
 
 # Whitelisted sort keys -> ORDER BY fragments (id tiebreak keeps pages stable).
@@ -121,7 +144,8 @@ def list_files(
     against FILE_SORTS / asc|desc (the API layer does this)."""
     order_by = FILE_SORTS[sort].format(o="ASC" if order == "asc" else "DESC")
     sql = f"""
-        SELECT id, filename, size, uploader, uploaded_at
+        SELECT id, filename, size, uploader, uploaded_at, sha256,
+               uploader_user_id IS NOT NULL AS uploader_verified
         FROM files
         {"WHERE filename LIKE ? ESCAPE '\\'" if q else ""}
         ORDER BY {order_by}
@@ -131,7 +155,7 @@ def list_files(
         sql += " LIMIT ? OFFSET ?"
         params += (limit, offset)
     rows = query_all(sql, params)
-    files = [dict(r) for r in rows]
+    files = [_with_bool_flags(dict(r)) for r in rows]
     tag_map = tag_service.tags_for_files([f["id"] for f in files])
     for f in files:
         f["tags"] = tag_map.get(f["id"], [])
@@ -151,7 +175,7 @@ def count_files(q: str | None = None) -> int:
 
 def get_file_by_id(file_id: int) -> dict | None:
     row = query_one(
-        "SELECT id, filename, filepath, size, uploader, uploaded_at FROM files WHERE id = ?",
+        "SELECT id, filename, filepath, size, uploader, uploaded_at, sha256 FROM files WHERE id = ?",
         (file_id,),
     )
     if row is None:

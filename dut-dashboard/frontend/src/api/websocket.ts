@@ -62,6 +62,12 @@ export type DashboardEvent =
       iface: string | null;
       index: number;
       total: number;
+    }
+  | {
+      type: "firmware_progress";
+      stage: "verifying" | "connecting" | "uploading" | "applying" | "done";
+      detail: string;
+      dry_run: boolean;
     };
 // Note: this is a closed discriminated union. Unknown runtime event types are
 // parsed as DashboardEvent and fall through the type checks (ignored). A

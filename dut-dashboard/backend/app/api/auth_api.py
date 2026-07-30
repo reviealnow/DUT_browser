@@ -7,7 +7,7 @@ threat model.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
 from app.services import auth_service, invite_service
@@ -66,7 +66,7 @@ def _clean_names(username: str, display_name: str | None) -> tuple[str, str]:
     return name, shown
 
 
-def _issue_session(response: Response, user: dict) -> dict:
+def _issue_session(request: Request, response: Response, user: dict) -> dict:
     response.set_cookie(
         key=COOKIE_NAME,
         value=auth_service.create_token(user),
@@ -74,12 +74,17 @@ def _issue_session(response: Response, user: dict) -> dict:
         httponly=True,
         samesite="lax",
         path="/",
+        # Secure follows the scheme rather than being hardcoded: the launcher
+        # serves TLS in --prod but plain HTTP in dev (and with DUT_NO_TLS=1),
+        # and a Secure cookie over HTTP is silently dropped -- which would log
+        # every dev session out on arrival.
+        secure=request.url.scheme == "https",
     )
     return _public(user)
 
 
 @router.post("/register")
-def register(body: RegisterBody, response: Response) -> dict:
+def register(body: RegisterBody, request: Request, response: Response) -> dict:
     username, display_name = _clean_names(body.username, body.display_name)
 
     if body.role not in auth_service.ROLES:
@@ -91,7 +96,7 @@ def register(body: RegisterBody, response: Response) -> dict:
         raise HTTPException(status_code=403, detail=f"invalid passcode for role '{body.role}'")
 
     user = auth_service.create_or_update_user(username, display_name, body.role)
-    return _issue_session(response, user)
+    return _issue_session(request, response, user)
 
 
 @router.get("/me")
@@ -100,8 +105,16 @@ def me(user: dict = Depends(auth_service.current_user)) -> dict:
 
 
 @router.post("/logout")
-def logout(response: Response) -> dict:
-    response.delete_cookie(key=COOKIE_NAME, path="/")
+def logout(request: Request, response: Response) -> dict:
+    # delete_cookie must mirror the flags the cookie was set with, or the
+    # browser keeps the original and the logout silently fails.
+    response.delete_cookie(
+        key=COOKIE_NAME,
+        path="/",
+        httponly=True,
+        samesite="lax",
+        secure=request.url.scheme == "https",
+    )
     return {"ok": True}
 
 
@@ -120,6 +133,25 @@ def set_passcodes(
         "engineer_locked": not auth_service.get_passcode("engineer"),
         "admin_locked": not auth_service.get_passcode("admin"),
     }
+
+
+# --- Audit (P71d) ----------------------------------------------------------
+
+
+@router.get("/users")
+def list_users(_admin: dict = Depends(auth_service.require_role("admin"))) -> dict:
+    """Who has registered, at what role, and when they were last seen."""
+    return {"users": auth_service.list_users()}
+
+
+@router.get("/role-changes")
+def list_role_changes(
+    limit: int = 100,
+    _admin: dict = Depends(auth_service.require_role("admin")),
+) -> dict:
+    """Append-only privilege history, newest first. `users.role` only holds the
+    current value, so this is the only record of how someone got it."""
+    return {"changes": auth_service.list_role_changes(limit)}
 
 
 # --- Invite links (P71c) ---------------------------------------------------
@@ -172,7 +204,7 @@ def revoke_invite(
 
 
 @router.post("/redeem")
-def redeem(body: RedeemBody, response: Response) -> dict:
+def redeem(body: RedeemBody, request: Request, response: Response) -> dict:
     """Trade an invite token for a session at the invite's role.
 
     Deliberately open (the token IS the credential) and deliberately without a
@@ -183,5 +215,7 @@ def redeem(body: RedeemBody, response: Response) -> dict:
     invite = invite_service.consume_invite(body.token)
     if invite is None:
         raise HTTPException(status_code=403, detail=_INVITE_REJECTED)
-    user = auth_service.create_or_update_user(username, display_name, invite["role"])
-    return _issue_session(response, user)
+    user = auth_service.create_or_update_user(
+        username, display_name, invite["role"], via="invite", invite_id=invite["id"]
+    )
+    return _issue_session(request, response, user)

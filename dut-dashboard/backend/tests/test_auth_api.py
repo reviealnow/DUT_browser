@@ -45,6 +45,28 @@ class AuthApiTests(unittest.TestCase):
         self.assertIn("httponly", header)
         self.assertIn("samesite=lax", header)
 
+    def test_cookie_is_not_secure_over_plain_http(self) -> None:
+        """A Secure cookie is silently dropped over HTTP, so dev (and
+        DUT_NO_TLS=1) must not get one — it would log every session out."""
+        response = self.client.post("/api/auth/register", json={"username": "amy"})
+        self.assertNotIn("secure", response.headers["set-cookie"].lower())
+
+    def test_cookie_is_secure_over_https(self) -> None:
+        secure_client = TestClient(app, base_url="https://testserver")
+        response = secure_client.post("/api/auth/register", json={"username": "amy"})
+        self.assertIn("secure", response.headers["set-cookie"].lower())
+
+    def test_logout_clears_the_cookie_with_matching_flags(self) -> None:
+        """delete_cookie must mirror the set flags or the browser keeps the
+        original — verified over https, where Secure is in play."""
+        secure_client = TestClient(app, base_url="https://testserver")
+        secure_client.post("/api/auth/register", json={"username": "amy"})
+        header = secure_client.post("/api/auth/logout").headers["set-cookie"].lower()
+        self.assertIn("secure", header)
+        self.assertIn("httponly", header)
+        self.assertIn("samesite=lax", header)
+        self.assertEqual(secure_client.get("/api/auth/me").status_code, 401)
+
     def test_display_name_defaults_to_the_username(self) -> None:
         body = self.client.post("/api/auth/register", json={"username": "amy"}).json()
         self.assertEqual(body["display_name"], "amy")

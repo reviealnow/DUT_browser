@@ -35,6 +35,10 @@ UPLOAD_DIR = DATA_DIR / "uploads"
 SESSION_SECRET_FILE = DATA_DIR / "session_secret"
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
 ALLOWED_EXTENSIONS = {
+    # Encrypted firmware images for the management-API transport (P72b). The web
+    # UI transport takes ".sig" below; the DUT accepts only its own type on each,
+    # so both extensions have to be uploadable.
+    "bin",
     "csv",
     "gif",
     "jpeg",
@@ -45,6 +49,9 @@ ALLOWED_EXTENSIONS = {
     "pcapng",
     "pdf",
     "png",
+    # Customer-signed firmware images for the admin upgrade flow (P72b). Real
+    # ones run 32-38 MB, comfortably inside MAX_UPLOAD_BYTES.
+    "sig",
     "txt",
 }
 # Host-side Wi-Fi survey (Source B for SSID capability reconciliation).

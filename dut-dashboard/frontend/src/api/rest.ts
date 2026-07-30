@@ -346,6 +346,10 @@ export type WorkspaceFile = {
   uploader: string | null;
   uploaded_at: string;
   tags?: string[];
+  /** False when the name is unverified client-supplied text (pre-P71d rows). */
+  uploader_verified?: boolean;
+  /** SHA-256 of the stored bytes; null for rows uploaded before P72b. */
+  sha256?: string | null;
 };
 
 export type FilesStats = {
@@ -459,6 +463,7 @@ export type BulletinComment = {
   author: string | null;
   created_at: string;
   edited_at: string | null;
+  author_verified?: boolean;
   replies: BulletinComment[];
 };
 
@@ -469,6 +474,7 @@ export type BulletinPost = {
   author: string | null;
   created_at: string;
   edited_at: string | null;
+  author_verified?: boolean;
   comments: BulletinComment[];
   tags?: string[];
 };
@@ -821,6 +827,115 @@ export type InviteSummary = {
   revoked: boolean;
   exhausted: boolean;
 };
+
+// --- Firmware (P72b) -------------------------------------------------------
+
+export type FirmwareDut = { id: string; label: string; mgmt_url: string };
+
+/**
+ * One of the DUT's two upload paths. They are NOT interchangeable — each accepts
+ * only its own image type, so this is a correctness choice, not a preference.
+ */
+export type FirmwareTransport = {
+  id: string;
+  label: string;
+  port: number;
+  path: string;
+  /** Which image this path accepts: "signed" (.sig) or "encrypted" (.bin). */
+  image: "signed" | "encrypted";
+};
+
+export type FirmwareConfig = {
+  duts: FirmwareDut[];
+  /** Whether DUT API credentials are stored — the password is never returned. */
+  has_credentials: boolean;
+  user: string;
+  dry_run: boolean;
+  upgrade_path: string;
+  transports: FirmwareTransport[];
+  default_transport: string;
+};
+
+export type FirmwareResult = {
+  ok: boolean;
+  dry_run: boolean;
+  transport: string;
+  url: string;
+  sha256: string;
+  size: number;
+  status?: number;
+  /** True/false once the console was watched; null when none was attached. */
+  flash_started?: boolean | null;
+  detail?: string;
+};
+
+export async function getFirmwareConfig(): Promise<FirmwareConfig> {
+  return get<FirmwareConfig>("/api/firmware/config");
+}
+
+export async function setFirmwareCredentials(user: string, password: string): Promise<void> {
+  await put<{ has_credentials: boolean }>("/api/firmware/credentials", { user, password });
+}
+
+export async function setDutMgmtUrl(dut: string, mgmtUrl: string): Promise<FirmwareDut> {
+  return put<FirmwareDut>("/api/firmware/mgmt-url", { dut, mgmt_url: mgmtUrl });
+}
+
+export async function upgradeFirmware(
+  fileId: number,
+  dutId = DEFAULT_DUT_ID,
+  opts: { dryRun?: boolean; expectedSha256?: string; transport?: string } = {},
+): Promise<FirmwareResult> {
+  // dryRun only ever makes a run safer — the backend ORs it with the
+  // deployment flag, so false cannot switch a forced dry run off.
+  return post<FirmwareResult>("/api/firmware/upgrade", {
+    file_id: fileId,
+    dut: dutId,
+    dry_run: opts.dryRun ?? false,
+    expected_sha256: opts.expectedSha256 || null,
+    ...(opts.transport ? { transport: opts.transport } : {}),
+  });
+}
+
+/** Which image a transport accepts, for the wrong-file warning in the UI. */
+export function imageKind(filename: string): "signed" | "encrypted" | "unknown" {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith(".sig")) return "signed";
+  if (lower.includes("-encrypt_") && lower.endsWith(".bin")) return "encrypted";
+  return "unknown";
+}
+
+// --- Audit (P71d) ----------------------------------------------------------
+
+export type UserRecord = {
+  id: number;
+  username: string;
+  display_name: string | null;
+  role: Role;
+  created_at: string;
+  updated_at: string | null;
+  last_seen_at: string | null;
+};
+
+export type RoleChange = {
+  id: number;
+  username: string;
+  from_role: Role | null;
+  to_role: Role;
+  via: "register" | "invite" | "cli";
+  invite_id: number | null;
+  changed_at: string;
+};
+
+export async function listUsers(): Promise<UserRecord[]> {
+  const result = await get<{ users: UserRecord[] }>("/api/auth/users");
+  return result.users;
+}
+
+export async function listRoleChanges(limit = 100): Promise<RoleChange[]> {
+  const result = await get<{ changes: RoleChange[] }>(`/api/auth/role-changes?limit=${limit}`);
+  return result.changes;
+}
 
 export async function createInvite(params: InviteParams): Promise<CreatedInvite> {
   return post<CreatedInvite>("/api/auth/invites", params);

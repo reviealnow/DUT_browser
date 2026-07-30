@@ -16,6 +16,8 @@
 #   DUT_LAN_PSK  (optional; with DUT_LAN_SSID, also prints a join-Wi-Fi QR)
 #   DUT_QR_INVITE=engineer|admin (optional; QR carries a single-use invite for
 #                that role instead of the plain guest URL)
+#   DUT_NO_TLS=1 (keep --prod on plain HTTP; TLS is --prod-only either way,
+#                since the dev Vite proxy targets the backend over http/ws)
 #   NOTE (dev only): the Vite proxy targets 127.0.0.1:8000 (frontend/vite.config.ts);
 #   changing BACKEND_PORT in dev also requires updating that proxy target.
 #
@@ -96,6 +98,54 @@ if [ "$PROD" -eq 1 ]; then
   (cd "$FRONTEND_DIR" && npm run build)
 fi
 
+detect_lan_ip() {
+  # macOS: ask the common interfaces directly; Linux: hostname -I.
+  local ip
+  for iface in en0 en1 en2; do
+    ip="$(ipconfig getifaddr "$iface" 2>/dev/null || true)"
+    [ -n "$ip" ] && { echo "$ip"; return; }
+  done
+  hostname -I 2>/dev/null | awk '{print $1}'
+}
+
+LAN_IP="$(detect_lan_ip || true)"
+
+# --- TLS (--prod only) -------------------------------------------------------
+# Self-signed cert, generated once into the gitignored data/certs. TLS is for
+# --prod only: in dev the Vite proxy targets the backend over plain http/ws, so
+# putting TLS on :8000 would break the proxy rather than secure anything. Opt
+# out entirely with DUT_NO_TLS=1.
+#
+# The cert pins the LAN IP in subjectAltName, so it stops matching if the host's
+# address changes — delete data/certs and relaunch to regenerate.
+CERT_DIR="$ROOT_DIR/dut-dashboard/data/certs"
+CERT_FILE="$CERT_DIR/dev.crt"
+KEY_FILE="$CERT_DIR/dev.key"
+UVICORN_TLS_ARGS=()
+SCHEME="http"
+
+if [ "$PROD" -eq 1 ] && [ -z "${DUT_NO_TLS:-}" ]; then
+  if [ ! -f "$CERT_FILE" ] || [ ! -f "$KEY_FILE" ]; then
+    mkdir -p "$CERT_DIR"
+    SAN="DNS:localhost,IP:127.0.0.1"
+    [ -n "$LAN_IP" ] && SAN="$SAN,IP:$LAN_IP"
+    echo "[start_lan] generating self-signed cert ($SAN)..."
+    if ! openssl req -x509 -newkey rsa:2048 -nodes -days 825 \
+        -keyout "$KEY_FILE" -out "$CERT_FILE" \
+        -subj "/CN=dut-dashboard" -addext "subjectAltName=$SAN" 2>/dev/null; then
+      echo "[start_lan] WARNING: openssl failed — falling back to plain HTTP"
+      rm -f "$CERT_FILE" "$KEY_FILE"
+    else
+      chmod 600 "$KEY_FILE"
+    fi
+  fi
+  if [ -f "$CERT_FILE" ] && [ -f "$KEY_FILE" ]; then
+    UVICORN_TLS_ARGS=(--ssl-keyfile "$KEY_FILE" --ssl-certfile "$CERT_FILE")
+    SCHEME="https"
+    echo "[start_lan] TLS on (self-signed — expect one browser warning). DUT_NO_TLS=1 disables it."
+  fi
+fi
+
 # --- Stop child(ren) on exit ------------------------------------------------
 PIDS=()
 cleanup() {
@@ -109,12 +159,13 @@ trap cleanup INT TERM EXIT
 
 # --- Backend (no --reload: this is a deploy launcher) -----------------------
 # In prod the backend also serves the built dist/ at "/" (single port).
-echo "[start_lan] backend  -> http://${BIND_HOST}:${BACKEND_PORT}"
-(cd "$BACKEND_DIR" && exec python3 -m uvicorn app.main:app --host "$BIND_HOST" --port "$BACKEND_PORT") &
+echo "[start_lan] backend  -> ${SCHEME}://${BIND_HOST}:${BACKEND_PORT}"
+(cd "$BACKEND_DIR" && exec python3 -m uvicorn app.main:app \
+  --host "$BIND_HOST" --port "$BACKEND_PORT" "${UVICORN_TLS_ARGS[@]:-}") &
 PIDS+=($!)
 
 if [ "$PROD" -eq 1 ]; then
-  echo "[start_lan] PROD: open http://${BIND_HOST}:${BACKEND_PORT}   <-- UI + API + WS on one port"
+  echo "[start_lan] PROD: open ${SCHEME}://${BIND_HOST}:${BACKEND_PORT}   <-- UI + API + WS on one port"
 else
   echo "[start_lan] frontend -> http://${BIND_HOST}:${FRONTEND_PORT}   <-- open this on the LAN"
   (cd "$FRONTEND_DIR" && exec npm run dev -- --host "$BIND_HOST" --port "$FRONTEND_PORT") &
@@ -126,16 +177,6 @@ fi
 # the whole onboarding: join the Wi-Fi, scan, watch. Engineers log in from the
 # toolbar with the passcode printed above. All best-effort — any failure here
 # degrades to the plain-text URLs already printed and never kills the launcher.
-
-detect_lan_ip() {
-  # macOS: ask the common interfaces directly; Linux: hostname -I.
-  local ip
-  for iface in en0 en1 en2; do
-    ip="$(ipconfig getifaddr "$iface" 2>/dev/null || true)"
-    [ -n "$ip" ] && { echo "$ip"; return; }
-  done
-  hostname -I 2>/dev/null | awk '{print $1}'
-}
 
 detect_ssid() {
   # Operator override first; else current association (macOS; fails silently
@@ -167,10 +208,10 @@ qr.print_ascii(invert=True)
 PY
 }
 
-LAN_IP="$(detect_lan_ip || true)"
 if [ -n "$LAN_IP" ]; then
   if [ "$PROD" -eq 1 ]; then
-    DASH_URL="http://${LAN_IP}:${BACKEND_PORT}"
+    # Only the prod single-port backend carries TLS; the dev Vite server does not.
+    DASH_URL="${SCHEME}://${LAN_IP}:${BACKEND_PORT}"
   else
     DASH_URL="http://${LAN_IP}:${FRONTEND_PORT}"
   fi

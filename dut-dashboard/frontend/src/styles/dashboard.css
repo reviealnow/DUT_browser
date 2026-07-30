@@ -1638,3 +1638,81 @@ body {
 .invite-table {
   min-width: 420px;
 }
+
+/* --- Audit (P71d): unverified author marker + role history ----------------- */
+
+.author-tag-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* Deliberately muted, not alarming: an unverified name is old data, not an
+   incident. It has to be visible enough that nobody reads it as verified. */
+.author-unverified {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint);
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  padding: 0 var(--space-1);
+  white-space: nowrap;
+}
+
+.role-history {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-4);
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* --- Firmware (P72b): destructive action + progress ------------------------ */
+
+/* A flash can brick the DUT, so its buttons are the only red ones in the app. */
+.btn.danger-btn {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.btn.danger-btn:hover:not(:disabled) {
+  background: var(--danger);
+  color: #fff;
+}
+
+.btn.danger-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.fw-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.fw-progress-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.fw-progress-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+/* Truncated checksum in the Files table — full value is in the title. */
+.file-sha {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
