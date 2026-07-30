@@ -105,8 +105,16 @@ def me(user: dict = Depends(auth_service.current_user)) -> dict:
 
 
 @router.post("/logout")
-def logout(response: Response) -> dict:
-    response.delete_cookie(key=COOKIE_NAME, path="/")
+def logout(request: Request, response: Response) -> dict:
+    # delete_cookie must mirror the flags the cookie was set with, or the
+    # browser keeps the original and the logout silently fails.
+    response.delete_cookie(
+        key=COOKIE_NAME,
+        path="/",
+        httponly=True,
+        samesite="lax",
+        secure=request.url.scheme == "https",
+    )
     return {"ok": True}
 
 
