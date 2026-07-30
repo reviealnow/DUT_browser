@@ -122,16 +122,23 @@ class FirmwareTestCase(unittest.TestCase):
 
         def handler(request: httpx.Request) -> httpx.Response:
             self.requests.append(request)
-            if "authorization" not in request.headers:
+            authed = "authorization" in request.headers
+            if "common.cgi" in str(request.url):
+                # Faithful to the real AP6_840E: this endpoint NEVER challenges.
+                # It answers anonymous callers 200 with a token-less body, which
+                # is indistinguishable from "CSRF is disabled" — the trap that
+                # made the first real flash fail with 577. Only an authenticated
+                # caller is given a token.
+                if not authed or token is None:
+                    return httpx.Response(200, json={"SET_INFO": {"language": "uk", "": ""}})
+                return httpx.Response(200, json={"SET_INFO": {"CSRFToken": token}})
+            if not authed:
                 return httpx.Response(
                     401,
                     headers={
                         "WWW-Authenticate": 'Digest qop="auth", realm="localhost", nonce="abc123"'
                     },
                 )
-            if "common.cgi" in str(request.url):
-                payload: dict = {"SET_INFO": {}} if token is None else {"SET_INFO": {"CSRFToken": token}}
-                return httpx.Response(200, json=payload)
             return httpx.Response(status, text="ok")
 
         self._stack.enter_context(
@@ -515,6 +522,42 @@ class GuiTransportTests(FirmwareTestCase):
         self.assertTrue(fetched, "the page reads its token from common.cgi")
         self.assertIn("csrftoken=1", str(fetched[-1].url))
         self.assertIn(b"tok-4242", self._uploads()[-1].content)
+
+    def test_the_token_fetch_is_authenticated(self) -> None:
+        """The bug that made the first real flash fail with 577.
+
+        common.cgi answers anonymous callers 200 with a token-less body, and
+        httpx's DigestAuth only attaches credentials after a 401 — so on a fresh
+        client the token fetch went out ANONYMOUS, read no token, and the upload
+        omitted CSRFToken while the device very much required it. The fetch must
+        therefore carry Authorization.
+        """
+        self._ready_with_csrf("tok-auth")
+        file_id = self._upload_image()
+        self._login("admin")
+        self.client.post(
+            "/api/firmware/upgrade",
+            json={"file_id": file_id, "dry_run": False, "transport": "gui"},
+        )
+        fetched = [r for r in self.requests if "common.cgi" in str(r.url)]
+        self.assertTrue(fetched, "the token must be fetched at all")
+        self.assertTrue(
+            any("authorization" in r.headers for r in fetched),
+            "the CSRF fetch went out anonymous — this is exactly the 577 bug",
+        )
+
+    def test_the_upload_carries_origin_and_referer(self) -> None:
+        """Mirrors the captured browser request the DUT accepts."""
+        self._ready_with_csrf("tok-hdr")
+        file_id = self._upload_image()
+        self._login("admin")
+        self.client.post(
+            "/api/firmware/upgrade",
+            json={"file_id": file_id, "dry_run": False, "transport": "gui"},
+        )
+        sent = self._uploads()[-1]
+        self.assertEqual(sent.headers["origin"], "https://192.0.2.10:443")
+        self.assertTrue(sent.headers["referer"].endswith("/fwupdate.html"))
 
     def test_a_build_without_csrf_still_uploads(self) -> None:
         """fwupdate.html disables the field when HTTP_SUPPORT_CSRF is off, so a

@@ -65,10 +65,18 @@ GUI_UPLOAD_PATH = "/submit.cgi"
 GUI_SUBMIT_PAGE = "fwupdate_pc.html"
 GUI_FILE_FIELD = "binary"
 # The web UI harvests its token from GET /cgi-bin/common.cgi?csrftoken=1 and
-# reads SET_INFO.CSRFToken (see /www/html/csrf.htm). When the build has
+# reads SET_INFO.CSRFToken (see /www/html/csrf.htm). When a build has
 # HTTP_SUPPORT_CSRF off, fwupdate.html *disables* the field so nothing is sent --
-# so a missing token is a valid state, not an error.
+# so a missing token is a legal state and not automatically an error.
+#
+# BUT: that endpoint answers anonymous callers with 200 and a token-less body,
+# which is indistinguishable from "CSRF is off". A captured browser upload proved
+# CSRF is very much ON here (`CSRFToken: 1490240`), so the token fetch has to be
+# authenticated -- see _prime_digest.
 GUI_CSRF_PATH = "/cgi-bin/common.cgi"
+# The page that hosts the upload form. Sent as Referer to mirror the browser
+# request that works; CGI CSRF checks commonly look at it alongside the token.
+GUI_REFERER_PAGE = "/fwupdate.html"
 
 # The /ap/* API family answers on 10443, not 443. Verified on AP6_840E: :443
 # serves the web UI and 404s every /ap path, while :10443 returns 200 -- and
@@ -236,13 +244,37 @@ def check_image_for_transport(filename: str, transport: str) -> None:
         )
 
 
-def _fetch_csrf_token(client: httpx.Client, origin: str, auth: httpx.Auth) -> str | None:
-    """Token for the web-UI upload, or None when this build has CSRF disabled.
+def _prime_digest(client: httpx.Client, origin: str, auth: httpx.Auth) -> None:
+    """Make one request that DOES challenge, so `auth` learns the Digest nonce.
 
-    Mirrors what the page itself does. A failure to read one is not fatal: the
-    upload is attempted without it, and the DUT is the authority on whether that
-    is acceptable -- guessing a token would be worse than omitting it.
+    httpx's DigestAuth is challenge-driven: it sends a request unauthenticated
+    and only adds Authorization after a 401. `common.cgi` never challenges -- it
+    answers 200 to anonymous callers -- so a token fetch on a fresh client is
+    silently ANONYMOUS, and the DUT then returns a token-less body that looks
+    exactly like "this build has CSRF disabled". That misreading is what made the
+    first real flash fail with 577.
+
+    `/` does challenge, and after one round trip DigestAuth reuses the cached
+    challenge pre-emptively on later requests from the same auth object. Failure
+    here is not fatal: the caller still tries, and the upload itself challenges
+    normally.
     """
+    try:
+        client.get(origin + "/", auth=auth)
+    except httpx.HTTPError:
+        pass
+
+
+def _fetch_csrf_token(client: httpx.Client, origin: str, auth: httpx.Auth) -> str | None:
+    """Token for the web-UI upload, or None when this build really has CSRF off.
+
+    Mirrors what the page itself does. **The request must be authenticated** --
+    see _prime_digest for why that is not automatic here. A failure to read one
+    is not fatal: the upload is attempted without it, and the DUT is the
+    authority on whether that is acceptable -- guessing a token would be worse
+    than omitting it.
+    """
+    _prime_digest(client, origin, auth)
     try:
         response = client.get(
             urljoin(origin + "/", GUI_CSRF_PATH.lstrip("/")),
@@ -427,6 +459,14 @@ def run_upgrade(
                 response = client.post(
                     url,
                     data=fields,
+                    # Mirrors the browser request that the DUT accepts. Origin and
+                    # Referer travel with any real form post, and a CGI CSRF check
+                    # that inspects them would otherwise see a request that looks
+                    # cross-site.
+                    headers={
+                        "Origin": origin,
+                        "Referer": urljoin(origin + "/", GUI_REFERER_PAGE.lstrip("/")),
+                    },
                     # httpx builds the multipart body and its own Content-Type
                     # boundary; setting that header by hand would break it.
                     files={
