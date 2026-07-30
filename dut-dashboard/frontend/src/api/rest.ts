@@ -832,6 +832,19 @@ export type InviteSummary = {
 
 export type FirmwareDut = { id: string; label: string; mgmt_url: string };
 
+/**
+ * One of the DUT's two upload paths. They are NOT interchangeable — each accepts
+ * only its own image type, so this is a correctness choice, not a preference.
+ */
+export type FirmwareTransport = {
+  id: string;
+  label: string;
+  port: number;
+  path: string;
+  /** Which image this path accepts: "signed" (.sig) or "encrypted" (.bin). */
+  image: "signed" | "encrypted";
+};
+
 export type FirmwareConfig = {
   duts: FirmwareDut[];
   /** Whether DUT API credentials are stored — the password is never returned. */
@@ -839,11 +852,14 @@ export type FirmwareConfig = {
   user: string;
   dry_run: boolean;
   upgrade_path: string;
+  transports: FirmwareTransport[];
+  default_transport: string;
 };
 
 export type FirmwareResult = {
   ok: boolean;
   dry_run: boolean;
+  transport: string;
   url: string;
   sha256: string;
   size: number;
@@ -868,7 +884,7 @@ export async function setDutMgmtUrl(dut: string, mgmtUrl: string): Promise<Firmw
 export async function upgradeFirmware(
   fileId: number,
   dutId = DEFAULT_DUT_ID,
-  opts: { dryRun?: boolean; expectedSha256?: string } = {},
+  opts: { dryRun?: boolean; expectedSha256?: string; transport?: string } = {},
 ): Promise<FirmwareResult> {
   // dryRun only ever makes a run safer — the backend ORs it with the
   // deployment flag, so false cannot switch a forced dry run off.
@@ -877,7 +893,16 @@ export async function upgradeFirmware(
     dut: dutId,
     dry_run: opts.dryRun ?? false,
     expected_sha256: opts.expectedSha256 || null,
+    ...(opts.transport ? { transport: opts.transport } : {}),
   });
+}
+
+/** Which image a transport accepts, for the wrong-file warning in the UI. */
+export function imageKind(filename: string): "signed" | "encrypted" | "unknown" {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith(".sig")) return "signed";
+  if (lower.includes("-encrypt_") && lower.endsWith(".bin")) return "encrypted";
+  return "unknown";
 }
 
 // --- Audit (P71d) ----------------------------------------------------------

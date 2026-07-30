@@ -29,6 +29,9 @@ class UpgradeBody(BaseModel):
     # way to switch a real flash on: DUT_FIRMWARE_DRY_RUN is a safety flag, so
     # a request can only ever make a run safer, never riskier.
     dry_run: bool | None = None
+    # Which of the DUT's two upload paths to use. They accept different image
+    # types, so this is not a performance knob — see firmware_service.
+    transport: str = firmware_service.TRANSPORT_GUI
 
 
 class CredentialsBody(BaseModel):
@@ -60,6 +63,25 @@ def get_config(request: Request, _admin: dict = _ADMIN) -> dict:
         "user": user,
         "dry_run": firmware_service.is_dry_run(),
         "upgrade_path": firmware_service.UPGRADE_PATH,
+        # So the UI can state the two-image rule instead of leaving the operator
+        # to rediscover it by flashing the wrong file.
+        "transports": [
+            {
+                "id": firmware_service.TRANSPORT_GUI,
+                "label": "Web UI (signed .sig)",
+                "port": firmware_service.DEFAULT_GUI_PORT,
+                "path": firmware_service.GUI_UPLOAD_PATH,
+                "image": "signed",
+            },
+            {
+                "id": firmware_service.TRANSPORT_API,
+                "label": "Management API (encrypted .bin)",
+                "port": firmware_service.DEFAULT_MGMT_PORT,
+                "path": firmware_service.UPGRADE_PATH,
+                "image": "encrypted",
+            },
+        ],
+        "default_transport": firmware_service.TRANSPORT_GUI,
     }
 
 
@@ -81,7 +103,9 @@ def set_mgmt_url(body: MgmtUrlBody, request: Request, _admin: dict = _ADMIN) -> 
         context = registry.get(body.dut)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=f"Unknown DUT: {body.dut}") from exc
-    registry.record_mgmt_url(body.dut, firmware_service.normalise_mgmt_url(body.mgmt_url))
+    # Stored without a default port: each transport supplies its own at upgrade
+    # time, so one address serves both.
+    registry.record_mgmt_url(body.dut, firmware_service.normalise_mgmt_host(body.mgmt_url))
     return {"dut": body.dut, "mgmt_url": context.mgmt_url}
 
 
@@ -118,6 +142,12 @@ async def upgrade(body: UpgradeBody, request: Request, _admin: dict = _ADMIN) ->
     # OR, never override: a deployment-wide dry run cannot be switched off from
     # the browser, but any caller may ask for a rehearsal.
     dry_run = firmware_service.is_dry_run() or bool(body.dry_run)
+    if body.transport not in firmware_service.TRANSPORTS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown transport '{body.transport}';"
+            f" expected one of {', '.join(firmware_service.TRANSPORTS)}",
+        )
     try:
         return await asyncio.to_thread(
             firmware_service.run_upgrade,
@@ -129,6 +159,7 @@ async def upgrade(body: UpgradeBody, request: Request, _admin: dict = _ADMIN) ->
             # Lets the service confirm the DUT actually began flashing instead
             # of trusting the HTTP status alone.
             lambda: context.console_buffer.recent(200),
+            transport=body.transport,
         )
     except firmware_service.ChecksumMismatch as exc:
         # 409: the request was well-formed, the bytes are not what was expected.

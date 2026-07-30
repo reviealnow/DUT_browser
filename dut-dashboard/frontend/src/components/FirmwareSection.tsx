@@ -17,6 +17,7 @@ import {
   humanizeApiError,
   setDutMgmtUrl,
   setFirmwareCredentials,
+  imageKind,
   upgradeFirmware,
   WorkspaceFile,
 } from "../api/rest";
@@ -34,6 +35,7 @@ export default function FirmwareSection({ dutId }: { dutId: string }) {
   const [expected, setExpected] = useState("");
   const [confirming, setConfirming] = useState(false);
   const [typed, setTyped] = useState("");
+  const [transport, setTransport] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
@@ -45,7 +47,14 @@ export default function FirmwareSection({ dutId }: { dutId: string }) {
   );
 
   const reload = () => {
-    getFirmwareConfig().then(setConfig).catch((err) => setError(humanizeApiError(err)));
+    getFirmwareConfig()
+      .then((cfg) => {
+        setConfig(cfg);
+        // Adopt the backend's default once, so the two-image rule is decided in
+        // one place rather than duplicated as a literal here.
+        setTransport((current) => current || cfg.default_transport);
+      })
+      .catch((err) => setError(humanizeApiError(err)));
   };
 
   useEffect(() => {
@@ -60,6 +69,17 @@ export default function FirmwareSection({ dutId }: { dutId: string }) {
   const dryRunForced = config?.dry_run ?? false;
   const ready = Boolean(dut?.mgmt_url) && (config?.has_credentials ?? false);
 
+  const transports = config?.transports ?? [];
+  const activeTransport = transports.find((t) => t.id === transport) ?? transports[0] ?? null;
+  // The DUT accepts only one image type per upload path, so a mismatch is worth
+  // saying out loud before the operator commits — the backend refuses it too,
+  // but finding out at the confirm dialog is a worse way to learn.
+  const chosenKind = chosen ? imageKind(chosen.filename) : "unknown";
+  const mismatch =
+    activeTransport && chosenKind !== "unknown" && chosenKind !== activeTransport.image
+      ? `${chosen?.filename} is the ${chosenKind} image; “${activeTransport.label}” needs the ${activeTransport.image} one.`
+      : null;
+
   const flash = async (rehearse: boolean) => {
     if (!chosen) {
       return;
@@ -71,10 +91,11 @@ export default function FirmwareSection({ dutId }: { dutId: string }) {
       const outcome = await upgradeFirmware(chosen.id, dutId, {
         dryRun: rehearse,
         expectedSha256: expected.trim() || undefined,
+        transport: transport || undefined,
       });
       setResult(
         outcome.dry_run
-          ? `Dry run complete — nothing was sent. Would PUT ${outcome.size} bytes to ${outcome.url} (sha256 ${outcome.sha256}).`
+          ? `Dry run complete — nothing was sent. Would upload ${outcome.size} bytes to ${outcome.url} via the ${outcome.transport} transport (sha256 ${outcome.sha256}).`
           : (outcome.detail ?? "Upgrade accepted."),
       );
       setConfirming(false);
@@ -88,7 +109,10 @@ export default function FirmwareSection({ dutId }: { dutId: string }) {
 
   return (
     <>
-      <Card title="Upgrade Firmware" subtitle={`Admin only · PUT to ${config?.upgrade_path ?? "the DUT"}`}>
+      <Card
+        title="Upgrade Firmware"
+        subtitle={`Admin only · ${activeTransport ? activeTransport.label : "select an upload path"}`}
+      >
         <div className="settings-list">
           {dryRunForced ? (
             <div className="pill warn" style={{ alignSelf: "flex-start" }}>
@@ -104,7 +128,29 @@ export default function FirmwareSection({ dutId }: { dutId: string }) {
           ) : null}
 
           <label className="modal-label">
-            Firmware image (.sig, from the Files workspace)
+            Upload path
+            <select
+              className="input"
+              value={transport}
+              onChange={(e) => setTransport(e.target.value)}
+            >
+              {transports.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {activeTransport ? (
+            <div className="setting-hint">
+              POSTs to <code>{activeTransport.path}</code> on port {activeTransport.port}. The DUT
+              accepts only the <strong>{activeTransport.image}</strong> image here — the other path
+              takes the other type, and they are not interchangeable.
+            </div>
+          ) : null}
+
+          <label className="modal-label">
+            Firmware image (from the Files workspace)
             <select
               className="input"
               value={selected ?? ""}
@@ -118,6 +164,12 @@ export default function FirmwareSection({ dutId }: { dutId: string }) {
               ))}
             </select>
           </label>
+
+          {mismatch ? (
+            <div className="flash" style={{ color: "var(--danger)" }}>
+              {mismatch}
+            </div>
+          ) : null}
 
           {chosen ? (
             <div className="setting-hint">

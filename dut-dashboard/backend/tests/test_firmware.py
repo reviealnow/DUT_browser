@@ -24,6 +24,11 @@ from app.main import app
 from app.services import auth_service, file_service, firmware_service
 
 IMAGE_BYTES = b"customer-signed firmware image"
+# The two image types are not interchangeable: the web UI takes the signed one,
+# the management API the encrypted one. Tests name them explicitly so a wrong
+# pairing shows up as an intentional case rather than an accident.
+SIGNED_NAME = "AP6_v2.sig"
+ENCRYPTED_NAME = "ubi_kernel_AP6_840E-encrypt_v110339.bin"
 IMAGE_SHA = hashlib.sha256(IMAGE_BYTES).hexdigest()
 
 
@@ -92,8 +97,8 @@ class FirmwareTestCase(unittest.TestCase):
         user = auth_service.create_or_update_user(f"user-{role}", role, role)
         self.client.cookies.set(auth_service.COOKIE_NAME, auth_service.create_token(user))
 
-    def _upload_image(self, data: bytes = IMAGE_BYTES) -> int:
-        return file_service.save_uploaded_file("AP6_v2.sig", io.BytesIO(data), "root")
+    def _upload_image(self, data: bytes = IMAGE_BYTES, name: str = SIGNED_NAME) -> int:
+        return file_service.save_uploaded_file(name, io.BytesIO(data), "root")
 
     def auth_schemes(self) -> list[str]:
         """Which auth scheme the client offered, per request that carried one."""
@@ -102,6 +107,40 @@ class FirmwareTestCase(unittest.TestCase):
             for i in range(len(self.requests))
             if "authorization" in self.requests[i].headers
         ]
+
+    def _ready_with_csrf(self, token: str | None, status: int = 200) -> None:
+        """Like `_ready`, but common.cgi answers with (or without) a CSRF token.
+
+        `token=None` models a build with HTTP_SUPPORT_CSRF off, where the page
+        disables the field instead of sending one.
+        """
+        self.context.mgmt_url = "https://192.0.2.10:443"
+        firmware_service.set_credentials("admin", "secret")
+        self.context.console_buffer.lines = [
+            f"Execute {firmware_service.FLASH_STARTED_MARKER} ..."
+        ]
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            self.requests.append(request)
+            if "authorization" not in request.headers:
+                return httpx.Response(
+                    401,
+                    headers={
+                        "WWW-Authenticate": 'Digest qop="auth", realm="localhost", nonce="abc123"'
+                    },
+                )
+            if "common.cgi" in str(request.url):
+                payload: dict = {"SET_INFO": {}} if token is None else {"SET_INFO": {"CSRFToken": token}}
+                return httpx.Response(200, json=payload)
+            return httpx.Response(status, text="ok")
+
+        self._stack.enter_context(
+            patch.object(
+                firmware_service,
+                "run_upgrade",
+                _with_mock_transport(firmware_service.run_upgrade, httpx.MockTransport(handler)),
+            )
+        )
 
     def _ready(self, status: int = 200) -> None:
         """A DUT that is addressable, credentialed and answers `status`."""
@@ -194,7 +233,9 @@ class CredentialTests(FirmwareTestCase):
             "/api/firmware/upgrade", json={"file_id": file_id, "dry_run": False}
         )
         self.assertEqual(response.status_code, 502)
-        self.assertIn("rejected the API credentials", response.json()["detail"])
+        # Wording is shared by both transports: the gui path meets the 401 while
+        # fetching a CSRF token, the api path on the upload itself.
+        self.assertIn("rejected the credentials", response.json()["detail"])
 
 
 class RejectionTests(FirmwareTestCase):
@@ -271,11 +312,13 @@ class ChecksumTests(FirmwareTestCase):
 
 class UpgradeTests(FirmwareTestCase):
     def test_the_image_is_put_to_the_documented_endpoint(self) -> None:
-        file_id = self._upload_image()
+        """The api transport, which takes the encrypted image."""
+        file_id = self._upload_image(name=ENCRYPTED_NAME)
         self._ready()
         self._login("admin")
         response = self.client.post(
-            "/api/firmware/upgrade", json={"file_id": file_id, "dry_run": False}
+            "/api/firmware/upgrade",
+            json={"file_id": file_id, "dry_run": False, "transport": "api"},
         )
         self.assertEqual(response.status_code, 200, response.text)
         sent = self.requests[-1]
@@ -301,10 +344,13 @@ class UpgradeTests(FirmwareTestCase):
     def test_the_authenticated_retry_still_carries_the_whole_image(self) -> None:
         """Digest sends the request twice. A streaming body would be consumed by
         the probe, handing a device about to flash itself an empty image."""
-        file_id = self._upload_image()
+        file_id = self._upload_image(name=ENCRYPTED_NAME)
         self._ready()
         self._login("admin")
-        self.client.post("/api/firmware/upgrade", json={"file_id": file_id, "dry_run": False})
+        self.client.post(
+            "/api/firmware/upgrade",
+            json={"file_id": file_id, "dry_run": False, "transport": "api"},
+        )
         authed = [r for r in self.requests if "authorization" in r.headers]
         self.assertTrue(authed, "the authenticated attempt is the one that flashes")
         self.assertEqual(authed[-1].content, IMAGE_BYTES)
@@ -401,11 +447,13 @@ class FlashConfirmationTests(FirmwareTestCase):
 
 
 class MgmtUrlTests(FirmwareTestCase):
-    def test_a_bare_ip_gets_https_and_the_api_port(self) -> None:
-        """443 would 404 every /ap path — verified on AP6_840E."""
+    def test_a_bare_ip_is_stored_without_a_port(self) -> None:
+        """The two transports listen on different ports (443 vs 10443), so the
+        stored address must stay portless — pinning one here sends the other
+        transport somewhere that 404s. The port is applied per upload instead."""
         self._login("admin")
         body = self.client.put("/api/firmware/mgmt-url", json={"mgmt_url": "192.0.2.10"}).json()
-        self.assertEqual(body["mgmt_url"], "https://192.0.2.10:10443")
+        self.assertEqual(body["mgmt_url"], "https://192.0.2.10")
 
     def test_an_explicit_port_is_never_overridden(self) -> None:
         self._login("admin")
@@ -418,8 +466,150 @@ class MgmtUrlTests(FirmwareTestCase):
         self._login("admin")
         self.client.put("/api/firmware/mgmt-url", json={"mgmt_url": "192.0.2.10"})
         config = self.client.get("/api/firmware/config").json()
-        self.assertEqual(config["duts"][0]["mgmt_url"], "https://192.0.2.10:10443")
+        self.assertEqual(config["duts"][0]["mgmt_url"], "https://192.0.2.10")
         self.assertEqual(config["upgrade_path"], "/ap/systemctl/sysFwUpgrade")
+        self.assertEqual([t["id"] for t in config["transports"]], ["gui", "api"])
+        self.assertEqual(config["default_transport"], "gui")
+
+
+class GuiTransportTests(FirmwareTestCase):
+    """The web-UI upload, whose contract was read off /www/html/fwupdate.html and
+    /www/mongoose.config on a real AP6_840E."""
+
+    def _uploads(self) -> list[httpx.Request]:
+        return [r for r in self.requests if r.method == "POST"]
+
+    def test_the_signed_image_is_posted_as_multipart_to_submit_cgi(self) -> None:
+        file_id = self._upload_image()
+        self._ready()
+        self._login("admin")
+        response = self.client.post(
+            "/api/firmware/upgrade",
+            json={"file_id": file_id, "dry_run": False, "transport": "gui"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["transport"], "gui")
+
+        sent = self._uploads()[-1]
+        self.assertEqual(str(sent.url), "https://192.0.2.10:10443/submit.cgi")
+        self.assertTrue(sent.headers["content-type"].startswith("multipart/form-data"))
+        body = sent.content
+        # The device's own field names; getting any of them wrong is a silent
+        # no-op at flash time, so they are asserted literally.
+        self.assertIn(b'name="binary"', body)
+        self.assertIn(b'name="submitpg"', body)
+        self.assertIn(b"fwupdate_pc.html", body)
+        self.assertIn(b'name="decodepwd"', body)
+        self.assertIn(IMAGE_BYTES, body, "the whole image must reach the DUT")
+        self.assertEqual(set(self.auth_schemes()), {"digest"})
+
+    def test_the_csrf_token_is_fetched_and_forwarded(self) -> None:
+        self._ready_with_csrf("tok-4242")
+        file_id = self._upload_image()
+        self._login("admin")
+        self.client.post(
+            "/api/firmware/upgrade",
+            json={"file_id": file_id, "dry_run": False, "transport": "gui"},
+        )
+        fetched = [r for r in self.requests if "common.cgi" in str(r.url)]
+        self.assertTrue(fetched, "the page reads its token from common.cgi")
+        self.assertIn("csrftoken=1", str(fetched[-1].url))
+        self.assertIn(b"tok-4242", self._uploads()[-1].content)
+
+    def test_a_build_without_csrf_still_uploads(self) -> None:
+        """fwupdate.html disables the field when HTTP_SUPPORT_CSRF is off, so a
+        missing token is a valid state and must not block the flash."""
+        self._ready_with_csrf(None)
+        file_id = self._upload_image()
+        self._login("admin")
+        response = self.client.post(
+            "/api/firmware/upgrade",
+            json={"file_id": file_id, "dry_run": False, "transport": "gui"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertNotIn(b'name="CSRFToken"', self._uploads()[-1].content)
+
+    def test_gui_defaults_to_port_443(self) -> None:
+        self.assertEqual(
+            firmware_service.normalise_mgmt_url("192.0.2.10", "gui"),
+            "https://192.0.2.10:443",
+        )
+        self.assertEqual(
+            firmware_service.normalise_mgmt_url("192.0.2.10", "api"),
+            "https://192.0.2.10:10443",
+        )
+
+    def test_an_explicit_port_survives_either_transport(self) -> None:
+        for transport in ("gui", "api"):
+            with self.subTest(transport=transport):
+                self.assertEqual(
+                    firmware_service.normalise_mgmt_url("192.0.2.10:9999", transport),
+                    "https://192.0.2.10:9999",
+                )
+
+    def test_the_transport_is_the_default_so_signed_images_just_work(self) -> None:
+        file_id = self._upload_image()
+        self._ready()
+        self._login("admin")
+        response = self.client.post(
+            "/api/firmware/upgrade", json={"file_id": file_id, "dry_run": False}
+        )
+        self.assertEqual(response.json()["transport"], "gui")
+
+
+class ImagePairingTests(FirmwareTestCase):
+    """The vendor's rule, enforced before anything reaches the DUT: the API takes
+    the encrypted image, the web UI the signed one."""
+
+    def test_a_signed_image_is_refused_on_the_api_transport(self) -> None:
+        file_id = self._upload_image(name=SIGNED_NAME)
+        self._ready()
+        self._login("admin")
+        response = self.client.post(
+            "/api/firmware/upgrade",
+            json={"file_id": file_id, "dry_run": False, "transport": "api"},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("encrypted", response.json()["detail"])
+        self.assertEqual(self.requests, [], "nothing may reach the DUT")
+
+    def test_an_encrypted_image_is_refused_on_the_gui_transport(self) -> None:
+        file_id = self._upload_image(name=ENCRYPTED_NAME)
+        self._ready()
+        self._login("admin")
+        response = self.client.post(
+            "/api/firmware/upgrade",
+            json={"file_id": file_id, "dry_run": False, "transport": "gui"},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("signed", response.json()["detail"])
+        self.assertEqual(self.requests, [], "nothing may reach the DUT")
+
+    def test_an_unrecognised_name_is_allowed_through(self) -> None:
+        """The check is a guard against a known-wrong pairing, not a whitelist —
+        it must not block an image the vendor names differently."""
+        for transport in ("gui", "api"):
+            with self.subTest(transport=transport):
+                firmware_service.check_image_for_transport("mystery.img", transport)
+
+    def test_unknown_transport_is_rejected(self) -> None:
+        file_id = self._upload_image()
+        self._ready()
+        self._login("admin")
+        response = self.client.post(
+            "/api/firmware/upgrade",
+            json={"file_id": file_id, "dry_run": False, "transport": "telepathy"},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Unknown transport", response.json()["detail"])
+
+    def test_image_kind_classifies_both_real_names(self) -> None:
+        self.assertEqual(firmware_service.image_kind("wifix.tar.gz.sig"), "signed")
+        self.assertEqual(
+            firmware_service.image_kind("ubi_kernel_AP6_420E-encrypt_v110339.bin"), "encrypted"
+        )
+        self.assertEqual(firmware_service.image_kind("firmware.bin"), "unknown")
+        self.assertEqual(firmware_service.image_kind(""), "unknown")
 
 
 if __name__ == "__main__":
