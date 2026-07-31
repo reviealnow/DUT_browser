@@ -95,6 +95,40 @@ template, do not invent a new pattern:
 
 ---
 
+## Search before you write a helper
+
+The cheapest defect in this repo is a second copy of something that already
+exists. A real example: a clipboard-copy helper was added to the bulletin that
+duplicated `copyToClipboard` in `pages/AppShell.tsx`, down to a near-identical
+comment explaining the plain-HTTP fallback. Two copies drift — the next fix for
+Safari's selection behaviour would land in only one of them.
+
+This is a context problem, not a skill problem, so make searching a habit:
+
+```bash
+rg -n 'clipboard|execCommand' src                      # is this already solved?
+rg -n 'export function|export const' src/api/rest.ts   # what shared helpers exist?
+```
+
+Worth knowing before you start:
+
+| Where | What |
+|---|---|
+| `frontend/src/api/rest.ts` | typed REST client, `humanizeApiError`, `imageKind`, `listQuery` |
+| `frontend/src/monitoring/authorColor.ts` | author colour tags, shared by `TagChip` / `FilesSection` / `AuthorTag` |
+| `frontend/src/pages/AppShell.tsx` | `copyToClipboard`, `downloadTextFile` |
+| `backend/app/db/workspace.py` | `_ensure_column` — the migration idiom; do not hand-write `ALTER TABLE` |
+
+If what you find is buried somewhere awkward to import from, **extract it into a
+shared module and change both call sites** rather than copying it. The
+extraction is itself worthwhile work; say so in the PR.
+
+Searching catches duplicates. It will not tell you the existing code is wrong —
+copying a flawed helper faithfully is still a flaw — so this habit reduces
+review load, it does not replace review.
+
+---
+
 ## On-demand serial RPC discipline (critical)
 
 `SerialWorker.capture_command(cmd, timeout)` is a **synchronous** serial RPC: it
