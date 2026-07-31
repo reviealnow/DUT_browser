@@ -10,6 +10,74 @@ shared lab workspace (files + bulletin).
 > no Electron, no Rust, no desktop packaging. It runs as a local web service so
 > a whole test lab can point a browser at one Raspberry Pi / Linux host.
 
+## Ground rules for contributors
+
+These apply to everyone working in this repository, **including AI coding
+agents** — several sessions often run in parallel against a single physical test
+bench. `CONTRIBUTING.md`, `CLAUDE.md` and `dut-dashboard/CLAUDE.md` hold the full
+detail; this section is the short version of what actually breaks when ignored.
+
+### Hard constraints — do not "improve" these away
+
+1. **Browser-only.** No Tauri, Electron, Rust, or desktop packaging.
+2. **Offline-first.** No CDN at runtime, and no charting/UI library in the render
+   path. Charts are hand-rendered inline SVG and must also emit their source data
+   as `<script type="application/json">`. Bundled npm deps are fine; the ban is
+   on CDN plus chart/UI libraries.
+3. **One WebSocket.** Realtime telemetry reuses the shared monitor — do not open
+   new `/ws` connections. On-demand features use REST.
+4. **This app has authentication and roles** (guest / engineer / admin). Gating
+   lives in one place, `main.py`'s `include_router(..., dependencies=[...])`.
+   Authorship of uploads and posts comes from the **session**, never from a
+   client-supplied name. Do not weaken either; older docs describing a
+   "no login, shared-trust" model are out of date.
+5. **Never commit runtime data.** Everything under `dut-dashboard/logs/` and
+   `dut-dashboard/data/` is gitignored, and `snapshots.jsonl` may hold real
+   captured DUT data — do not delete it while testing.
+6. **No background polling of the serial port.** `capture_command` is a
+   synchronous RPC that pauses sysmon parsing; trigger it on section entry or an
+   explicit user action only, and coalesce concurrent captures.
+
+### Gates
+
+`pytest` (from `dut-dashboard/backend`) and `npm run typecheck` (from
+`dut-dashboard/frontend`) must **both** pass at every commit. There is no
+wired-up linter; these two are the gates. When behaviour changes, change the
+tests with it, and prefer a test that goes red if the fix is reverted.
+
+### Git
+
+Branch from **`CPU_Plots`** and open pull requests against it. **Never target
+`main` or `Tauri`.** Conventional Commits, one logical change per commit.
+Everything committed is **English** — code, comments, identifiers, commit
+messages, branch names, PR descriptions.
+
+### Shared hardware — check before you touch it
+
+The bench is one physical device, and parallel sessions collide on it:
+
+| Resource | Rule |
+|---|---|
+| Serial port (`/dev/cu.PL2303G-*` or similar) | **Exactly one process may hold it.** Run `lsof <port>` before opening. Hand it back when a human needs the console — the DUT requires a login on it after every reboot. |
+| The DUT itself | One device. Firmware upgrades, site surveys and serial captures interfere with each other. After any web-UI submit the DUT refuses further ones for several minutes. |
+| Ports `:8000` / `:5173` | Whoever starts first owns them. `.claude/launch.json` carries a `backend-8001` profile for a second session. |
+
+**Never power-cycle a DUT that may be writing flash.** A firmware upgrade is
+confirmed by the device's own console output and audit log — not by an HTTP
+status, and not by the UI's "Connected" label, which survives a backend restart
+that has already dropped the serial worker.
+
+### Parallel work: use a worktree
+
+```bash
+git worktree add -b feat/my-thing ../DUT_browser-my-thing CPU_Plots
+```
+
+A fresh worktree does **not** inherit the gitignored parts — `.venv`,
+`dut-dashboard/data/`, and `frontend/node_modules` must be created in it. An
+empty `data/` is a feature for QA: the app builds a clean `workspace.db` instead
+of sharing the primary checkout's.
+
 ## Architecture
 
 ```mermaid
@@ -94,10 +162,18 @@ flowchart TD
   (server-persisted editable keywords, see Settings), DUT log download, a
   **replay mode** for offline logs, and an **interactive terminal** mode
   (bundled xterm.js over `/ws/term`) for `vi` / `nano` on the DUT.
-- **Workspace** — LAN file sharing (upload/download/delete) and a bulletin
-  board with comments and per-author colour tags; identity is prefilled from
-  the caller's IP (`/api/whoami`), no login. Persisted in
+- **Workspace** — LAN file sharing (upload/download/delete, SHA-256 per file)
+  and a bulletin board with comments and per-author colour tags. Authorship
+  comes from the session when there is one. Persisted in
   `dut-dashboard/data/workspace.db` (SQLite).
+- **Roles and access** — guest browsing by default; `engineer` and `admin`
+  unlock the operating surfaces via a shared passcode or a QR invite token.
+  Role changes are recorded in an append-only audit trail.
+- **Firmware upgrade (admin only)** — flash a DUT from the browser over the
+  device's web-UI upload path, with the image taken from the workspace, its
+  checksum verified before a byte is sent, a rehearsal (dry-run) button, a
+  confirm dialog that requires typing the DUT's name back, and confirmation
+  that the flash actually began read from the DUT's serial console.
 - **Settings** — editable crash-keyword list (persisted server-side, shared by
   all clients) and UI preferences.
 - **Release banner** — an open SPA polls `/api/version` and shows a "new
@@ -208,6 +284,8 @@ Per-DUT endpoints accept `?dut=<id>` (defaults to the `default` DUT).
 | `GET` | `/api/logs` · `/api/logs/tail` · `/api/download/{file}` · `/api/download/preview/{file}` | list logs · tail · download / preview analyzer artifacts |
 | `GET/PUT` | `/api/settings/crash-keywords` | shared crash-keyword list (SQLite-persisted) |
 | CRUD | `/api/files` · `/api/bulletin/posts` (+comments) | workspace file sharing · bulletin board |
+| `POST/GET` | `/api/auth/register` · `/me` · `/logout` · `/redeem` · `/invites` · `/users` · `/role-changes` | role sessions · QR invite tokens · roster + audit trail (admin) |
+| `GET/POST` | `/api/firmware/config` · `/upgrade` | admin firmware upgrade: transports, DUT access, dry run + real flash |
 
 ## Known limitations
 
@@ -220,8 +298,11 @@ Per-DUT endpoints accept `?dut=<id>` (defaults to the `default` DUT).
   parsing; they are unavailable in replay mode.
 - **Interactive terminal assumes a single controller** per DUT and pauses
   monitoring while active.
-- **No auth** — shared-trust LAN model; workspace identity is a free-text name
-  prefilled from the caller's IP.
+- **Auth is role-based, not per-user access control** — browsing is open as
+  `guest`; `engineer` and `admin` are unlocked by a shared passcode (or a QR
+  invite token), so a role proves someone held the passcode, not who they are.
+  Authorship of uploads and posts is session-derived and marked *unverified* on
+  rows that predate that. Sessions are cookie-backed; `--prod` serves HTTPS.
 
 ## Documentation
 
