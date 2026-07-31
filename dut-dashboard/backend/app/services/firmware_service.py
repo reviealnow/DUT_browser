@@ -77,6 +77,13 @@ GUI_CSRF_PATH = "/cgi-bin/common.cgi"
 # The page that hosts the upload form. Sent as Referer to mirror the browser
 # request that works; CGI CSRF checks commonly look at it alongside the token.
 GUI_REFERER_PAGE = "/fwupdate.html"
+# The web server -- a vendor-patched Mongoose, NOT cgi_box -- holds a busy lock
+# for ~3.5 minutes after any web-UI submit and answers /submit.cgi with
+# `301 -> /busy.html` before the CGI ever runs. Nothing is received in that
+# state. Measured on AP6_840E; after a flash and reboot the window is much
+# longer (still locked 13 min later). Two upgrade attempts in quick succession
+# hit this routinely, so it is a normal state, not an edge case.
+GUI_BUSY_PAGE = "busy.html"
 
 # The /ap/* API family answers on 10443, not 443. Verified on AP6_840E: :443
 # serves the web UI and 404s every /ap path, while :10443 returns 200 -- and
@@ -124,6 +131,16 @@ class FirmwareAuthError(FirmwareError):
 
 class ChecksumMismatch(FirmwareError):
     """The image on disk is not the image the operator expected."""
+
+
+class FirmwareBusy(FirmwareError):
+    """The DUT's web UI was locked and never looked at the image.
+
+    Distinct from a refusal because the operator's next action is simply to
+    wait. Reporting it as success is the dangerous case: the response looks
+    like the accepted one, so an operator would be told a flash is under way
+    when the device received nothing at all.
+    """
 
 
 class FirmwareRejected(FirmwareError):
@@ -516,6 +533,18 @@ def run_upgrade(
         raise FirmwareError(
             f"The DUT refused the upgrade ({response.status_code}): {response.text[:200]}"
         )
+
+    if transport == TRANSPORT_GUI:
+        # A busy redirect is a 3xx, so it sails past the >= 400 check above and
+        # would otherwise be reported as an accepted upgrade.
+        target = response.headers.get("location", "").rsplit("/", 1)[-1].split("?", 1)[0].lower()
+        if target == GUI_BUSY_PAGE:
+            raise FirmwareBusy(
+                f"The DUT's web UI is busy and did not take the image (it answered"
+                f" {response.status_code} and redirected to {GUI_BUSY_PAGE}). It locks for a"
+                " few minutes after any web-UI submit, and for longer after a flash — wait"
+                " and try again."
+            )
 
     # A 200 only says the DUT accepted the bytes. Confirm it actually started by
     # watching its console for the marker it prints when the flash begins.
