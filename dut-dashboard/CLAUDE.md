@@ -45,9 +45,19 @@ monolingual-English for consistency; speak 繁中 to the user.
    monitor. Do **not** open new `/ws` connections. On-demand features use REST.
 4. **Don't break existing behavior.** Serial console, Critical Crash panel, log
    download, and replay mode must keep working.
-5. **Never commit runtime data.** Everything under `dut-dashboard/logs/` is
-   gitignored (session logs, `snapshots.jsonl`, analyzer output). Do **not**
-   delete `snapshots.jsonl` when testing — it may hold real captured DUT data.
+5. **Never commit runtime data.** Everything under `dut-dashboard/logs/` and
+   `dut-dashboard/data/` is gitignored (session logs, `snapshots.jsonl`,
+   analyzer output, `workspace.db`, uploads, secrets). Do **not** delete
+   `snapshots.jsonl` when testing — it may hold real captured DUT data.
+6. **Don't weaken auth.** The app has roles (`guest` / `engineer` / `admin`).
+   Gating lives in **one place** — `main.py`'s
+   `include_router(..., dependencies=[...])` plus a few `@app.get` decorators —
+   so add a new router there rather than sprinkling checks into endpoints.
+   Authorship of uploads, posts and comments comes from the **session**, never
+   from a client-supplied name; rows without a session id are surfaced as
+   *unverified* rather than backfilled into looking trustworthy. Secrets
+   (session secret, role passcodes, DUT credentials) are configuration, never
+   source, and no endpoint returns a password.
 
 ---
 
@@ -58,10 +68,14 @@ dut-dashboard/
   backend/app/
     parser/       SysMonParser + pydantic models (snapshot / cpu / wifi / console)
     serial/       SerialWorker (background thread; capture_command RPC)
-    services/     stateless parsers & stores (wifi_clients.py, console_buffer, ...)
+    services/     stateless parsers & stores (wifi_clients.py, console_buffer,
+                  auth_service, invite_service, file_service, firmware_service, ...)
+    db/           workspace SQLite schema + _ensure_column migrations
+    dut/          DUT registry (per-DUT context: worker, parser, buffers)
     websocket/    ws_manager (event fan-out)
-    api/          REST routers (serial_api, files_api, bulletin_api, duts_api, ...)
-    main.py       app wiring + a few direct @app.get endpoints (incl. /api/wifi/*)
+    api/          REST routers (serial_api, files_api, bulletin_api, duts_api,
+                  auth_api, firmware_api, ...)
+    main.py       app wiring, role gating, a few direct @app.get endpoints (incl. /api/wifi/*)
     config.py
   frontend/src/
     pages/        Dashboard, AppShell
@@ -97,6 +111,34 @@ occupies the read loop and **briefly pauses sysmon parsing**. Therefore:
 
 ---
 
+## Shared hardware — one bench, several sessions
+
+Sessions (increasingly several agents at once) share **one** physical test bench.
+Check before you take anything:
+
+- **The serial port admits exactly one process.** `lsof /dev/cu.PL2303G-*`
+  before opening it. If the backend holds it, a `minicom` will fail with
+  `Resource busy` — and vice versa, which silently costs the app its console.
+- **Hand the port back for console logins.** The DUT requires a login on its
+  serial console after every reboot, and only a human can do it. Release the
+  port, confirm it is free, and wait for confirmation that the prompt reads
+  `AP6_840E#` before reattaching. Output captured at the bootloader's `cmd>`
+  prompt is empty and must not be read as data.
+- **The DUT is one device.** Firmware upgrades, site surveys and serial captures
+  interfere. After any web-UI submit the DUT answers `/submit.cgi` with
+  `301 → /busy.html` for several minutes, before its CGI even runs.
+- **Never power-cycle a DUT that may be writing flash.** A flash is confirmed by
+  the device's own console output and audit log — not by an HTTP status, and not
+  by the UI's "Connected" label, which survives a backend restart that has
+  already dropped the SerialWorker.
+- **`:8000` / `:5173` belong to whoever started first.** `.claude/launch.json`
+  carries a `backend-8001` profile. For parallel work use
+  `git worktree add -b <branch> ../DUT_browser-<purpose> CPU_Plots`; a fresh
+  worktree inherits none of the gitignored parts (`.venv`, `data/`,
+  `node_modules`).
+
+---
+
 ## Build / run / verify
 
 Backend (`dut-dashboard/backend`):
@@ -112,6 +154,17 @@ npm run build                # production build
 ```
 There is no wired-up linter; **`npm run typecheck` + `pytest` are the gates.**
 Keep the tree green (typecheck passes, tests pass) at **every** commit.
+
+> ⚠️ **A green suite does not prove a route is still gated.** Most backend tests
+> call endpoint functions directly, which bypasses FastAPI's dependency
+> injection entirely — remove a router's `dependencies=[...]` and nothing fails.
+> `tests/test_route_protection.py` is the repo's TestClient suite and exists for
+> exactly that; extend it when you add a gated endpoint.
+>
+> Prefer a test that goes **red when the fix is reverted**. Several bugs here
+> were shipped with passing tests that asserted truthiness where identity was
+> needed (SQLite returns `0`/`1`, not `False`/`True`, so `assertFalse(0)` passes
+> while the browser shows the wrong thing).
 
 ---
 
@@ -137,6 +190,8 @@ Keep the tree green (typecheck passes, tests pass) at **every** commit.
 - [ ] No new `/ws`; on-demand work uses REST + `capture_command`.
 - [ ] No serial background-polling; captures coalesced + DUT-scoped.
 - [ ] Missing parser fields → `None`, no uncaught exceptions.
-- [ ] `npm run typecheck` and `pytest` pass.
-- [ ] Nothing under `dut-dashboard/logs/` staged; `snapshots.jsonl` intact.
+- [ ] New endpoints gated in `main.py`; authorship from the session, not the client.
+- [ ] `npm run typecheck` and `pytest` pass, and a reverted fix turns a test red.
+- [ ] Nothing under `dut-dashboard/logs/` or `data/` staged; `snapshots.jsonl` intact.
+- [ ] Serial port released if a human needs the console; no DUT left mid-flash.
 - [ ] Branched from `CPU_Plots`; Conventional Commits; existing features unbroken.
