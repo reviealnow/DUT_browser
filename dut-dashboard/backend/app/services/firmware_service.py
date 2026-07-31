@@ -453,9 +453,16 @@ def run_upgrade(
             auth = httpx.DigestAuth(user, password)
             if transport == TRANSPORT_GUI:
                 token = _fetch_csrf_token(client, origin, auth)
-                fields = {"submitpg": GUI_SUBMIT_PAGE, "decodepwd": ""}
+                # Field order mirrors the DOM order of form_pc_firmup in
+                # /www/html/fwupdate_sec.html -- submitpg, CSRFToken, decodepwd,
+                # then the file. /submit.cgi is a C multi-call binary (cgi_box,
+                # via cgi_multi_recv) that segfaults on a bare GET, so it is
+                # worth matching the browser part for part rather than assuming
+                # it parses multipart order-independently.
+                fields = {"submitpg": GUI_SUBMIT_PAGE}
                 if token is not None:
                     fields["CSRFToken"] = token
+                fields["decodepwd"] = ""
                 response = client.post(
                     url,
                     data=fields,
