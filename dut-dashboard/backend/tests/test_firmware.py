@@ -181,6 +181,41 @@ class FirmwareTestCase(unittest.TestCase):
         )
 
 
+    def _ready_gui_redirect(self, status: int, location: str) -> None:
+        """A gui-transport DUT whose upload answers with a redirect.
+
+        The real device answers `302 -> fwtemp.html` when it takes the image and
+        `301 -> /busy.html` when its web UI is locked. Both are 3xx, so only the
+        redirect target tells them apart.
+        """
+        self.context.mgmt_url = "https://192.0.2.10:443"
+        firmware_service.set_credentials("admin", "secret")
+        self.context.console_buffer.lines = [
+            f"Execute {firmware_service.FLASH_STARTED_MARKER} ..."
+        ]
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            self.requests.append(request)
+            if "common.cgi" in str(request.url):
+                return httpx.Response(200, json={"SET_INFO": {"CSRFToken": "tok"}})
+            if "authorization" not in request.headers:
+                return httpx.Response(
+                    401,
+                    headers={
+                        "WWW-Authenticate": 'Digest qop="auth", realm="localhost", nonce="abc123"'
+                    },
+                )
+            return httpx.Response(status, headers={"Location": location})
+
+        self._stack.enter_context(
+            patch.object(
+                firmware_service,
+                "run_upgrade",
+                _with_mock_transport(firmware_service.run_upgrade, httpx.MockTransport(handler)),
+            )
+        )
+
+
 def _with_mock_transport(original, transport):
     """Force run_upgrade onto a MockTransport so no test can reach a network."""
 
@@ -653,6 +688,48 @@ class ImagePairingTests(FirmwareTestCase):
         )
         self.assertEqual(firmware_service.image_kind("firmware.bin"), "unknown")
         self.assertEqual(firmware_service.image_kind(""), "unknown")
+
+
+class BusyLockTests(FirmwareTestCase):
+    """The device's web server locks for a few minutes after any web-UI submit.
+
+    Measured on a real AP6_840E: ~3.5 minutes after an ordinary submit, and much
+    longer after a flash and reboot. The lock lives in the vendor-patched
+    Mongoose, so `/submit.cgi` is answered `301 -> /busy.html` before cgi_box
+    ever runs and the image is not received at all.
+    """
+
+    def _upgrade(self) -> httpx.Response:
+        file_id = self._upload_image()
+        self._login("admin")
+        return self.client.post(
+            "/api/firmware/upgrade",
+            json={"file_id": file_id, "dry_run": False, "transport": "gui"},
+        )
+
+    def test_a_busy_redirect_is_reported_as_a_failure_not_an_accepted_upgrade(self) -> None:
+        """The dangerous case: a busy 301 looks like the accepted 302.
+
+        Both are 3xx and both sail past the >= 400 check, so before this was
+        handled the operator was told the upgrade had been accepted while the
+        DUT had received nothing.
+        """
+        self._ready_gui_redirect(301, "/busy.html")
+        response = self._upgrade()
+        self.assertEqual(response.status_code, 503, response.text)
+        self.assertIn("busy", response.json()["detail"].lower())
+
+    def test_the_normal_redirect_to_the_progress_page_is_still_accepted(self) -> None:
+        """Guards the fix from over-reaching: only busy.html means refused."""
+        self._ready_gui_redirect(302, "/fwtemp.html")
+        response = self._upgrade()
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(response.json()["ok"])
+
+    def test_a_query_string_or_absolute_url_does_not_hide_the_busy_page(self) -> None:
+        self._ready_gui_redirect(301, "https://192.0.2.10/busy.html?from=fwupdate")
+        response = self._upgrade()
+        self.assertEqual(response.status_code, 503, response.text)
 
 
 if __name__ == "__main__":
