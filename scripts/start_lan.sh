@@ -151,7 +151,7 @@ PIDS=()
 cleanup() {
   echo
   echo "[start_lan] stopping..."
-  for pid in "${PIDS[@]:-}"; do
+  for pid in ${PIDS[@]+"${PIDS[@]}"}; do
     kill "$pid" 2>/dev/null || true
   done
 }
@@ -160,8 +160,12 @@ trap cleanup INT TERM EXIT
 # --- Backend (no --reload: this is a deploy launcher) -----------------------
 # In prod the backend also serves the built dist/ at "/" (single port).
 echo "[start_lan] backend  -> ${SCHEME}://${BIND_HOST}:${BACKEND_PORT}"
+# ${arr[@]+"${arr[@]}"} is the set -u-safe way to expand a possibly-unset array:
+# it yields ZERO words when unset. "${arr[@]:-}" does not -- it yields one EMPTY
+# word, which uvicorn rejects with `Got unexpected extra argument ()`. The array
+# is only assigned on the --prod TLS path, so plain dev runs hit exactly that.
 (cd "$BACKEND_DIR" && exec python3 -m uvicorn app.main:app \
-  --host "$BIND_HOST" --port "$BACKEND_PORT" "${UVICORN_TLS_ARGS[@]:-}") &
+  --host "$BIND_HOST" --port "$BACKEND_PORT" ${UVICORN_TLS_ARGS[@]+"${UVICORN_TLS_ARGS[@]}"}) &
 PIDS+=($!)
 
 if [ "$PROD" -eq 1 ]; then
