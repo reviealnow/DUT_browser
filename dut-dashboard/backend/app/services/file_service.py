@@ -100,10 +100,24 @@ def save_uploaded_file(
         raise
 
     clean_uploader = uploader.strip() if uploader and uploader.strip() else None
+    # Record the sanitised name the file arrived with, separately from the name
+    # it is stored under. They differ whenever the workspace de-duplicates, and
+    # consumers that hand the name to something outside this app -- the firmware
+    # upgrade, whose DUT validates the extension -- need the original one.
+    # secure_filename, not the raw client string: this value ends up in an
+    # outgoing multipart Content-Disposition header.
     return execute(
-        "INSERT INTO files (filename, filepath, size, uploader, uploader_user_id, sha256)"
-        " VALUES (?, ?, ?, ?, ?, ?)",
-        (stored_name, str(save_path), size, clean_uploader, uploader_user_id, digest.hexdigest()),
+        "INSERT INTO files (filename, filepath, size, uploader, uploader_user_id, sha256,"
+        " original_name) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (
+            stored_name,
+            str(save_path),
+            size,
+            clean_uploader,
+            uploader_user_id,
+            digest.hexdigest(),
+            secure_filename(filename),
+        ),
     )
 
 
@@ -175,7 +189,8 @@ def count_files(q: str | None = None) -> int:
 
 def get_file_by_id(file_id: int) -> dict | None:
     row = query_one(
-        "SELECT id, filename, filepath, size, uploader, uploaded_at, sha256 FROM files WHERE id = ?",
+        "SELECT id, filename, filepath, size, uploader, uploaded_at, sha256, original_name"
+        " FROM files WHERE id = ?",
         (file_id,),
     )
     if row is None:

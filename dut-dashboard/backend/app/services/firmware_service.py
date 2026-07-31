@@ -357,24 +357,38 @@ def wait_for_flash_start(
     timeout: float | None = None,
     now: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
-) -> bool:
+) -> bool | None:
     """Watch the serial console for the DUT's own "upgrade starting" line.
 
-    Returns False on timeout rather than raising: the upgrade may still be
-    running, and the honest report is "accepted, but not observed starting" --
-    not a failure the operator should act on by power-cycling a flashing device.
+    True  -- the marker was seen; the DUT really is flashing.
+    False -- the console was producing output and the marker never appeared,
+             which is worth investigating.
+    None  -- the console produced NOTHING for the whole wait, so there was no
+             observation to make. Not the same as False, and conflating them is
+             actively dangerous: a detached console (a restarted backend drops
+             the serial worker while the UI still reads "Connected") used to be
+             reported as "not seen ... check the DUT before retrying" while the
+             flash was in fact under way. Retrying an upgrade against a device
+             busy writing flash is the one thing that must not be encouraged.
+             Seen for real on an AP6_840E, 2026-07-31.
+
+    False on timeout rather than raising: the upgrade may still be running, and
+    the honest report is "accepted, but not observed starting" -- not a failure
+    the operator should act on by power-cycling a flashing device.
 
     `timeout` resolves at call time, not as a default argument: a default would
     bind FLASH_START_WAIT_SECONDS once at import and silently ignore any later
     change to it.
     """
     deadline = now() + (FLASH_START_WAIT_SECONDS if timeout is None else timeout)
+    saw_console = False
     while True:
         for line in console_lines():
+            saw_console = True
             if FLASH_STARTED_MARKER in line:
                 return True
         if now() >= deadline:
-            return False
+            return False if saw_console else None
         sleep(_FLASH_POLL_SECONDS)
 
 
@@ -389,6 +403,19 @@ def _read_image(path: str) -> bytes:
     """
     with open(path, "rb") as handle:
         return handle.read()
+
+
+def device_filename(file_row: dict) -> str:
+    """The name to present to the DUT, which is not always the stored one.
+
+    `filename` is the workspace's STORED name, and the workspace de-duplicates:
+    a second upload of wifix.tar.gz.sig is kept as wifix.tar.gz_1.sig. On this
+    firmware the upgrade page accepts only names ending `tar.gz.sig`, so sending
+    the stored name can get a perfectly good image refused for a reason that has
+    nothing to do with the image. Rows uploaded before original_name existed
+    fall back to the stored name -- unchanged behaviour, not a regression.
+    """
+    return file_row.get("original_name") or file_row["filename"]
 
 
 def run_upgrade(
@@ -417,8 +444,9 @@ def run_upgrade(
     origin = normalise_mgmt_url(mgmt_url, transport)
     path = file_row["filepath"]
 
-    on_progress({"stage": "verifying", "detail": file_row["filename"], "dry_run": dry})
-    check_image_for_transport(file_row["filename"], transport)
+    sent_name = device_filename(file_row)
+    on_progress({"stage": "verifying", "detail": sent_name, "dry_run": dry})
+    check_image_for_transport(sent_name, transport)
     actual = verify_checksum(file_row.get("sha256"), path, expected_sha256)
 
     if not origin:
@@ -454,7 +482,7 @@ def run_upgrade(
     on_progress(
         {
             "stage": "uploading",
-            "detail": f"{file_row['filename']} → {url} (do not power off)",
+            "detail": f"{sent_name} → {url} (do not power off)",
             "dry_run": False,
         }
     )
@@ -495,7 +523,7 @@ def run_upgrade(
                     # boundary; setting that header by hand would break it.
                     files={
                         GUI_FILE_FIELD: (
-                            file_row["filename"],
+                            sent_name,
                             _read_image(path),
                             "application/octet-stream",
                         )
@@ -560,7 +588,12 @@ def run_upgrade(
     elif started:
         detail = f"DUT is flashing ({FLASH_STARTED_MARKER} seen)"
     else:
-        detail = "upgrade accepted (no console attached to confirm)"
+        # Deliberately does NOT suggest retrying: the flash may well be running,
+        # and this branch means only that nothing was watching it.
+        detail = (
+            "upgrade accepted — no console output, so the flash could not be confirmed"
+            " here. Watch the DUT's serial console; do not power-cycle it."
+        )
     on_progress({"stage": "done", "detail": detail, "dry_run": False})
     return {
         "ok": True,

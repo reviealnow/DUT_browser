@@ -203,6 +203,13 @@ def init_db() -> None:
         # predating it have no checksum, and a firmware upgrade refuses to use
         # a file whose checksum was never recorded.
         _ensure_column(conn, "files", "sha256", "TEXT")
+        # The name the operator's file actually had (P72b). `filename` is the
+        # STORED name, which the workspace de-duplicates -- wifix.tar.gz.sig
+        # becomes wifix.tar.gz_1.sig on a second upload. That rename is a
+        # storage detail, but it used to leak all the way to the DUT, whose
+        # upgrade page accepts only names ending `tar.gz.sig`. Nullable: rows
+        # predating this fall back to `filename`, which is today's behaviour.
+        _ensure_column(conn, "files", "original_name", "TEXT")
         _ensure_column(conn, "bulletin_posts", "author_user_id", "INTEGER")
         _ensure_column(conn, "bulletin_comments", "author_user_id", "INTEGER")
         _ensure_column(conn, "bulletin_posts", "edited_at")

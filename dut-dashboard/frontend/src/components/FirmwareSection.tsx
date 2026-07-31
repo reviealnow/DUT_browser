@@ -1,8 +1,10 @@
 /**
  * Admin firmware upgrade (P72b).
  *
- * Uploads a customer-signed .sig from the Files workspace to the DUT's
- * management API. The guardrails are the point of this component: the checksum
+ * Uploads a customer-signed .sig to the DUT's management API. The image can be
+ * picked up here directly or chosen from the shared Files workspace, which is
+ * where it is stored either way. The guardrails are the point of this component:
+ * the checksum
  * is shown and can be matched against the customer's published value, and the
  * confirm dialog spells out what a power loss does and stays disabled until the
  * DUT's name is typed back.
@@ -19,6 +21,7 @@ import {
   setFirmwareCredentials,
   imageKind,
   upgradeFirmware,
+  uploadFile,
   WorkspaceFile,
 } from "../api/rest";
 import {
@@ -37,6 +40,7 @@ export default function FirmwareSection({ dutId }: { dutId: string }) {
   const [typed, setTyped] = useState("");
   const [transport, setTransport] = useState("");
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
 
@@ -63,6 +67,31 @@ export default function FirmwareSection({ dutId }: { dutId: string }) {
       .catch((err) => setError(humanizeApiError(err)));
     reload();
   }, []);
+
+  /** Upload an image from here rather than sending the operator to Files first.
+   *
+   * It still lands in the same shared workspace -- this is the same endpoint the
+   * Files section uses, so the image stays listed, checksummed and attributable.
+   * Routing a firmware upgrade through another section just to get the file in
+   * was the wrong shape: the one place you need the image is this one. */
+  const uploadImage = async (file: File) => {
+    setUploading(true);
+    setError(null);
+    setResult(null);
+    try {
+      const row = await uploadFile(file);
+      const listing = await getFiles();
+      setFiles(listing.files);
+      // Select what was just uploaded: the operator's intent is unambiguous,
+      // and the stored name can differ from the local one when the workspace
+      // de-duplicates it.
+      setSelected(row.id);
+    } catch (err) {
+      setError(humanizeApiError(err));
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const chosen = files.find((f) => f.id === selected) ?? null;
   const dut = config?.duts.find((d) => d.id === dutId) ?? null;
@@ -150,7 +179,31 @@ export default function FirmwareSection({ dutId }: { dutId: string }) {
           ) : null}
 
           <label className="modal-label">
-            Firmware image (from the Files workspace)
+            Firmware image
+            <input
+              className="input"
+              type="file"
+              accept=".sig,.bin"
+              disabled={uploading || busy}
+              onChange={(e) => {
+                const picked = e.target.files?.[0];
+                // Clear the input so picking the same file twice still fires a
+                // change event, e.g. after a failed upload.
+                e.target.value = "";
+                if (picked) {
+                  void uploadImage(picked);
+                }
+              }}
+            />
+          </label>
+          <div className="setting-hint">
+            {uploading
+              ? "Uploading…"
+              : "Uploads into the shared Files workspace and is selected below. Images already there can be picked directly."}
+          </div>
+
+          <label className="modal-label">
+            Or choose one already uploaded
             <select
               className="input"
               value={selected ?? ""}

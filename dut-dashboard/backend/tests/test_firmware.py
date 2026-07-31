@@ -470,6 +470,27 @@ class FlashConfirmationTests(FirmwareTestCase):
         self.assertIs(body["flash_started"], False)
         self.assertIn("was not seen", body["detail"])
 
+    def test_a_console_that_says_nothing_at_all_is_unknown_not_failed(self) -> None:
+        """A detached console must not read as a flash that did not start.
+
+        This happened for real: restarting the backend drops the serial worker
+        while the UI still shows "Connected", so a genuine, successful flash was
+        reported as "not seen on the console ... check the DUT before retrying".
+        Retrying an upgrade against a device busy writing flash is precisely the
+        action that message must never invite.
+        """
+        file_id = self._upload_image()
+        self._ready()
+        self.context.console_buffer.lines = []  # nothing is watching
+        self._login("admin")
+        with patch.object(firmware_service, "FLASH_START_WAIT_SECONDS", 0.0):
+            body = self.client.post(
+                "/api/firmware/upgrade", json={"file_id": file_id, "dry_run": False}
+            ).json()
+        self.assertIsNone(body["flash_started"])
+        self.assertNotIn("retry", body["detail"].lower())
+        self.assertIn("could not be confirmed", body["detail"])
+
     def test_wait_returns_as_soon_as_the_marker_appears(self) -> None:
         seen: list[float] = []
         lines: list[str] = []
@@ -688,6 +709,47 @@ class ImagePairingTests(FirmwareTestCase):
         )
         self.assertEqual(firmware_service.image_kind("firmware.bin"), "unknown")
         self.assertEqual(firmware_service.image_kind(""), "unknown")
+
+
+class SentFilenameTests(FirmwareTestCase):
+    """What the DUT is told the file is called.
+
+    The workspace de-duplicates a repeat upload (`AP6_v2.sig` becomes
+    `AP6_v2_1.sig`), which is a storage detail. This build of the DUT validates
+    the name it is given -- it accepts only `tar.gz.sig` -- so leaking the
+    de-duplicated name gets a good image refused for the wrong reason.
+    """
+
+    def test_the_deduplicated_stored_name_does_not_reach_the_dut(self) -> None:
+        self._upload_image()  # takes AP6_v2.sig
+        second = self._upload_image()  # stored as AP6_v2_1.sig
+        stored = file_service.get_file_by_id(second)
+        assert stored is not None
+        self.assertEqual(stored["filename"], "AP6_v2_1.sig", "precondition: the name was de-duped")
+
+        self._ready()
+        self._login("admin")
+        self.client.post(
+            "/api/firmware/upgrade",
+            json={"file_id": second, "dry_run": False, "transport": "gui"},
+        )
+        body = [r for r in self.requests if r.method == "POST"][-1].content
+        self.assertIn(b'filename="AP6_v2.sig"', body)
+        self.assertNotIn(b"AP6_v2_1.sig", body)
+
+    def test_a_row_without_an_original_name_still_sends_the_stored_one(self) -> None:
+        """Pre-P72b rows have no original_name; the old behaviour must survive."""
+        file_id = self._upload_image()
+        workspace.execute("UPDATE files SET original_name = NULL WHERE id = ?", (file_id,))
+
+        self._ready()
+        self._login("admin")
+        self.client.post(
+            "/api/firmware/upgrade",
+            json={"file_id": file_id, "dry_run": False, "transport": "gui"},
+        )
+        body = [r for r in self.requests if r.method == "POST"][-1].content
+        self.assertIn(b'filename="AP6_v2.sig"', body)
 
 
 class BusyLockTests(FirmwareTestCase):
