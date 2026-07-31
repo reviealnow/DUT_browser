@@ -12,6 +12,7 @@ import {
   updateBulletinPost,
 } from "../api/rest";
 import { useIdentity } from "../monitoring/useSettings";
+import { copyToClipboard } from "../utils/clipboard";
 import AuthorTag from "./AuthorTag";
 import { TagList } from "./TagChip";
 import TagInput, { parseTags } from "./TagInput";
@@ -318,7 +319,19 @@ function PostCard({
   const [draftTags, setDraftTags] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const replies = countReplies(post.comments);
+
+  useEffect(() => {
+    if (copyStatus === "idle") return;
+    const timer = window.setTimeout(() => setCopyStatus("idle"), 2000);
+    return () => window.clearTimeout(timer);
+  }, [copyStatus]);
+
+  const onCopy = useCallback(async () => {
+    const copied = await copyToClipboard(post.body);
+    setCopyStatus(copied ? "copied" : "failed");
+  }, [post.body]);
 
   const onDelete = useCallback(() => {
     if (!window.confirm(`Delete "${post.title}" and its replies? This cannot be undone.`)) {
@@ -368,6 +381,15 @@ function PostCard({
       }
       actions={
         <div className="row-actions">
+          <button
+            type="button"
+            className="btn bulletin-copy-btn"
+            title="Copy note content"
+            aria-label={`Copy content of ${post.title}`}
+            onClick={() => void onCopy()}
+          >
+            {copyStatus === "copied" ? "Copied ✓" : copyStatus === "failed" ? "Copy failed" : "Copy"}
+          </button>
           <button type="button" className="btn" onClick={() => setOpen((v) => !v)}>
             {open ? "Hide" : "Open"}
           </button>

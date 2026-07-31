@@ -20,6 +20,7 @@ import { DutMonitorState, DutStatus, useDutMonitor } from "../monitoring/useDutM
 import { useWifiScan, wifiScanForDut, WifiScanProvider } from "../monitoring/WifiScanContext";
 import { runConnectCaptures } from "../monitoring/siteSurveyStore";
 import { OverviewBandReco } from "../components/BandRecoSummary";
+import { copyToClipboard } from "../utils/clipboard";
 
 // Heavy sections are loaded on demand so the initial bundle only carries the
 // app shell + the default Overview (charts). Each becomes its own async chunk.
@@ -751,28 +752,6 @@ function WifiSummaryBody({
   );
 }
 
-/** Copy text to the clipboard; falls back to execCommand because LAN access
- * over plain http://<ip> is not a secure context (no navigator.clipboard). */
-async function copyToClipboard(text: string): Promise<boolean> {
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      // Fall through to the legacy path.
-    }
-  }
-  const holder = document.createElement("textarea");
-  holder.value = text;
-  holder.style.position = "fixed";
-  holder.style.opacity = "0";
-  document.body.appendChild(holder);
-  holder.select();
-  const ok = document.execCommand("copy");
-  holder.remove();
-  return ok;
-}
-
 function downloadTextFile(filename: string, mime: string, content: string) {
   const url = URL.createObjectURL(new Blob([content], { type: mime }));
   const anchor = document.createElement("a");
@@ -928,4 +907,3 @@ const STATUS_META: Record<DutStatus, StatusMeta> = {
   idle: { label: "No DUT", sub: "Backend up, no stream", pill: "idle" },
   offline: { label: "Offline", sub: "Backend not reachable", pill: "danger" },
 };
-
