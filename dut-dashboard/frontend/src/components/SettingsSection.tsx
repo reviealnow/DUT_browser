@@ -16,6 +16,7 @@ import {
 import { useAuth } from "../monitoring/AuthContext";
 import { useCrashKeywords } from "../monitoring/useCrashKeywords";
 import { ACCENT_PRESETS, useSettings } from "../monitoring/useSettings";
+import { copyToClipboard } from "../utils/clipboard";
 import { Card } from "./shell/Card";
 
 const BAUD_RATES = [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600];
@@ -387,7 +388,7 @@ function InvitesCard() {
             <button
               type="button"
               className="btn"
-              onClick={() => void navigator.clipboard?.writeText(inviteUrl)}
+              onClick={() => void copyToClipboard(inviteUrl)}
             >
               Copy link
             </button>

@@ -82,6 +82,7 @@ dut-dashboard/
     components/   shell/ (Card, Sidebar, Topbar, navigation.ts) · charts/ · *Card.tsx
     monitoring/   contexts + hooks (useDutMonitor, *Context.tsx)
     api/          rest.ts (typed REST client) · websocket.ts · dut.ts
+    utils/        shared browser helpers (clipboard.ts)
     styles/
   tools/          analyzer3.py · log_event_detector.py (offline)
   scripts/        sysMon.sh (DUT-side telemetry)
