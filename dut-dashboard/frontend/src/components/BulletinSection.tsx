@@ -321,6 +321,12 @@ function PostCard({
   const [error, setError] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const replies = countReplies(post.comments);
+  const copyLabel =
+    copyStatus === "copied"
+      ? `Copied content of ${post.title}`
+      : copyStatus === "failed"
+        ? `Failed to copy content of ${post.title}`
+        : `Copy content of ${post.title}`;
 
   useEffect(() => {
     if (copyStatus === "idle") return;
@@ -381,17 +387,18 @@ function PostCard({
       }
       actions={
         <div className="row-actions">
-          <button
-            type="button"
-            className="btn bulletin-copy-btn"
-            title="Copy note content"
-            aria-label={`Copy content of ${post.title}`}
-            onClick={() => void onCopy()}
-          >
-            {copyStatus === "copied" ? "Copied ✓" : copyStatus === "failed" ? "Copy failed" : "Copy"}
-          </button>
           <button type="button" className="btn" onClick={() => setOpen((v) => !v)}>
             {open ? "Hide" : "Open"}
+          </button>
+          <button
+            type="button"
+            className={`icon-btn${copyStatus === "failed" ? " danger" : ""}`}
+            title={copyLabel}
+            aria-label={copyLabel}
+            aria-live="polite"
+            onClick={() => void onCopy()}
+          >
+            {copyStatus === "copied" ? "✓" : copyStatus === "failed" ? "!" : "⧉"}
           </button>
           <button
             type="button"

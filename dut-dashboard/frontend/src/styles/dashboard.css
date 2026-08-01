@@ -1405,10 +1405,6 @@ body {
   color: var(--accent); font: inherit; text-decoration: underline;
 }
 
-.bulletin-copy-btn {
-  min-width: 86px;
-}
-
 /* ---------- Fleet overview (Phase 37) ---------- */
 /* Phase 69: the fleet is a horizontal strip at the top of Overview. Cards keep
    a fixed width and the row scrolls sideways when they overflow (esp. mobile). */
