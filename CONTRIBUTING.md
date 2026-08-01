@@ -25,6 +25,43 @@ before opening a PR.
 - Name branches by type, e.g. `feat/console-backfill`, `fix/ws-reconnect`.
 - Keep a PR focused on one theme; rebase/clean up noisy commits before review.
 
+### How to merge
+
+**Squash by default.** A PR with one theme becomes one commit, and `CPU_Plots`
+reads as a changelog — one line per PR, which is how this project's history is
+tracked. Rebase merges are disabled: they rewrite SHAs *and* lose the "this was
+one PR" grouping, so they combine the drawbacks of both other options.
+
+**Use a merge commit when one branch carries several independent changes.**
+The test: *could a single squashed commit message honestly describe everything
+this branch did?* If not, merge it:
+
+```bash
+gh pr merge <n> --merge --delete-branch
+```
+
+This matters because squashing is lossy in a specific way — afterwards there is
+no ancestry, so `git branch --contains` and `git branch --no-merged` cannot
+answer "did this ship?", and a branch that carried five phases has to be kept
+forever as the only record of them. That is not hypothetical: `feat/v2-roles`
+carried P71a–P72a and is retained for exactly that reason, and one of those
+phases was once squashed away entirely without anyone noticing for two days.
+
+`git log --first-parent CPU_Plots` still reads one line per PR either way.
+
+### Verify the merged content, whichever you used
+
+**No merge strategy substitutes for this.** History can only tell you a commit
+landed; it cannot tell you the feature is still there. After merging, check the
+merged tree for something the change introduced:
+
+```bash
+git grep -c '<a symbol the PR added>' CPU_Plots -- <path>
+```
+
+This is the check that would have caught the phase that silently vanished.
+Reading a branch's own log instead is what let it go unnoticed.
+
 ## Commit conventions
 
 We follow **[Conventional Commits](https://www.conventionalcommits.org/)** with
