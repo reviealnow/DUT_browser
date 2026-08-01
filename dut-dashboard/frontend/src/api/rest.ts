@@ -152,10 +152,12 @@ export type MemorySeries = {
 };
 
 export type LogEntry = { name: string; size: number; mtime: string };
-/** A session log row also reports how many context files its own time window covers. */
-export type SessionLogEntry = LogEntry & { context_count: number };
 /** A connect-time context capture; `kind` fixes which directory serves it. */
 export type ContextEntry = LogEntry & { kind: string };
+/** A session log row carries the captures taken inside its own time window,
+ * named rather than counted — including the site survey, which is the capture
+ * that explains why a channel was chosen. */
+export type SessionLogEntry = LogEntry & { context: ContextEntry[] };
 export type LogList = {
   sessions: SessionLogEntry[];
   artifacts: LogEntry[];

@@ -247,8 +247,8 @@ function SessionLogTable({ rows, onAnalyzed }: { rows: SessionLogEntry[]; onAnal
                 </button>
                 {row.name}
                 <span className="context-note">
-                  {row.context_count > 0
-                    ? `${row.context_count} context file(s) from this session`
+                  {row.context.length > 0
+                    ? `${row.context.length} context file(s) from this session — expand to open`
                     : NO_CONTEXT_HINT}
                 </span>
               </td>
@@ -274,6 +274,7 @@ function SessionLogTable({ rows, onAnalyzed }: { rows: SessionLogEntry[]; onAnal
             {expanded.has(row.name) ? (
               <tr>
                 <td colSpan={4}>
+                  <SessionContext files={row.context} />
                   <LogTailView cell={tailByName[row.name]} />
                 </td>
               </tr>
@@ -284,6 +285,62 @@ function SessionLogTable({ rows, onAnalyzed }: { rows: SessionLogEntry[]; onAnal
     </table>
     </div>
     </>
+  );
+}
+
+const CONTEXT_KIND_LABELS: Record<string, string> = {
+  "site-survey": "Site Survey",
+  "wifi-clients": "Wi-Fi Clients",
+  "ssid-capability": "SSID Capability",
+};
+
+/** The captures taken while this session was recording, grouped back into the
+ * json+csv pairs they are written as.
+ *
+ * Named and openable here rather than only counted: these are the arrival
+ * picture of the site, which is what has to answer "why was this channel
+ * chosen". The flat tables lower down mix every session and DUT together, so
+ * matching a capture to its session used to be manual timestamp arithmetic. */
+function SessionContext({ files }: { files: ContextEntry[] }) {
+  if (files.length === 0) return null;
+
+  // `<kind>-<dut>-<ts>.<ext>` — pair on everything but the extension.
+  const pairs = new Map<string, { kind: string; stem: string; files: ContextEntry[] }>();
+  for (const file of files) {
+    const stem = file.name.replace(/\.(json|csv)$/i, "");
+    const existing = pairs.get(stem);
+    if (existing) existing.files.push(file);
+    else pairs.set(stem, { kind: file.kind, stem, files: [file] });
+  }
+
+  return (
+    <div className="session-context">
+      <div className="logtail-status">
+        Captured while this session was recording — the site as it looked on arrival.
+      </div>
+      <ul className="session-context-list">
+        {[...pairs.values()].map(({ kind, stem, files: pair }) => (
+          <li key={stem}>
+            <span className="pill">{CONTEXT_KIND_LABELS[kind] ?? kind}</span>
+            <code>{stem}</code>
+            {pair
+              .slice()
+              .sort((a, b) => a.name.localeCompare(b.name))
+              .map((file) => (
+                <a
+                  key={file.name}
+                  className="btn"
+                  href={getContextDownloadUrl(file.kind, file.name)}
+                  download
+                  title={`${file.name} · ${formatSize(file.size)}`}
+                >
+                  {file.name.toLowerCase().endsWith(".csv") ? "CSV" : "JSON"}
+                </a>
+              ))}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
