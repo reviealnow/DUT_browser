@@ -180,20 +180,40 @@ class ListLogsContextTests(unittest.TestCase):
         (self.dirs[kind] / f"{kind}-{dut}-{ts}.json").write_text("{}", encoding="utf-8")
         (self.dirs[kind] / f"{kind}-{dut}-{ts}.csv").write_text("a\n", encoding="utf-8")
 
-    def test_session_rows_carry_their_in_window_context_count(self) -> None:
+    def test_session_rows_list_their_in_window_context(self) -> None:
+        """Named, not counted: "3 files" does not tell an operator which three."""
         (self.logs / "dut-session-20260729-100000.log").write_text("x", encoding="utf-8")
         self._place("wifi-clients", "lab2", "20260729-100005")
         result = main.list_logs()
         session = next(s for s in result["sessions"] if s["name"].startswith("dut-session-"))
-        self.assertEqual(session["context_count"], 2)  # json + csv
+        names = [f["name"] for f in session["context"]]
+        self.assertEqual(
+            names,
+            ["wifi-clients-lab2-20260729-100005.csv", "wifi-clients-lab2-20260729-100005.json"],
+        )
+        self.assertEqual({f["kind"] for f in session["context"]}, {"wifi-clients"})
+        self.assertTrue(all(f["size"] > 0 and f["mtime"] for f in session["context"]))
 
-    def test_a_log_predating_the_feature_reports_zero(self) -> None:
+    def test_a_session_row_includes_the_site_survey(self) -> None:
+        """The flat context table hides surveys; a session's own list must not.
+
+        "Why this channel" is the question the arrival context exists to answer,
+        and the survey is the only capture that can answer it.
+        """
+        (self.logs / "dut-session-20260729-100000.log").write_text("x", encoding="utf-8")
+        self._place("site-survey", "lab2", "20260729-100006")
+        session = next(
+            s for s in main.list_logs()["sessions"] if s["name"].startswith("dut-session-")
+        )
+        self.assertEqual({f["kind"] for f in session["context"]}, {"site-survey"})
+
+    def test_a_log_predating_the_feature_reports_nothing(self) -> None:
         old = self.logs / "dut-session-20200101-000000.log"
         old.write_text("x", encoding="utf-8")
         _stamp(old, "20200101-010000")
         self._place("wifi-clients", "lab2", "20260729-100005")
         session = main.list_logs()["sessions"][0]
-        self.assertEqual(session["context_count"], 0)
+        self.assertEqual(session["context"], [])
 
     def test_context_list_excludes_site_surveys(self) -> None:
         self._place("wifi-clients", "lab2", "20260729-100005")

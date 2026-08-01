@@ -184,14 +184,16 @@ def snapshot_entries(kinds: tuple[str, ...] = KINDS) -> list[dict]:
     return out
 
 
-def list_snapshots(kinds: tuple[str, ...] = (WIFI_CLIENTS, SSID_CAPABILITY)) -> list[dict]:
-    """Snapshot files as {kind,name,size,mtime}, newest first (for /api/logs).
+def describe(entries: list[dict]) -> list[dict]:
+    """Listing shape ``{kind,name,size,mtime}`` for already-selected entries.
 
-    Site surveys are excluded by default: they already have their own Downloads
-    table from P68 and listing them twice would just be confusing.
+    Shared by `list_snapshots` (everything) and by the per-session rows in
+    /api/logs, so the flat Downloads table and a session's own context list can
+    never describe the same file differently. A file that vanished between the
+    scan and the stat is dropped rather than reported with a guessed size.
     """
     items: list[dict] = []
-    for entry in snapshot_entries(kinds):
+    for entry in entries:
         path: Path = entry["path"]
         try:
             stat = path.stat()
@@ -205,7 +207,16 @@ def list_snapshots(kinds: tuple[str, ...] = (WIFI_CLIENTS, SSID_CAPABILITY)) -> 
                 "mtime": datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds"),
             }
         )
-    return sorted(items, key=lambda item: item["mtime"], reverse=True)
+    return items
+
+
+def list_snapshots(kinds: tuple[str, ...] = (WIFI_CLIENTS, SSID_CAPABILITY)) -> list[dict]:
+    """Snapshot files as {kind,name,size,mtime}, newest first (for /api/logs).
+
+    Site surveys are excluded by default: they already have their own Downloads
+    table from P68 and listing them twice would just be confusing.
+    """
+    return sorted(describe(snapshot_entries(kinds)), key=lambda item: item["mtime"], reverse=True)
 
 
 def session_window(log_path: Path) -> tuple[str, str] | None:

@@ -419,15 +419,23 @@ def list_logs() -> dict:
     artifacts = entries(ANALYZER_OUTPUT_DIR.glob("*")) if ANALYZER_OUTPUT_DIR.is_dir() else []
     surveys = survey_snapshot.list_snapshots()
 
-    # How much connect-time context each session log's own time window covers, so
-    # Downloads can say "no context captured during this session" for logs that
-    # predate the feature instead of looking broken. The snapshot index is built
-    # once and shared across every session row.
+    # Which connect-time captures fall inside each session log's own time window.
+    # Listed in full rather than counted: the count alone told an operator that
+    # three files existed without saying which, and the flat tables below mix
+    # every session and DUT together, so matching them up was manual. Site
+    # surveys are included here (unlike list_snapshots) because "why this
+    # channel" is exactly what a session's own context has to answer.
+    #
+    # Inline rather than a per-row fetch: the snapshot index is already built
+    # once for the whole listing, so the selection costs nothing extra, and a
+    # session carries a handful of files, not a heavy payload.
     snapshot_index = context_snapshot.snapshot_entries()
     by_name = {path.name: path for path in session_paths}
     for session in sessions:
-        session["context_count"] = len(
-            context_snapshot.select_for_session(by_name[session["name"]], entries=snapshot_index)
+        session["context"] = context_snapshot.describe(
+            context_snapshot.select_entries_for_session(
+                by_name[session["name"]], entries=snapshot_index
+            )
         )
 
     return {
