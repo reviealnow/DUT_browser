@@ -147,6 +147,35 @@ review load, it does not replace review.
 
 ---
 
+## Stop and ask
+
+Most decisions here are yours to make. These are not — surface them and wait,
+because the cost of being wrong is paid by someone else, later:
+
+- **A new dependency.** Including a test runner or a linter. Write the case for
+  it (what it buys, what it costs, what it changes about CI) and let a human
+  decide; do not add it as a side effect of another change.
+- **An API shape other code consumes** — a response field, an exported type, a
+  route's status codes. Callers you cannot see may rely on it.
+- **Anything touching auth/roles, the serial worker, or the firmware transport.**
+  The failure modes are asymmetric: a weakened gate, a stolen serial port, or a
+  half-flashed device costs far more than the change was worth.
+- **Anything that needs the DUT or the serial port.** They are single-owner and
+  shared with other sessions — see "Shared hardware" below.
+- **A new architectural shape**: a new top-level directory, a second way of
+  doing something the codebase already does one way.
+- **Existing code that looks wrong.** Do not copy it, and do not quietly fix it
+  inside an unrelated change either. Say what you found; a drive-by fix with no
+  explanation is indistinguishable from a mistake at review time. (If it *is*
+  in scope — an extraction that reveals a broken caller — fix it and list it
+  **separately** in the PR, because a pre-existing user-visible bug is
+  changelog news, not a footnote to a feature.)
+
+Asking is cheap. The expensive version is discovering the answer in review,
+after the work is built on top of it.
+
+---
+
 ## On-demand serial RPC discipline (critical)
 
 `SerialWorker.capture_command(cmd, timeout)` is a **synchronous** serial RPC: it
