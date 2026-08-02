@@ -41,6 +41,14 @@ export type MemorySample = {
   effectiveKb: number | null;
 };
 
+/** A serial drop the backend pushed, newest wins. */
+export type SerialDisconnect = {
+  /** The backend's raw reason (e.g. an errno string) — diagnostic, not UI copy. */
+  detail: string;
+  /** Receipt time; also makes a second drop a distinct object for effects. */
+  at: number;
+};
+
 export type DutMonitorState = {
   /** Backend WebSocket link + DUT stream activity. */
   status: DutStatus;
@@ -69,6 +77,8 @@ export type DutMonitorState = {
   lastSnapshotTs: string | null;
   /** Whole seconds since the last stream event; null before any event. */
   lastEventAgeSec: number | null;
+  /** Set when this DUT's serial device vanished mid-session; null otherwise. */
+  serialDisconnect: SerialDisconnect | null;
 };
 
 /**
@@ -92,6 +102,7 @@ export function useDutMonitor(dutId: string = DEFAULT_DUT_ID): DutMonitorState {
   const [wifiByRadio, setWifiByRadio] = useState<Record<string, number>>({});
   const [wifiSeen, setWifiSeen] = useState(false);
   const [connected, setConnected] = useState(false);
+  const [serialDisconnect, setSerialDisconnect] = useState<SerialDisconnect | null>(null);
   const [nowTick, setNowTick] = useState(() => Date.now());
 
   const lastActivityRef = useRef(0);
@@ -155,6 +166,7 @@ export function useDutMonitor(dutId: string = DEFAULT_DUT_ID): DutMonitorState {
     setMemoryHistory([]);
     setWifiByRadio({});
     setWifiSeen(false);
+    setSerialDisconnect(null);
     lastActivityRef.current = 0;
   }, [dutId]);
 
@@ -210,6 +222,14 @@ export function useDutMonitor(dutId: string = DEFAULT_DUT_ID): DutMonitorState {
             index: event.index,
             total: event.total,
           });
+          return;
+        }
+        if (event.type === "serial_disconnected") {
+          // /ws is one broadcast stream for every DUT, so check whose device
+          // dropped — another DUT's adapter must not close this session's UI.
+          if (event.dut_id === dutId) {
+            setSerialDisconnect({ detail: event.detail, at: Date.now() });
+          }
           return;
         }
         if (event.type === "firmware_progress") {
@@ -298,6 +318,7 @@ export function useDutMonitor(dutId: string = DEFAULT_DUT_ID): DutMonitorState {
     crashLines,
     lastSnapshotTs: snapshot?.device_ts ?? null,
     lastEventAgeSec,
+    serialDisconnect,
   };
 }
 

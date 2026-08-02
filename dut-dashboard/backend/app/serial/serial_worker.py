@@ -27,6 +27,12 @@ _LABEL_MAX = 40
 # asks for a longer read timeout than the floor still gets timeout + 4.0.
 _GATE_WAIT_FLOOR_SEC = 90.0
 
+PORT_CLOSED_MESSAGE = "Serial port is not open"
+# Shown when the device vanished under us (adapter unplugged, DUT rebooted, port
+# re-enumerated). Deliberately tells the operator to reconnect by hand — see
+# _handle_device_lost for why this worker never reconnects on its own.
+PORT_LOST_MESSAGE = "Serial device disconnected; reconnect it and press Connect again"
+
 
 def _gate_wait_seconds(timeout: float) -> float:
     return max(timeout + 4.0, _GATE_WAIT_FLOOR_SEC)
@@ -64,6 +70,10 @@ class SerialWorker:
         # raw bytes to _terminal_output instead of feeding the sysmon parser.
         self._terminal = False
         self._terminal_output = None  # type: ignore[assignment]
+        # Set once per session when the device is found to be gone, so the
+        # reader thread and a failing writer don't both announce it.
+        self._disconnected = False
+        self._on_disconnect = None  # type: ignore[assignment]
         # Synchronous command-capture (Phase 14): when active, the reader collects
         # lines into a buffer (NOT the parser) until a sentinel line is seen.
         self._capture_active = False
@@ -78,6 +88,10 @@ class SerialWorker:
     def set_terminal_output(self, callback) -> None:
         """Register a callback(bytes) for raw serial output in terminal mode."""
         self._terminal_output = callback
+
+    def set_disconnect_handler(self, callback) -> None:
+        """Register a callback(detail: str) fired when the device vanishes mid-session."""
+        self._on_disconnect = callback
 
     def open(
         self,
@@ -94,6 +108,7 @@ class SerialWorker:
 
         with self._lock:
             self._stop_event.clear()
+            self._disconnected = False
             if mode == "replay":
                 if not replay_path:
                     raise RuntimeError("replay_path is required when mode is replay")
@@ -150,12 +165,60 @@ class SerialWorker:
     def is_open(self) -> bool:
         return self._serial is not None and self._serial.is_open
 
-    def send(self, text: str) -> None:
+    def _handle_device_lost(self, detail: str) -> None:
+        """Tear down after the serial device vanished mid-session.
+
+        The disappearance is an external event (adapter unplugged, DUT rebooted,
+        port re-enumerated under another name), but the reaction is ours to get
+        right: pyserial's ``is_open`` is only a flag and never probes the device,
+        so without this the port stays "open" forever, the UI keeps saying
+        Connected, and every later write dies with ENXIO.
+
+        Deliberately does **not** reconnect. A re-enumerated adapter can come back
+        under a different device name, and silently reattaching to whatever now
+        answers to that name — on a bench that can flash firmware — is worse than
+        making a human press Connect.
+        """
+        with self._lock:
+            already_handled = self._disconnected
+            self._disconnected = True
+        if already_handled:
+            return
+        # Release anyone blocked on a capture sentinel that can no longer arrive.
+        self._capture_done.set()
+        self.close()
+        callback = self._on_disconnect
+        if callback is not None:
+            try:
+                callback(detail)
+            except Exception:
+                pass  # notification is best-effort; never mask the disconnect
+
+    def _guarded_write(self, data: bytes, *, terminal: bool | None = None) -> None:
+        """Write to the open port, turning a dead device into a clean disconnect.
+
+        ``terminal`` optionally asserts the required terminal-mode state. The
+        teardown runs outside the lock because :meth:`close` takes it too.
+        """
+        lost: Exception | None = None
         with self._lock:
             if self._mode != "serial" or self._serial is None or not self._serial.is_open:
-                raise RuntimeError("Serial port is not open")
-            self._serial.write(text.encode("utf-8", errors="ignore"))
-            self._serial.flush()
+                raise RuntimeError(PORT_CLOSED_MESSAGE)
+            if terminal is True and not self._terminal:
+                raise RuntimeError("Not in terminal mode")
+            try:
+                self._serial.write(data)
+                self._serial.flush()
+            except (OSError, ValueError) as exc:
+                # SerialException subclasses OSError, so an unplugged adapter's
+                # ENXIO lands here instead of escaping as a 500.
+                lost = exc
+        if lost is not None:
+            self._handle_device_lost(str(lost) or type(lost).__name__)
+            raise RuntimeError(PORT_LOST_MESSAGE) from lost
+
+    def send(self, text: str) -> None:
+        self._guarded_write(text.encode("utf-8", errors="ignore"))
 
     @property
     def is_terminal(self) -> bool:
@@ -165,7 +228,7 @@ class SerialWorker:
         """Switch the reader to raw passthrough (sysmon parsing pauses)."""
         with self._lock:
             if self._mode != "serial" or self._serial is None or not self._serial.is_open:
-                raise RuntimeError("Serial port is not open")
+                raise RuntimeError(PORT_CLOSED_MESSAGE)
             self._terminal = True
         self._write_log_line("\n--- terminal session start ---\n")
 
@@ -179,11 +242,7 @@ class SerialWorker:
 
     def write_raw(self, data: bytes) -> None:
         """Write raw bytes to the serial port (terminal keystrokes)."""
-        with self._lock:
-            if self._mode != "serial" or self._serial is None or not self._serial.is_open:
-                raise RuntimeError("Serial port is not open")
-            self._serial.write(data)
-            self._serial.flush()
+        self._guarded_write(data)
 
     def resize_terminal(self, rows: int, cols: int, term: str | None = None) -> None:
         """Tell the DUT shell the terminal size (and optionally TERM) so full-screen
@@ -202,13 +261,7 @@ class SerialWorker:
         # print a "not found" error. Apps like vi also self-detect size via the
         # cursor-position (DSR) query, which xterm.js answers automatically.
         commands += f"stty rows {rows} cols {cols} 2>/dev/null\n"
-        with self._lock:
-            if self._mode != "serial" or self._serial is None or not self._serial.is_open:
-                raise RuntimeError("Serial port is not open")
-            if not self._terminal:
-                raise RuntimeError("Not in terminal mode")
-            self._serial.write(commands.encode("utf-8", errors="ignore"))
-            self._serial.flush()
+        self._guarded_write(commands.encode("utf-8", errors="ignore"), terminal=True)
 
     def capture_command(self, cmd: str, timeout: float = 6.0) -> str:
         """Run a shell command on the DUT and return its stdout (serial mode).
@@ -223,17 +276,25 @@ class SerialWorker:
         if not self._capture_gate.acquire(timeout=_gate_wait_seconds(timeout)):
             raise RuntimeError("Serial capture is busy; try again")
         try:
+            lost: Exception | None = None
             with self._lock:
                 if self._mode != "serial" or self._serial is None or not self._serial.is_open:
-                    raise RuntimeError("Serial port is not open")
+                    raise RuntimeError(PORT_CLOSED_MESSAGE)
                 if self._terminal:
                     raise RuntimeError("Cannot capture while in terminal mode")
                 self._capture_lines = []
                 self._capture_sentinel = sentinel
                 self._capture_done.clear()
                 self._capture_active = True
-                self._serial.write(f"{cmd}; echo {sentinel}\n".encode("utf-8", errors="ignore"))
-                self._serial.flush()
+                try:
+                    self._serial.write(f"{cmd}; echo {sentinel}\n".encode("utf-8", errors="ignore"))
+                    self._serial.flush()
+                except (OSError, ValueError) as exc:
+                    self._capture_active = False
+                    lost = exc
+            if lost is not None:
+                self._handle_device_lost(str(lost) or type(lost).__name__)
+                raise RuntimeError(PORT_LOST_MESSAGE) from lost
 
             self._capture_done.wait(timeout=timeout)
 
@@ -255,51 +316,66 @@ class SerialWorker:
         return "".join(out)
 
     def read_loop(self) -> None:
-        while not self._stop_event.is_set():
-            ser = self._serial
-            if ser is None or not ser.is_open:
-                break
-
-            if self._terminal:
-                # Raw passthrough: forward bytes to the terminal, log verbatim,
-                # do NOT feed the sysmon parser (avoid polluting CPU/crash data).
-                try:
-                    waiting = ser.in_waiting
-                except Exception:
-                    waiting = 0
-                try:
-                    data = ser.read(waiting or 1)
-                except Exception:
+        # Why the reader owns disconnect detection: it is the only thread that
+        # touches the device continuously, so it notices a vanished adapter
+        # first. Leaving on a bare `break` (as this did) left the port "open"
+        # with nobody reading it — see _handle_device_lost.
+        lost: str | None = None
+        try:
+            while not self._stop_event.is_set():
+                ser = self._serial
+                if ser is None or not ser.is_open:
+                    if not self._stop_event.is_set():
+                        lost = "serial port closed unexpectedly"
                     break
-                if not data:
-                    continue
-                self._write_log_raw(data.decode("utf-8", errors="ignore"))
-                callback = self._terminal_output
-                if callback is not None:
-                    callback(data)
-                continue
 
-            try:
-                line = ser.readline()
-            except Exception:
-                break
-            if not line:
-                continue
-            decoded = line.decode("utf-8", errors="ignore")
-            self._write_log_line(decoded)
-            if self._capture_active:
-                # Divert to the capture buffer instead of the parser (avoid
-                # polluting CPU/crash data with the captured command's output).
-                self._capture_lines.append(decoded)
-                # Done when the echoed sentinel appears — tolerate a shell prompt
-                # prefix ("root@AP:/# __DUTCAP__") so a prefixed marker still ends
-                # the capture instead of waiting out the full timeout. Exclude the
-                # echoed command line itself ("<cmd>; echo <sentinel>").
-                sentinel = self._capture_sentinel
-                if sentinel and sentinel in decoded and f"echo {sentinel}" not in decoded:
-                    self._capture_done.set()
-                continue
-            self.parser.feed(decoded)
+                if self._terminal:
+                    # Raw passthrough: forward bytes to the terminal, log verbatim,
+                    # do NOT feed the sysmon parser (avoid polluting CPU/crash data).
+                    try:
+                        waiting = ser.in_waiting
+                    except Exception:
+                        waiting = 0
+                    try:
+                        data = ser.read(waiting or 1)
+                    except Exception as exc:
+                        lost = str(exc) or type(exc).__name__
+                        break
+                    if not data:
+                        continue
+                    self._write_log_raw(data.decode("utf-8", errors="ignore"))
+                    callback = self._terminal_output
+                    if callback is not None:
+                        callback(data)
+                    continue
+
+                try:
+                    line = ser.readline()
+                except Exception as exc:
+                    lost = str(exc) or type(exc).__name__
+                    break
+                if not line:
+                    continue
+                decoded = line.decode("utf-8", errors="ignore")
+                self._write_log_line(decoded)
+                if self._capture_active:
+                    # Divert to the capture buffer instead of the parser (avoid
+                    # polluting CPU/crash data with the captured command's output).
+                    self._capture_lines.append(decoded)
+                    # Done when the echoed sentinel appears — tolerate a shell prompt
+                    # prefix ("root@AP:/# __DUTCAP__") so a prefixed marker still ends
+                    # the capture instead of waiting out the full timeout. Exclude the
+                    # echoed command line itself ("<cmd>; echo <sentinel>").
+                    sentinel = self._capture_sentinel
+                    if sentinel and sentinel in decoded and f"echo {sentinel}" not in decoded:
+                        self._capture_done.set()
+                    continue
+                self.parser.feed(decoded)
+        finally:
+            # A requested close() sets _stop_event first, so only an unrequested
+            # exit counts as the device going away.
+            if lost is not None and not self._stop_event.is_set():
+                self._handle_device_lost(lost)
 
     def _replay_loop(self, replay_file: Path, replay_interval_ms: int) -> None:
         delay_sec = max(1, replay_interval_ms) / 1000.0

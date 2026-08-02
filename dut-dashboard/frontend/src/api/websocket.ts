@@ -68,6 +68,14 @@ export type DashboardEvent =
       stage: "verifying" | "connecting" | "uploading" | "applying" | "done";
       detail: string;
       dry_run: boolean;
+    }
+  | {
+      // The serial device went away mid-session (adapter unplugged, DUT rebooted,
+      // port re-enumerated). Pushed so the UI stops claiming Connected; the
+      // backend never reconnects on its own, so a human must press Connect.
+      type: "serial_disconnected";
+      dut_id: string;
+      detail: string;
     };
 // Note: this is a closed discriminated union. Unknown runtime event types are
 // parsed as DashboardEvent and fall through the type checks (ignored). A

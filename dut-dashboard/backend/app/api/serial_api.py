@@ -18,6 +18,7 @@ from serial.tools import list_ports
 
 from app.config import ANALYZER_SCRIPT, LOG_DIR
 from app.dut.registry import DEFAULT_DUT_ID, DutContext
+from app.serial.serial_worker import PORT_LOST_MESSAGE
 from app.services import context_snapshot
 
 router = APIRouter(prefix="/api/serial", tags=["serial"])
@@ -29,6 +30,19 @@ def _dut(request: Request, dut: str) -> DutContext:
         return request.app.state.dut_registry.get(dut)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=f"Unknown DUT: {dut}") from exc
+
+
+def _serial_fault(exc: Exception) -> HTTPException:
+    """Map a serial write failure to a 400 the UI can show.
+
+    The worker already converts a vanished device into ``RuntimeError``, but
+    OSError is caught alongside it because ``serial.SerialException`` subclasses
+    OSError, **not** RuntimeError — which is exactly how an unplugged adapter used
+    to escape ``POST /api/serial/send`` as a 500 plus a traceback. A raw errno
+    string is not user-facing copy, so only RuntimeError's message is passed on.
+    """
+    detail = str(exc) if isinstance(exc, RuntimeError) else PORT_LOST_MESSAGE
+    return HTTPException(status_code=400, detail=detail)
 
 
 class SerialOpenRequest(BaseModel):
@@ -254,8 +268,8 @@ def close_serial(request: Request, dut: str = DEFAULT_DUT_ID) -> dict:
 def send_serial(body: SerialSendRequest, request: Request, dut: str = DEFAULT_DUT_ID) -> dict:
     try:
         _dut(request, dut).serial_worker.send(body.text)
-    except RuntimeError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (RuntimeError, OSError) as exc:
+        raise _serial_fault(exc) from exc
     return {"ok": True}
 
 
@@ -264,8 +278,8 @@ def enter_terminal(request: Request, dut: str = DEFAULT_DUT_ID) -> dict:
     """Switch to interactive raw-terminal mode (sysmon monitoring pauses)."""
     try:
         _dut(request, dut).serial_worker.enter_terminal()
-    except RuntimeError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (RuntimeError, OSError) as exc:
+        raise _serial_fault(exc) from exc
     return {"ok": True, "terminal": True}
 
 
@@ -282,8 +296,8 @@ def resize_terminal(body: SerialResizeRequest, request: Request, dut: str = DEFA
     at the right dimensions."""
     try:
         _dut(request, dut).serial_worker.resize_terminal(body.rows, body.cols, body.term)
-    except RuntimeError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (RuntimeError, OSError) as exc:
+        raise _serial_fault(exc) from exc
     return {"ok": True, "rows": body.rows, "cols": body.cols}
 
 
@@ -296,8 +310,8 @@ def kick_wifi_client(body: WifiKickRequest, request: Request, dut: str = DEFAULT
         _dut(request, dut).serial_worker.capture_command(
             f"wlanconfig {body.iface} kickmac {body.mac}", timeout=5.0
         )
-    except RuntimeError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (RuntimeError, OSError) as exc:
+        raise _serial_fault(exc) from exc
     return {"ok": True}
 
 
