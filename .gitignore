@@ -42,3 +42,17 @@ dut-dashboard/data/
 test_*-signed/
 *.tar.gz.sig
 *-encrypt_*.bin
+
+# Verification screenshots. Every phase leaves a few (preview/Playwright captures
+# proving a layout or a fix), and by convention they land in the root of the repo
+# under test -- here and in dut-dashboard/. Eleven of them reached CPU_Plots in
+# #103 because nothing stopped a `git add -A`.
+#
+# Anchored and NON-recursive on purpose. A bare `*.png` would also swallow a real
+# asset added later under frontend/public/ or docs/, and the failure would be
+# silent: `git add` says nothing, the file never ships, and the build breaks
+# somewhere else. These two lines cover exactly the drop points and leave every
+# nested directory to behave normally. (The repo tracks no image of any kind
+# today, so nothing existing is affected.)
+/*.png
+/dut-dashboard/*.png
