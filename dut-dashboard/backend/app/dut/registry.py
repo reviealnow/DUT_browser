@@ -115,6 +115,20 @@ class DutRegistry:
         serial_worker = SerialWorker(parser, name=worker_name)
         serial_worker.set_terminal_output(terminal_manager.emit_bytes_from_thread)
 
+        def on_serial_disconnected(detail: str) -> None:
+            """Push the drop to the browser so "Connected" stops lying.
+
+            Emitted straight on the shared /ws (same shape as survey_progress and
+            firmware_progress) rather than through the parser's on_event, because
+            this is worker state, not DUT telemetry — the snapshot store and
+            console buffer have nothing to do with it.
+            """
+            ws_manager.emit_from_thread(
+                {"type": "serial_disconnected", "dut_id": dut_id, "detail": detail}
+            )
+
+        serial_worker.set_disconnect_handler(on_serial_disconnected)
+
         context = DutContext(
             dut_id=dut_id,
             label=label or dut_id,
