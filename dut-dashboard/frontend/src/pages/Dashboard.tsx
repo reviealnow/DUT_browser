@@ -41,7 +41,7 @@ export default function Dashboard({
 }) {
   // Console lines come from the single shared WebSocket (useDutMonitor) instead
   // of Dashboard opening its own connection.
-  const { lines } = useDutMonitorContext();
+  const { lines, serialDisconnect } = useDutMonitorContext();
   const [mode, setMode] = useState<"serial" | "replay">("serial");
   const [port, setPort] = useState(DEFAULT_SERIAL_PORT);
   const [baudrate, setBaudrate] = useState(() => loadSettings().defaultBaud);
@@ -113,6 +113,20 @@ export default function Dashboard({
     const quiet = silent || text === String.fromCharCode(3);
     await runAction(() => sendSerial(text, dutId).then(() => undefined), quiet);
   }
+
+  // The backend pushes this when the serial device vanishes under it (adapter
+  // unplugged, DUT rebooted, port re-enumerated). It deliberately does not
+  // reconnect — a re-enumerated adapter may be a different device — so the
+  // session really is over: drop out of the connected view and say so, rather
+  // than leaving "Connected" up while every keystroke fails.
+  useEffect(() => {
+    if (!serialDisconnect) {
+      return;
+    }
+    setIsOpen(false);
+    setConsoleView("monitor");
+    setActionError("Serial device disconnected. Reconnect it, then press Open again.");
+  }, [serialDisconnect]);
 
   async function handleOpenTerminal() {
     await runAction(async () => {
