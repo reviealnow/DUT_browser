@@ -117,6 +117,9 @@ class WifiParseTests(unittest.TestCase):
 
     def test_parse_apstats_empty_is_all_none(self) -> None:
         s = parse_apstats("garbage\nno fields here\n")
+        # The contract is "every field present, all None" -- a parser that
+        # returned {} instead would satisfy all() over nothing.
+        self.assertTrue(s, "parse_apstats dropped the fields instead of nulling them")
         self.assertTrue(all(v is None for v in s.values()))
 
     def test_width_from_phymode(self) -> None:

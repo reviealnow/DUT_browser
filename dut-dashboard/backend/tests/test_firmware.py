@@ -380,6 +380,10 @@ class UpgradeTests(FirmwareTestCase):
         self._ready()
         self._login("admin")
         self.client.post("/api/firmware/upgrade", json={"file_id": file_id, "dry_run": False})
+        # Assert something was sent first: an upgrade that never reached the
+        # transport leaves self.requests empty, and a loop over nothing passes
+        # while proving nothing about the header.
+        self.assertTrue(self.requests, "no request reached the DUT to inspect")
         for request in self.requests:
             self.assertNotIn("expect", [k.lower() for k in request.headers])
 

@@ -96,6 +96,9 @@ class TestParseNmcli(unittest.TestCase):
 
     def test_dot11_fields_none(self) -> None:
         result = _parse_nmcli(_NMCLI_SAMPLE)
+        # A parser regression that returns nothing would satisfy the loop below
+        # without ever looking at a field.
+        self.assertEqual(len(result), 2)
         for bss in result:
             self.assertIsNone(bss["dot11k"])
 
