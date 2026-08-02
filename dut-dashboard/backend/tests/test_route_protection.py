@@ -151,15 +151,14 @@ ROLE_MAP: dict[tuple[str, str], str | None] = {
     ("GET", "/api/wifi/site-survey"): None,
     ("GET", "/api/wifi/channel-recommendation"): None,
     ("GET", "/api/wifi/channel-recommendation/last"): None,
-    # -- the DUT registry -------------------------------------------------
-    # NOT gated today. GET is a listing, but POST persists a new DUT and
-    # DELETE closes that DUT's serial worker and drops it from duts.json --
-    # both reachable by an anonymous caller on the LAN. Recorded here as the
-    # app behaves, not as it arguably should; changing who may add or remove a
-    # DUT is a policy call for a human, not a side effect of a test sweep.
+    # -- the DUT registry: split gate -------------------------------------
+    # GET is what the switcher reads on every page load, guests included.
+    # POST persists a new DUT and DELETE closes that DUT's serial worker, so
+    # both are engineer+ -- until 2026-08-02 neither was gated at all, and an
+    # anonymous caller on the LAN could end someone else's capture mid-run.
     ("GET", "/api/duts"): None,
-    ("POST", "/api/duts"): None,
-    ("DELETE", "/api/duts/{dut_id}"): None,
+    ("POST", "/api/duts"): "engineer",
+    ("DELETE", "/api/duts/{dut_id}"): "engineer",
 }
 
 ROLES_BELOW = {"guest": None, "engineer": "guest", "admin": "engineer"}

@@ -39,9 +39,11 @@ app = FastAPI(title="DUT Local Monitoring Dashboard")
 # DUT, reaches the filesystem or exposes workspace content (files, bulletin and
 # the tag search that spans both) is engineer+; read-only telemetry stays open
 # so the dashboard keeps working for an unregistered guest browser. Gates live
-# here rather than in each router so the whole policy reads in one place — the
-# one exception is settings_api, which splits per-route (open GET so guest
-# crash detection uses the same keyword list as engineers, engineer PUT).
+# here rather than in each router so the whole policy reads in one place. Two
+# routers split per-route instead, because their GET and their writes serve
+# different audiences: settings_api (open GET so guest crash detection uses the
+# same keyword list as engineers, engineer PUT) and duts_api (open GET so the
+# switcher still lists DUTs for a guest, engineer POST/DELETE).
 _ENGINEER = Depends(auth_service.require_role("engineer"))
 
 app.include_router(auth_router)

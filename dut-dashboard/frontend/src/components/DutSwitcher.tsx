@@ -2,11 +2,17 @@ import { useEffect, useState } from "react";
 
 import { addDut, DutInfo, getDuts, removeDut } from "../api/rest";
 import { DEFAULT_DUT_ID } from "../api/dut";
+import { useAuth } from "../monitoring/AuthContext";
 
 /**
  * Topbar DUT selector (multi-DUT Stage 2a). Lists the registered DUTs, switches
  * which one the monitoring sections reflect, and manages add/remove. The
  * Serial Console stays pinned to the default DUT until Stage 2b.
+ *
+ * Selecting is open to everyone: listing DUTs is the guest-visible telemetry
+ * view. Adding and removing are engineer+ on the backend, so the manage panel
+ * is hidden rather than left to fail — a Remove button that always answers 401
+ * is worse than no button.
  */
 export default function DutSwitcher({
   selected,
@@ -15,6 +21,8 @@ export default function DutSwitcher({
   selected: string;
   onSelect: (dutId: string) => void;
 }) {
+  const { role } = useAuth();
+  const canManage = role !== "guest";
   const [duts, setDuts] = useState<DutInfo[]>([]);
   const [manageOpen, setManageOpen] = useState(false);
   const [newId, setNewId] = useState("");
@@ -71,11 +79,13 @@ export default function DutSwitcher({
           </option>
         ))}
       </select>
-      <button className="btn" onClick={() => setManageOpen((v) => !v)} title="Manage DUTs">
-        DUTs
-      </button>
+      {canManage ? (
+        <button className="btn" onClick={() => setManageOpen((v) => !v)} title="Manage DUTs">
+          DUTs
+        </button>
+      ) : null}
 
-      {manageOpen ? (
+      {canManage && manageOpen ? (
         <div
           className="card"
           style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 20, width: 320, padding: "var(--space-3)" }}
