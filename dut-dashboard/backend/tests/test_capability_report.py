@@ -118,6 +118,9 @@ class TestBuildCapabilityReport(unittest.TestCase):
     def test_survey_unavailable_all_unmatched(self) -> None:
         report = build_capability_report([_SSID_A_6GHZ, _SSID_A_5GHZ], _SURVEY_UNAVAILABLE)
         self.assertFalse(report["available_b"])
+        # One row per SSID passed in; a report that dropped them all would pass
+        # the loop below without comparing anything.
+        self.assertEqual(len(report["rows"]), 2)
         for row in report["rows"]:
             self.assertFalse(row["match"])
             self.assertIsNone(row["caveat"])  # no caveat when survey unavailable

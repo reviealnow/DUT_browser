@@ -106,6 +106,9 @@ class ContextCaptureEndpointTests(unittest.TestCase):
 
         # Must not raise — a failed capture never fails a connect.
         result = self._capture(worker, capability=refuse)
+        # "shaped result" is the claim, so check the shape: any([]) is False, so
+        # a result that reported no captures at all would pass the next line.
+        self.assertEqual(len(result["captures"]), 2)
         self.assertFalse(any(c["ok"] for c in result["captures"]))
         self.assertEqual(context_snapshot.snapshot_entries(), [])
 

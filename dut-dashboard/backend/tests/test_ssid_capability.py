@@ -135,7 +135,10 @@ class TestParseHostapdConfs(unittest.TestCase):
         self.assertEqual(ath8["wpa_key_mgmt"], ["SAE"])
         self.assertEqual(ath8["wpa_pairwise"], ["CCMP"])
         self.assertEqual(ath8["ieee80211w"], 2)
-        self.assertFalse(ath8["dot11r"])
+        # assertIs, not assertFalse: the frontend types this field boolean|null
+        # and renders null as "—" (unknown) rather than "✗" (not supported), so
+        # a parser that started returning None here must fail this test.
+        self.assertIs(ath8["dot11r"], False)
 
     def test_suite_b_enterprise(self) -> None:
         r = _parse_hostapd_confs(_HOSTAPD_CONF_DUMP)

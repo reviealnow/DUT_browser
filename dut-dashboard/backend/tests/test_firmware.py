@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import tempfile
 import unittest
 from contextlib import ExitStack
@@ -30,6 +31,9 @@ IMAGE_BYTES = b"customer-signed firmware image"
 SIGNED_NAME = "AP6_v2.sig"
 ENCRYPTED_NAME = "ubi_kernel_AP6_840E-encrypt_v110339.bin"
 IMAGE_SHA = hashlib.sha256(IMAGE_BYTES).hexdigest()
+# A password that appears nowhere else, so a leak test cannot pass by accident
+# or fail on an unrelated occurrence of the word "secret".
+CANARY = "PW-CANARY-9f3a"
 
 
 class _StubConsole:
@@ -255,6 +259,54 @@ class CredentialTests(FirmwareTestCase):
         self.assertNotIn("s3cret", body)
         self.assertTrue(self.client.get("/api/firmware/config").json()["has_credentials"])
 
+    def test_credentials_embedded_in_a_management_url_are_stripped(self) -> None:
+        """`https://user:pass@host` is a password arriving by the back door.
+
+        Storage normalises the userinfo away, and this pins that down, because
+        firmware_service carries a *second* normaliser (normalise_mgmt_url, used
+        to build the request target) which keeps userinfo when the address
+        already has a port. The two look interchangeable; merging them the wrong
+        way round would make /api/firmware/config start returning the password.
+        """
+        self._login("admin")
+        response = self.client.put(
+            "/api/firmware/mgmt-url",
+            json={"dut": "default", "mgmt_url": f"https://admin:{CANARY}@192.0.2.10:443"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.context.mgmt_url, "https://192.0.2.10:443")
+        self.assertNotIn(CANARY, response.text)
+        self.assertNotIn(CANARY, self.client.get("/api/firmware/config").text)
+
+    def test_the_password_never_reaches_the_browsers_watching_ws(self) -> None:
+        """/ws is ungated read-only telemetry: every browser on the LAN receives
+        firmware_progress, signed in or not. A password in a stage detail would
+        leak to viewers who could not have asked for it.
+
+        The connecting stage broadcasts the request target verbatim, and the
+        normaliser that builds that target keeps userinfo when the address has a
+        port -- so an address saved as `https://admin:pw@host:443` would put the
+        password on the wire to every watching browser. Only the stripping done
+        at save time stands between the two, which is why this sets the address
+        through the endpoint rather than on the stub.
+        """
+        file_id = self._upload_image()
+        self._ready()
+        firmware_service.set_credentials("admin", CANARY)
+        self._login("admin")
+        self.client.put(
+            "/api/firmware/mgmt-url",
+            json={"dut": "default", "mgmt_url": f"https://admin:{CANARY}@192.0.2.10:10443"},
+        )
+        response = self.client.post(
+            "/api/firmware/upgrade", json={"file_id": file_id, "dry_run": False}
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        progress = [e for e in self.ws.events if e["type"] == "firmware_progress"]
+        self.assertTrue(progress, "no progress was broadcast, so nothing was checked")
+        self.assertNotIn(CANARY, json.dumps(progress))
+        self.assertNotIn(CANARY, response.text)
+
     def test_credentials_are_required_for_a_real_upgrade(self) -> None:
         file_id = self._upload_image()
         self.context.mgmt_url = "https://192.0.2.10:10443"
@@ -338,6 +390,32 @@ class ChecksumTests(FirmwareTestCase):
         )
         self.assertEqual(response.status_code, 200, response.text)
 
+    def test_neither_transport_contacts_the_dut_before_the_checksum_passes(self) -> None:
+        """"Nothing is sent" has to mean nothing at all.
+
+        The GUI transport talks to the DUT before it uploads -- it fetches a CSRF
+        token from common.cgi first -- so a checksum verified per-transport, or
+        after the target is opened, would still have reached the device. The
+        existing cases only cover the default (GUI) path with the default image.
+        """
+        for transport, name in (("gui", SIGNED_NAME), ("api", ENCRYPTED_NAME)):
+            with self.subTest(transport=transport):
+                self.requests.clear()
+                file_id = self._upload_image(name=name)
+                self._ready()
+                self._login("admin")
+                response = self.client.post(
+                    "/api/firmware/upgrade",
+                    json={
+                        "file_id": file_id,
+                        "expected_sha256": "0" * 64,
+                        "dry_run": False,
+                        "transport": transport,
+                    },
+                )
+                self.assertEqual(response.status_code, 409, response.text)
+                self.assertEqual(self.requests, [], "the DUT was contacted before the checksum passed")
+
     def test_bytes_changed_on_disk_are_caught(self) -> None:
         """The stored digest proves what was uploaded, not what is there now."""
         file_id = self._upload_image()
@@ -380,6 +458,10 @@ class UpgradeTests(FirmwareTestCase):
         self._ready()
         self._login("admin")
         self.client.post("/api/firmware/upgrade", json={"file_id": file_id, "dry_run": False})
+        # Assert something was sent first: an upgrade that never reached the
+        # transport leaves self.requests empty, and a loop over nothing passes
+        # while proving nothing about the header.
+        self.assertTrue(self.requests, "no request reached the DUT to inspect")
         for request in self.requests:
             self.assertNotIn("expect", [k.lower() for k in request.headers])
 
