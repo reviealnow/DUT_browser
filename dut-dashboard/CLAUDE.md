@@ -84,7 +84,9 @@ dut-dashboard/
     api/          rest.ts (typed REST client) · websocket.ts · dut.ts
     utils/        shared browser helpers (clipboard.ts)
     styles/
-  tools/          analyzer3.py · log_event_detector.py (offline)
+  tools/          analyzer3.py · log_event_detector.py (offline) ·
+                  mock_survey_server.py (dev aid: serves a fixed survey payload
+                  so the Site Survey UI can be worked on without a DUT)
   scripts/        sysMon.sh (DUT-side telemetry)
 ```
 
