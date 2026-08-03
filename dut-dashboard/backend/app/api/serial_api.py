@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+import logging
+import os
+import re
 import shutil
 import subprocess
 import sys
 import time
 import zipfile
 from datetime import datetime
-import os
 from pathlib import Path
-import re
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
@@ -22,6 +23,11 @@ from app.serial.serial_worker import PORT_LOST_MESSAGE
 from app.services import context_snapshot
 
 router = APIRouter(prefix="/api/serial", tags=["serial"])
+logger = logging.getLogger(__name__)
+
+# Names are resolved against the patchable ANALYZER_SCRIPT inside
+# run_analyzer_for_session(), preserving the download workflow's test seam.
+OFFLINE_TOOLS = ["analyzer3.py", "wifi_timeseries.py", "context_render.py"]
 
 
 def _dut(request: Request, dut: str) -> DutContext:
@@ -170,28 +176,40 @@ def run_analyzer_for_session(session_dir: Path) -> None:
     env["MPLCONFIGDIR"] = str(mpl_config_dir)
     env["MPLBACKEND"] = "Agg"
 
-    try:
-        completed = subprocess.run(
-            [sys.executable, str(ANALYZER_SCRIPT)],
-            cwd=session_dir,
-            capture_output=True,
-            text=True,
-            env=env,
-        )
-    except Exception as exc:
-        raise DownloadWorkflowError(f"failed to execute analyzer3.py: {exc}", status_code=500) from exc
-
-    if completed.returncode != 0:
-        stderr = completed.stderr.strip()
-        stdout = completed.stdout.strip()
-        combined = f"{stderr}\n{stdout}".strip()
-        if "Matplotlib is building the font cache" in combined:
-            raise DownloadWorkflowError(
-                "analyzer runtime setup issue (matplotlib font cache), not log content issue",
-                status_code=500,
+    tools = [ANALYZER_SCRIPT, *(ANALYZER_SCRIPT.parent / name for name in OFFLINE_TOOLS[1:])]
+    for tool in tools:
+        if not tool.is_file():
+            continue
+        try:
+            completed = subprocess.run(
+                [sys.executable, str(tool)],
+                cwd=session_dir,
+                capture_output=True,
+                text=True,
+                env=env,
             )
-        message = stderr or stdout or "analyzer3.py execution failed"
-        raise DownloadWorkflowError(f"analyzer3.py execution failed: {message}", status_code=500)
+        except Exception as exc:
+            if tool == ANALYZER_SCRIPT:
+                raise DownloadWorkflowError(
+                    f"failed to execute {tool.name}: {exc}", status_code=500
+                ) from exc
+            logger.warning("optional offline tool %s failed to start: %s", tool.name, exc)
+            continue
+
+        if completed.returncode != 0:
+            stderr = completed.stderr.strip()
+            stdout = completed.stdout.strip()
+            combined = f"{stderr}\n{stdout}".strip()
+            if tool != ANALYZER_SCRIPT:
+                logger.warning("optional offline tool %s failed: %s", tool.name, stderr or stdout)
+                continue
+            if "Matplotlib is building the font cache" in combined:
+                raise DownloadWorkflowError(
+                    "analyzer runtime setup issue (matplotlib font cache), not log content issue",
+                    status_code=500,
+                )
+            message = stderr or stdout or f"{tool.name} execution failed"
+            raise DownloadWorkflowError(f"{tool.name} execution failed: {message}", status_code=500)
 
 
 def bundle_session_context(session_dir: Path, log_path: Path) -> list[Path]:

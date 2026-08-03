@@ -1,0 +1,21 @@
+= Test Time: 7, 2026-08-03 02:19:00
+=== CURL Hooks ======================================================================
+{"data":{"workload":{"connected_clients":2,"cpu_load":"31%","mem_load":"44%","tx_bytes":"20.3 GBytes","rx_bytes":"5 MBytes"},"cpu_temperature":[61,64],"radio_temperature":[51,53]}}
+{"radio_name":"2G","channel":6,"channel_utilization":"18%"}
+{"radio_name":"5G","channel":36,"channel_utilization":"27%"}
+--- CLIENTS Radio=2G ---
+{"client_list":[{"ssid_name":"Lab-A","mac_address":"02:00:00:00:00:01","vendor":"Synthetic","ip_address":"192.0.2.1","channel":6,"channel_width":"20MHz","rssi":-52,"snr":38,"signale_ratio":78,"tx_bytes":"1.5 MBytes","rx_bytes":"2 KBytes","connected_time":"1 days 2 hours 3 mins 4 secs","idle_time":"5 secs","vlan_id":10}]}
+--- CLIENTS Radio=5G ---
+{"client_list":[{"ssid_name":"Lab-B","mac_address":"02:00:00:00:00:02","vendor":"Synthetic","ip_address":"192.0.2.2","channel":36,"channel_width":"80MHz","rssi":-61,"snr":29,"signale_ratio":64,"tx_bytes":"9 KBytes","rx_bytes":"11 KBytes","connected_time":"30 mins 1 secs","idle_time":"2 mins","vlan_id":20}]}
+=== Process Status (VSZ != 0) =======================================================
+= Test Time: 8, 2026-08-03 02:20:00
+=== CURL Hooks ======================================================================
+{"data":{"workload":{"connected_clients":1,"tx_bytes":"21 GBytes","rx_bytes":"6 MBytes"}}}
+{"radio_name":"2G","channel":11,"channel_utilization":20}
+{"radio_name":"5G","channel":44,"channel_utilization":30}
+{"client_list":[{"ssid_name":"Legacy","mac_address":"02:00:00:00:00:03","channel":11,"rssi":-70}]}
+{"client_list":[]}
+=== Process Status (VSZ != 0) =======================================================
+= Test Time: 9, 2026-08-03 02:21:00
+=== CURL Hooks ======================================================================
+{"connected_clients":99}

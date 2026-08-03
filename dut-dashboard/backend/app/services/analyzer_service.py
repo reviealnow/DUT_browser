@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import subprocess
@@ -12,6 +13,8 @@ from app.services import context_snapshot
 
 
 _ANALYZER_OUTPUT_SUFFIXES = {".csv", ".png", ".txt"}
+_OFFLINE_TOOL_NAMES = ["analyzer3.py", "wifi_timeseries.py", "context_render.py"]
+logger = logging.getLogger(__name__)
 
 
 def _clear_analyzer_outputs(output_dir: Path) -> None:
@@ -77,7 +80,13 @@ class AnalyzerService:
             tmp_path = Path(tmp_dir)
             staged_log = tmp_path / log_file.name
             shutil.copy2(log_file, staged_log)
-            shutil.copy2(ANALYZER_SCRIPT, tmp_path / "analyzer3.py")
+            staged_tools: list[Path] = []
+            for tool_name in _OFFLINE_TOOL_NAMES:
+                source = ANALYZER_SCRIPT.parent / tool_name
+                if source.is_file():
+                    destination = tmp_path / tool_name
+                    shutil.copy2(source, destination)
+                    staged_tools.append(destination)
 
             # Force a headless matplotlib backend + a writable config dir so the
             # plot generation works on a server with no display and survives the
@@ -88,15 +97,24 @@ class AnalyzerService:
             env["MPLCONFIGDIR"] = str(mpl_config_dir)
             env["MPLBACKEND"] = "Agg"
 
-            completed = subprocess.run(
-                [sys.executable, "analyzer3.py"],
-                cwd=tmp_path,
-                capture_output=True,
-                text=True,
-                env=env,
-            )
-            if completed.returncode != 0:
-                raise RuntimeError(_concise_error(completed.stderr, completed.stdout))
+            stdout_parts: list[str] = []
+            for tool in staged_tools:
+                completed = subprocess.run(
+                    [sys.executable, tool.name],
+                    cwd=tmp_path,
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                )
+                stdout_parts.append(completed.stdout)
+                if completed.returncode != 0:
+                    if tool.name == "analyzer3.py":
+                        raise RuntimeError(_concise_error(completed.stderr, completed.stdout))
+                    logger.warning(
+                        "optional offline tool %s failed: %s",
+                        tool.name,
+                        completed.stderr.strip() or completed.stdout.strip(),
+                    )
 
             generated = [p for p in tmp_path.iterdir() if p.is_file()]
             cpu_candidates = sorted([p for p in generated if p.name.endswith("cpu_usage.csv")])
@@ -128,5 +146,5 @@ class AnalyzerService:
                 "log_path": str(log_file),
                 "files": sorted(copied_files),
                 "context": _bundle_context(log_file),
-                "stdout": completed.stdout,
+                "stdout": "".join(stdout_parts),
             }
