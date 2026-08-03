@@ -1,0 +1,32 @@
+{
+  "dut_id": "lab-ap6",
+  "captured_at": "2026-08-01T09:00:00",
+  "recommendations": [
+    {
+      "band": "2.4GHz",
+      "iface": "ath0",
+      "current_channel": 6,
+      "recommended_channel": 1,
+      "score": 0.0,
+      "occupancy": { "1": 0.0, "6": 2.0, "11": 1.0 },
+      "reasoning": "Stale snapshot: kept only so the newest-wins selection has something to beat.",
+      "caveat": null
+    }
+  ],
+  "neighbors": [
+    {
+      "iface": "ath0",
+      "bssid": "0c:11:22:00:00:99",
+      "ssid": "Fixture-Stale",
+      "band": "2.4GHz",
+      "channel": 6,
+      "freq_mhz": 2437,
+      "signal_dbm": -60,
+      "security": "WPA2-Personal",
+      "generation": "Wi-Fi 4"
+    }
+  ],
+  "vaps": [
+    { "iface": "ath0", "ssid": "Fixture-Lab-24", "band": "2.4GHz", "channel": 6, "mode": "Master" }
+  ]
+}

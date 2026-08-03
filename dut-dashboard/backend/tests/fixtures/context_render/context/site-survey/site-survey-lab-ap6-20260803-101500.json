@@ -1,0 +1,218 @@
+{
+  "dut_id": "lab-ap6",
+  "captured_at": "2026-08-03T10:15:00",
+  "recommendations": [
+    {
+      "band": "2.4GHz",
+      "iface": "ath0",
+      "current_channel": 6,
+      "recommended_channel": 11,
+      "score": 3.0,
+      "occupancy": {
+        "1": 4.0,
+        "2": 3.2,
+        "3": 2.4,
+        "4": 3.6,
+        "5": 5.8,
+        "6": 8.0,
+        "7": 6.4,
+        "8": 4.8,
+        "9": 3.4,
+        "10": 2.6,
+        "11": 3.0,
+        "12": 2.4,
+        "13": 1.8
+      },
+      "reasoning": "Channel 11 is less occupied (score 3) than current channel 6 (score 8).",
+      "caveat": null
+    },
+    {
+      "band": "5GHz",
+      "iface": "ath16",
+      "current_channel": 36,
+      "recommended_channel": 149,
+      "score": 1.0,
+      "occupancy": {
+        "36": 2.0,
+        "44": 7.0,
+        "149": 1.0
+      },
+      "reasoning": "Channel 149 is less occupied (score 1) than current channel 36 (score 2).",
+      "caveat": null
+    },
+    {
+      "band": "6GHz",
+      "iface": "ath32",
+      "current_channel": 69,
+      "recommended_channel": 37,
+      "score": 2.0,
+      "occupancy": {
+        "37": 2.0,
+        "69": 4.0
+      },
+      "reasoning": "Channel 37 is less occupied (score 2) than current channel 69 (score 4).",
+      "caveat": null
+    }
+  ],
+  "neighbors": [
+    {
+      "iface": "ath0",
+      "bssid": "0c:11:22:00:00:01",
+      "ssid": "Fixture-Neighbour-A",
+      "band": "2.4GHz",
+      "channel": 1,
+      "freq_mhz": 2412,
+      "signal_dbm": -58,
+      "security": "WPA2-Personal",
+      "generation": "Wi-Fi 4"
+    },
+    {
+      "iface": "ath0",
+      "bssid": "0c:11:22:00:00:02",
+      "ssid": "Fixture-Neighbour-B",
+      "band": "2.4GHz",
+      "channel": 1,
+      "freq_mhz": 2412,
+      "signal_dbm": -71,
+      "security": "WPA2-Personal",
+      "generation": "Wi-Fi 4"
+    },
+    {
+      "iface": "ath0",
+      "bssid": "0c:11:22:00:00:03",
+      "ssid": "Fixture-Neighbour-C",
+      "band": "2.4GHz",
+      "channel": 6,
+      "freq_mhz": 2437,
+      "signal_dbm": -49,
+      "security": "WPA2/WPA3-Personal",
+      "generation": "Wi-Fi 6"
+    },
+    {
+      "iface": "ath0",
+      "bssid": "0c:11:22:00:00:04",
+      "ssid": "Fixture-Neighbour-D",
+      "band": "2.4GHz",
+      "channel": 6,
+      "freq_mhz": 2437,
+      "signal_dbm": -63,
+      "security": "Open",
+      "generation": "Wi-Fi 4"
+    },
+    {
+      "iface": "ath0",
+      "bssid": "0c:11:22:00:00:05",
+      "ssid": "",
+      "band": "2.4GHz",
+      "channel": 6,
+      "freq_mhz": 2437,
+      "signal_dbm": -77,
+      "security": "WPA2-Personal",
+      "generation": null
+    },
+    {
+      "iface": "ath0",
+      "bssid": "0c:11:22:00:00:06",
+      "ssid": "Fixture-Neighbour-F",
+      "band": "2.4GHz",
+      "channel": 6,
+      "freq_mhz": 2437,
+      "signal_dbm": -81,
+      "security": "WPA2-Personal",
+      "generation": "Wi-Fi 5"
+    },
+    {
+      "iface": "ath16",
+      "bssid": "0c:11:22:00:00:07",
+      "ssid": "Fixture-Neighbour-G",
+      "band": "5GHz",
+      "channel": 36,
+      "freq_mhz": 5180,
+      "signal_dbm": -66,
+      "security": "WPA2-Personal",
+      "generation": "Wi-Fi 5"
+    },
+    {
+      "iface": "ath16",
+      "bssid": "0c:11:22:00:00:08",
+      "ssid": "Fixture-Neighbour-H",
+      "band": "5GHz",
+      "channel": 44,
+      "freq_mhz": 5220,
+      "signal_dbm": -52,
+      "security": "WPA3-Personal",
+      "generation": "Wi-Fi 6"
+    },
+    {
+      "iface": "ath16",
+      "bssid": "0c:11:22:00:00:09",
+      "ssid": "Fixture-Neighbour-I",
+      "band": "5GHz",
+      "channel": 44,
+      "freq_mhz": 5220,
+      "signal_dbm": -59,
+      "security": "WPA2-Personal",
+      "generation": "Wi-Fi 5"
+    },
+    {
+      "iface": "ath16",
+      "bssid": "0c:11:22:00:00:0a",
+      "ssid": "Fixture-Neighbour-J",
+      "band": "5GHz",
+      "channel": 44,
+      "freq_mhz": 5220,
+      "signal_dbm": -74,
+      "security": "WPA2-Enterprise",
+      "generation": "Wi-Fi 6"
+    },
+    {
+      "iface": "ath16",
+      "bssid": "0c:11:22:00:00:0b",
+      "ssid": "Fixture-Neighbour-K",
+      "band": "5GHz",
+      "channel": 149,
+      "freq_mhz": 5745,
+      "signal_dbm": -83,
+      "security": "WPA2-Personal",
+      "generation": "Wi-Fi 5"
+    },
+    {
+      "iface": "ath32",
+      "bssid": "0c:11:22:00:00:0c",
+      "ssid": "Fixture-Neighbour-L",
+      "band": "6GHz",
+      "channel": 37,
+      "freq_mhz": 6135,
+      "signal_dbm": -70,
+      "security": "WPA3-Personal",
+      "generation": "Wi-Fi 6E"
+    },
+    {
+      "iface": "ath32",
+      "bssid": "0c:11:22:00:00:0d",
+      "ssid": "Fixture-Neighbour-M",
+      "band": "6GHz",
+      "channel": 69,
+      "freq_mhz": 6295,
+      "signal_dbm": -55,
+      "security": "WPA3-Personal",
+      "generation": "Wi-Fi 7"
+    },
+    {
+      "iface": "ath32",
+      "bssid": "0c:11:22:00:00:0e",
+      "ssid": "Fixture-Neighbour-N",
+      "band": "6GHz",
+      "channel": 69,
+      "freq_mhz": 6295,
+      "signal_dbm": -78,
+      "security": "WPA3-Personal",
+      "generation": "Wi-Fi 6E"
+    }
+  ],
+  "vaps": [
+    { "iface": "ath0", "ssid": "Fixture-Lab-24", "band": "2.4GHz", "channel": 6, "mode": "Master" },
+    { "iface": "ath16", "ssid": "Fixture-Lab-5", "band": "5GHz", "channel": 36, "mode": "Master" },
+    { "iface": "ath32", "ssid": "Fixture-Lab-6", "band": "6GHz", "channel": 69, "mode": "Master" }
+  ]
+}
