@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+import logging
+import os
+import re
 import shutil
 import subprocess
 import sys
 import time
 import zipfile
 from datetime import datetime
-import os
 from pathlib import Path
-import re
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
@@ -22,15 +23,11 @@ from app.serial.serial_worker import PORT_LOST_MESSAGE
 from app.services import context_snapshot
 
 router = APIRouter(prefix="/api/serial", tags=["serial"])
+logger = logging.getLogger(__name__)
 
-# Optional entries support independently landed offline-tool tracks. Missing
-# scripts are skipped; a present script is executed and must succeed. Every tool
-# shares the session-directory cwd and may legitimately emit no artifacts.
-OFFLINE_TOOLS = [
-    ANALYZER_SCRIPT,
-    ANALYZER_SCRIPT.parent / "wifi_timeseries.py",
-    ANALYZER_SCRIPT.parent / "context_render.py",
-]
+# Names are resolved against the patchable ANALYZER_SCRIPT inside
+# run_analyzer_for_session(), preserving the download workflow's test seam.
+OFFLINE_TOOLS = ["analyzer3.py", "wifi_timeseries.py", "context_render.py"]
 
 
 def _dut(request: Request, dut: str) -> DutContext:
@@ -179,7 +176,8 @@ def run_analyzer_for_session(session_dir: Path) -> None:
     env["MPLCONFIGDIR"] = str(mpl_config_dir)
     env["MPLBACKEND"] = "Agg"
 
-    for tool in OFFLINE_TOOLS:
+    tools = [ANALYZER_SCRIPT, *(ANALYZER_SCRIPT.parent / name for name in OFFLINE_TOOLS[1:])]
+    for tool in tools:
         if not tool.is_file():
             continue
         try:
@@ -191,12 +189,20 @@ def run_analyzer_for_session(session_dir: Path) -> None:
                 env=env,
             )
         except Exception as exc:
-            raise DownloadWorkflowError(f"failed to execute {tool.name}: {exc}", status_code=500) from exc
+            if tool == ANALYZER_SCRIPT:
+                raise DownloadWorkflowError(
+                    f"failed to execute {tool.name}: {exc}", status_code=500
+                ) from exc
+            logger.warning("optional offline tool %s failed to start: %s", tool.name, exc)
+            continue
 
         if completed.returncode != 0:
             stderr = completed.stderr.strip()
             stdout = completed.stdout.strip()
             combined = f"{stderr}\n{stdout}".strip()
+            if tool != ANALYZER_SCRIPT:
+                logger.warning("optional offline tool %s failed: %s", tool.name, stderr or stdout)
+                continue
             if "Matplotlib is building the font cache" in combined:
                 raise DownloadWorkflowError(
                     "analyzer runtime setup issue (matplotlib font cache), not log content issue",

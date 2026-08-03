@@ -2,10 +2,17 @@ from __future__ import annotations
 
 import csv
 import os
+import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+from unittest import mock
+
+import pytest
+
+from app.api import serial_api
+from app.services import analyzer_service
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -13,10 +20,15 @@ SCRIPT = ROOT / "tools" / "wifi_timeseries.py"
 FIXTURES = Path(__file__).parent / "fixtures" / "wifi_timeseries"
 
 
-def run_tool(tmp_path: Path) -> subprocess.CompletedProcess[str]:
+@pytest.fixture(scope="session")
+def mpl_config_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return tmp_path_factory.mktemp("wifi-timeseries-mpl")
+
+
+def run_tool(tmp_path: Path, mpl_config_dir: Path) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["MPLBACKEND"] = "Agg"
-    env["MPLCONFIGDIR"] = str(tmp_path / ".mpl")
+    env["MPLCONFIGDIR"] = str(mpl_config_dir)
     return subprocess.run(
         [sys.executable, str(SCRIPT)], cwd=tmp_path, env=env,
         capture_output=True, text=True, check=False,
@@ -29,16 +41,19 @@ def artifact(tmp_path: Path, suffix: str) -> Path:
     return matches[0]
 
 
-def test_extracts_complete_cycles_and_exact_schemas(tmp_path: Path) -> None:
+def test_extracts_complete_cycles_and_exact_schemas(tmp_path: Path, mpl_config_dir: Path) -> None:
     shutil.copy2(next(FIXTURES.glob("*.log")), tmp_path)
-    result = run_tool(tmp_path)
+    result = run_tool(tmp_path, mpl_config_dir)
     assert result.returncode == 0, result.stderr
     assert "snapshots 2" in result.stdout
     assert "client rows 3" in result.stdout
     assert "2.4G 2 / 5G 1 / 6G 0" in result.stdout
     assert "channel consistency 3/3" in result.stdout
 
-    with artifact(tmp_path, "wifi_summary.csv").open(newline="") as stream:
+    summary_path = artifact(tmp_path, "wifi_summary.csv")
+    assert re.fullmatch(r"\d{8}_101900_19300_wifi_summary\.csv", summary_path.name)
+
+    with summary_path.open(newline="") as stream:
         rows = list(csv.DictReader(stream))
     assert list(rows[0]) == [
         "ts", "cycle", "connected_clients", "cpu_load_pct", "mem_load_pct",
@@ -63,30 +78,34 @@ def test_extracts_complete_cycles_and_exact_schemas(tmp_path: Path) -> None:
     assert len(list(tmp_path.glob("*wifi_*plot.png"))) == 4
 
 
-def test_no_curl_section_writes_nothing(tmp_path: Path) -> None:
+def test_no_curl_section_writes_nothing(tmp_path: Path, mpl_config_dir: Path) -> None:
     (tmp_path / "empty.log").write_text("= Test Time: 1, 2026-08-03 00:00:00\n")
-    result = run_tool(tmp_path)
+    result = run_tool(tmp_path, mpl_config_dir)
     assert result.returncode == 0
     assert "no Wi-Fi output written" in result.stdout
     assert not list(tmp_path.glob("*.csv"))
     assert not list(tmp_path.glob("*.png"))
 
 
-def test_cycle_without_clients_omits_client_artifacts(tmp_path: Path) -> None:
+def test_cycle_without_recognizable_values_omits_empty_plots(
+    tmp_path: Path, mpl_config_dir: Path
+) -> None:
     (tmp_path / "summary.log").write_text(
         "= Test Time: 1, 2026-08-03 00:00:00\n"
         "=== CURL Hooks ===============\n"
         "{\"connected_clients\":0}\n"
         "=== Process Status ===========\n"
     )
-    result = run_tool(tmp_path)
+    result = run_tool(tmp_path, mpl_config_dir)
     assert result.returncode == 0
     artifact(tmp_path, "wifi_summary.csv")
     assert not list(tmp_path.glob("*wifi_clients.csv"))
-    assert not list(tmp_path.glob("*wifi_rssi_plot.png"))
+    assert not list(tmp_path.glob("*.png"))
 
 
-def test_radio_count_mismatch_retains_client_without_guessing(tmp_path: Path) -> None:
+def test_radio_count_mismatch_retains_client_without_guessing(
+    tmp_path: Path, mpl_config_dir: Path
+) -> None:
     (tmp_path / "mismatch.log").write_text(
         "= Test Time: 1, 2026-08-03 00:00:00\n"
         "=== CURL Hooks ===============\n"
@@ -96,9 +115,70 @@ def test_radio_count_mismatch_retains_client_without_guessing(tmp_path: Path) ->
         "{\"data\":{\"client_list\":[{\"mac_address\":\"02:00:00:00:00:04\",\"chan\":1}]}}\n"
         "=== Process Status ===========\n"
     )
-    result = run_tool(tmp_path)
+    result = run_tool(tmp_path, mpl_config_dir)
     assert result.returncode == 0
     with artifact(tmp_path, "wifi_clients.csv").open(newline="") as stream:
         clients = list(csv.DictReader(stream))
     assert len(clients) == 1
     assert clients[0]["radio"] == ""
+
+
+def test_malformed_timestamp_is_kept_in_csv_and_skipped_by_plots(
+    tmp_path: Path, mpl_config_dir: Path
+) -> None:
+    (tmp_path / "malformed.log").write_text(
+        "= Test Time: 1, 0000-00-00 00:00:00\n"
+        "=== CURL Hooks ===============\n"
+        "{\"data\":{\"workload\":{\"connected_clients\":1}}}\n"
+        "=== Process Status ===========\n"
+    )
+    result = run_tool(tmp_path, mpl_config_dir)
+    assert result.returncode == 0, result.stderr
+    with artifact(tmp_path, "wifi_summary.csv").open(newline="") as stream:
+        rows = list(csv.DictReader(stream))
+    assert rows[0]["ts"] == "0000-00-00 00:00:00"
+    assert not list(tmp_path.glob("*.png"))
+
+
+def test_optional_tools_are_best_effort_at_both_invocation_points(tmp_path: Path) -> None:
+    tools_dir = tmp_path / "tools"
+    tools_dir.mkdir()
+    analyzer = tools_dir / "analyzer3.py"
+    wifi = tools_dir / "wifi_timeseries.py"
+    analyzer.write_text("# analyzer\n")
+    wifi.write_text("# wifi\n")
+    session_dir = tmp_path / "session"
+    session_dir.mkdir()
+    log = session_dir / "dut.log"
+    log.write_text("log\n")
+    output_dir = tmp_path / "outputs"
+    log_dir = tmp_path / "logs"
+
+    def fake_run(command, **kwargs):
+        tool_name = Path(command[1]).name
+        cwd = Path(kwargs["cwd"])
+        if tool_name == "analyzer3.py":
+            (cwd / "cpu_usage.csv").write_text("cpu\n")
+            (cwd / "memory.csv").write_text("mem\n")
+            return subprocess.CompletedProcess(command, 0, "analyzer ok\n", "")
+        return subprocess.CompletedProcess(command, 2, "", "optional failed")
+
+    with (
+        mock.patch.object(serial_api, "ANALYZER_SCRIPT", analyzer),
+        mock.patch.object(serial_api, "LOG_DIR", log_dir),
+        mock.patch.object(serial_api.subprocess, "run", side_effect=fake_run) as serial_run,
+    ):
+        serial_api.run_analyzer_for_session(session_dir)
+    assert [Path(call.args[0][1]).name for call in serial_run.call_args_list] == [
+        "analyzer3.py", "wifi_timeseries.py"
+    ]
+
+    with (
+        mock.patch.object(analyzer_service, "ANALYZER_SCRIPT", analyzer),
+        mock.patch.object(analyzer_service, "ANALYZER_OUTPUT_DIR", output_dir),
+        mock.patch.object(analyzer_service, "LOG_DIR", log_dir),
+        mock.patch.object(analyzer_service, "_bundle_context", return_value={"dir": None, "files": []}),
+        mock.patch.object(analyzer_service.subprocess, "run", side_effect=fake_run),
+    ):
+        result = analyzer_service.AnalyzerService().run(str(log))
+    assert result["ok"] is True

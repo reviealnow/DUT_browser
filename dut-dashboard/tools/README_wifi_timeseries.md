@@ -42,6 +42,18 @@ If no complete CURL-hook section is found, the command exits successfully and
 writes no files. If cycles exist but have no client rows, client CSV and RSSI
 plot output are omitted.
 
+Byte conversions use a 1024 base. Summary `tx_bytes` / `rx_bytes` retain the
+API's exact integer counters; client `tx_bytes` / `rx_bytes` inherit the
+precision of the API's pre-rounded strings such as `20.3 GBytes`.
+
+## Known limits
+
+`analyzer3.py` emits a timestamp-prefixed `cpu_spike_report.txt`, and `.txt` is
+also a recognized log input. A second run in the same session directory scans
+that report too. This is harmless today because its filename carries the same
+time and firmware tags, but the inherited analyzer behavior is intentionally
+left unchanged here.
+
 ## Extend parsing rules
 
 Keep schemas, units, naming, empty-input behavior, and radio pairing aligned

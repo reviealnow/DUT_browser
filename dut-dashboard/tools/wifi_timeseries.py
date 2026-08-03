@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import csv
 import json
-import os
 import re
 from datetime import datetime
 from pathlib import Path
@@ -272,13 +271,19 @@ def _plot(path: Path, title: str, ylabel: str, frames: list[tuple[pd.DataFrame, 
     fig, axis = plt.subplots(figsize=(12, 5))
     for frame, column, label in frames:
         if column in frame and frame[column].notna().any():
-            axis.plot(pd.to_datetime(frame["ts"]), frame[column], label=label, linewidth=1)
+            plot_frame = frame.assign(_plot_ts=pd.to_datetime(frame["ts"], errors="coerce")).dropna(
+                subset=["_plot_ts", column]
+            )
+            if not plot_frame.empty:
+                axis.plot(plot_frame["_plot_ts"], plot_frame[column], label=label, linewidth=1)
+    if not axis.lines:
+        plt.close(fig)
+        return
     axis.set_title(title)
     axis.set_xlabel("DUT time")
     axis.set_ylabel(ylabel)
     axis.grid(alpha=0.3)
-    if axis.lines:
-        axis.legend()
+    axis.legend()
     fig.autofmt_xdate()
     fig.tight_layout()
     fig.savefig(path, dpi=150)

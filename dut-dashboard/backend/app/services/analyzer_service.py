@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import subprocess
@@ -13,6 +14,7 @@ from app.services import context_snapshot
 
 _ANALYZER_OUTPUT_SUFFIXES = {".csv", ".png", ".txt"}
 _OFFLINE_TOOL_NAMES = ["analyzer3.py", "wifi_timeseries.py", "context_render.py"]
+logger = logging.getLogger(__name__)
 
 
 def _clear_analyzer_outputs(output_dir: Path) -> None:
@@ -106,7 +108,13 @@ class AnalyzerService:
                 )
                 stdout_parts.append(completed.stdout)
                 if completed.returncode != 0:
-                    raise RuntimeError(_concise_error(completed.stderr, completed.stdout))
+                    if tool.name == "analyzer3.py":
+                        raise RuntimeError(_concise_error(completed.stderr, completed.stdout))
+                    logger.warning(
+                        "optional offline tool %s failed: %s",
+                        tool.name,
+                        completed.stderr.strip() or completed.stdout.strip(),
+                    )
 
             generated = [p for p in tmp_path.iterdir() if p.is_file()]
             cpu_candidates = sorted([p for p in generated if p.name.endswith("cpu_usage.csv")])
