@@ -23,6 +23,15 @@ from app.services import context_snapshot
 
 router = APIRouter(prefix="/api/serial", tags=["serial"])
 
+# Optional entries support independently landed offline-tool tracks. Missing
+# scripts are skipped; a present script is executed and must succeed. Every tool
+# shares the session-directory cwd and may legitimately emit no artifacts.
+OFFLINE_TOOLS = [
+    ANALYZER_SCRIPT,
+    ANALYZER_SCRIPT.parent / "wifi_timeseries.py",
+    ANALYZER_SCRIPT.parent / "context_render.py",
+]
+
 
 def _dut(request: Request, dut: str) -> DutContext:
     """Resolve a DUT context or raise 404 for an unknown id."""
@@ -170,28 +179,31 @@ def run_analyzer_for_session(session_dir: Path) -> None:
     env["MPLCONFIGDIR"] = str(mpl_config_dir)
     env["MPLBACKEND"] = "Agg"
 
-    try:
-        completed = subprocess.run(
-            [sys.executable, str(ANALYZER_SCRIPT)],
-            cwd=session_dir,
-            capture_output=True,
-            text=True,
-            env=env,
-        )
-    except Exception as exc:
-        raise DownloadWorkflowError(f"failed to execute analyzer3.py: {exc}", status_code=500) from exc
-
-    if completed.returncode != 0:
-        stderr = completed.stderr.strip()
-        stdout = completed.stdout.strip()
-        combined = f"{stderr}\n{stdout}".strip()
-        if "Matplotlib is building the font cache" in combined:
-            raise DownloadWorkflowError(
-                "analyzer runtime setup issue (matplotlib font cache), not log content issue",
-                status_code=500,
+    for tool in OFFLINE_TOOLS:
+        if not tool.is_file():
+            continue
+        try:
+            completed = subprocess.run(
+                [sys.executable, str(tool)],
+                cwd=session_dir,
+                capture_output=True,
+                text=True,
+                env=env,
             )
-        message = stderr or stdout or "analyzer3.py execution failed"
-        raise DownloadWorkflowError(f"analyzer3.py execution failed: {message}", status_code=500)
+        except Exception as exc:
+            raise DownloadWorkflowError(f"failed to execute {tool.name}: {exc}", status_code=500) from exc
+
+        if completed.returncode != 0:
+            stderr = completed.stderr.strip()
+            stdout = completed.stdout.strip()
+            combined = f"{stderr}\n{stdout}".strip()
+            if "Matplotlib is building the font cache" in combined:
+                raise DownloadWorkflowError(
+                    "analyzer runtime setup issue (matplotlib font cache), not log content issue",
+                    status_code=500,
+                )
+            message = stderr or stdout or f"{tool.name} execution failed"
+            raise DownloadWorkflowError(f"{tool.name} execution failed: {message}", status_code=500)
 
 
 def bundle_session_context(session_dir: Path, log_path: Path) -> list[Path]:
