@@ -35,9 +35,22 @@ by adding periodic serial polling** — it will starve exactly the same way
   header-only CSV or an empty-list JSON presented as a measurement is the bug
   this work removes. The reason a snapshot is missing goes into
   `context/capture-report.txt` (Track C1).
-- Track C2 (persisting successful on-demand scan results) is approved in
-  direction but requires a design surface + operator sign-off before
-  implementation ("stop and ask": it touches the capture flow).
+- **C2 (write-through) signed off 2026-08-03 by the operator; implemented in
+  this PR.** `/api/wifi/clients`, `/api/wifi/capabilities`,
+  `/api/wifi/capability-report`, `/api/wifi/site-survey` and
+  `/api/wifi/channel-recommendation` now persist a successful result as a
+  snapshot, so the scans that *do* get through the saturated line (§1) reach
+  the bundle instead of living only in the frontend. Best-effort and invisible:
+  the response is identical whether the write succeeds, fails, or (empty
+  payload) writes nothing. No `.skip.json` markers — those stay reserved for the
+  connect-time capture path, the only caller entitled to assert "a capture was
+  attempted and produced nothing". No dedup, no rate limiting, no retention
+  policy: deferred, deliberately. Selection and bundling are unchanged, so every
+  in-window snapshot ships and `context_render.py` renders the newest per kind.
+- The empty-payload rule above now also binds `survey_snapshot.write_snapshot`,
+  which previously always wrote a JSON+CSV pair: a survey that observed nothing
+  writes no file, and one with VAPs but no neighbours keeps its JSON and writes
+  no header-only neighbour CSV (same per-artifact rule as §7).
 
 ## 3. Modules and ownership
 
@@ -47,7 +60,7 @@ by adding periodic serial polling** — it will starve exactly the same way
 | `tools/README_wifi_timeseries.md` (new) | **A** | follows `README_log_event_detector.md` layout |
 | `backend/tests/test_wifi_timeseries.py` (new) | **A** | |
 | `backend/tests/fixtures/wifi_timeseries/` (new) | **A** | synthetic log slice, see §8 |
-| `backend/app/api/serial_api.py` — ONLY `run_analyzer_for_session()` + a module-level `OFFLINE_TOOLS` list | **A** | generalize single script → tool loop; wire BOTH new tools (B's filename is fixed here, so A wires it before B's tool exists) |
+| `backend/app/api/serial_api.py` — ONLY `run_analyzer_for_session()` + a module-level `OFFLINE_TOOLS` list | **A** | generalize single script → tool loop; wire BOTH new tools (B's filename is fixed here, so A wires it before B's tool exists). **Superseded by C2c:** the two hand-synced copies of that list (here and in `analyzer_service.py`) are now one `OFFLINE_TOOL_NAMES` in `backend/app/config.py`. `analyzer3.py` is not in it — it is `ANALYZER_SCRIPT`, the fail-hard primary and the test patch seam; as a list entry it was decoration both call sites sliced off. |
 | `backend/app/services/analyzer_service.py` — ONLY the tempdir staging list | **A** | second, independent invocation point (Analyze endpoint); skipping it forks behavior between Download and Analyze flows |
 | `tools/context_render.py` (new) | **B** (Opus 5) | Track B renderer, context/*.json → PNG |
 | `tools/README_context_render.md` (new) | **B** | |
@@ -99,6 +112,17 @@ Track C output:
     context/capture-report.txt      (plain text, one line per snapshot kind:
                                      "<kind>: ok, <n> rows, <files>" or
                                      "<kind>: skipped — <reason>, <timestamp>")
+
+C2b appends one further line per *failed best-effort offline tool*, after the
+per-kind block (`bundle_session_context` writes the block before the analyzer
+loop runs, so these are appended, never a rewrite):
+
+    offline-tool <name>: failed — <first line of stderr, or the exception>, <ISO timestamp>
+
+Only the Download flow produces this. `analyzer_service.py` (the Analyze
+endpoint) runs the same tool loop but builds no bundle and therefore has no
+capture report to append to, so a failure there stays a server-side log line —
+a deliberate asymmetry, not an oversight.
 
 ## 6. CSV schemas (exact columns, exact units)
 
@@ -176,7 +200,8 @@ PR states the numbers obtained. Reference-log baseline:
 
 ## 9. Gates
 
-`pytest` (from `dut-dashboard/backend`, baseline 439 pass) and
+`pytest` (from `dut-dashboard/backend`; baseline was 439 when this file was
+written, 493 after A/B/C1, 517 after C2) and
 `npm run typecheck` (from `dut-dashboard/frontend`) green at every commit.
 Each PR names the mutation it ran to prove its test bites (e.g. Track A:
 swap the radio-pairing rule to zip-shortest → the radio-distribution

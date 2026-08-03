@@ -8,12 +8,17 @@ import sys
 import tempfile
 from pathlib import Path
 
-from app.config import ANALYZER_OUTPUT_DIR, ANALYZER_SCRIPT, CONTEXT_BUNDLE_DIR, LOG_DIR
+from app.config import (
+    ANALYZER_OUTPUT_DIR,
+    ANALYZER_SCRIPT,
+    CONTEXT_BUNDLE_DIR,
+    LOG_DIR,
+    OFFLINE_TOOL_NAMES,
+)
 from app.services import context_snapshot
 
 
 _ANALYZER_OUTPUT_SUFFIXES = {".csv", ".png", ".txt"}
-_OFFLINE_TOOL_NAMES = ["analyzer3.py", "wifi_timeseries.py", "context_render.py"]
 logger = logging.getLogger(__name__)
 
 
@@ -80,11 +85,14 @@ class AnalyzerService:
             tmp_path = Path(tmp_dir)
             staged_log = tmp_path / log_file.name
             shutil.copy2(log_file, staged_log)
+            # The primary analyzer is ANALYZER_SCRIPT itself (so patching that
+            # attribute redirects this flow exactly like it redirects the
+            # download flow); the best-effort extras are resolved beside it.
             staged_tools: list[Path] = []
-            for tool_name in _OFFLINE_TOOL_NAMES:
-                source = ANALYZER_SCRIPT.parent / tool_name
+            sources = [ANALYZER_SCRIPT, *(ANALYZER_SCRIPT.parent / name for name in OFFLINE_TOOL_NAMES)]
+            for source in sources:
                 if source.is_file():
-                    destination = tmp_path / tool_name
+                    destination = tmp_path / source.name
                     shutil.copy2(source, destination)
                     staged_tools.append(destination)
 
@@ -108,7 +116,7 @@ class AnalyzerService:
                 )
                 stdout_parts.append(completed.stdout)
                 if completed.returncode != 0:
-                    if tool.name == "analyzer3.py":
+                    if tool.name == ANALYZER_SCRIPT.name:
                         raise RuntimeError(_concise_error(completed.stderr, completed.stdout))
                     logger.warning(
                         "optional offline tool %s failed: %s",

@@ -17,17 +17,13 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from serial.tools import list_ports
 
-from app.config import ANALYZER_SCRIPT, LOG_DIR
+from app.config import ANALYZER_SCRIPT, LOG_DIR, OFFLINE_TOOL_NAMES
 from app.dut.registry import DEFAULT_DUT_ID, DutContext
 from app.serial.serial_worker import PORT_LOST_MESSAGE
 from app.services import context_snapshot
 
 router = APIRouter(prefix="/api/serial", tags=["serial"])
 logger = logging.getLogger(__name__)
-
-# Names are resolved against the patchable ANALYZER_SCRIPT inside
-# run_analyzer_for_session(), preserving the download workflow's test seam.
-OFFLINE_TOOLS = ["analyzer3.py", "wifi_timeseries.py", "context_render.py"]
 
 
 def _dut(request: Request, dut: str) -> DutContext:
@@ -162,6 +158,35 @@ def ensure_log_has_minimum_snapshots(log_path: Path, minimum_markers: int = MIN_
     )
 
 
+def note_offline_tool_failure(session_dir: Path, tool_name: str, detail: str) -> None:
+    """Append one ``offline-tool <name>: failed — <detail>, <ts>`` line to the
+    session's ``context/capture-report.txt``.
+
+    A best-effort tool that fails is invisible to whoever opens the ZIP: the
+    plots it should have produced are simply absent, and the only trace is a
+    server-side log line nobody reads months later. The capture report is
+    already the bundle's one place for "why is this missing", so failures go
+    there too.
+
+    Appended, never rewritten. ``download_log`` runs ``bundle_session_context``
+    (which writes the report) *before* this loop, so the snapshot accounting is
+    on disk first and these lines land after it; if the session had no context
+    at all there is no report yet and this creates one holding just the failure.
+
+    Best-effort itself — a report that cannot be written must not fail a
+    download whose analysis otherwise succeeded.
+    """
+    first_line = next((line.strip() for line in detail.splitlines() if line.strip()), "")
+    stamp = datetime.now().isoformat(timespec="seconds")
+    try:
+        report_dir = session_dir / "context"
+        report_dir.mkdir(parents=True, exist_ok=True)
+        with (report_dir / context_snapshot.CAPTURE_REPORT_NAME).open("a", encoding="utf-8") as handle:
+            handle.write(f"offline-tool {tool_name}: failed — {first_line or 'no output'}, {stamp}\n")
+    except OSError as exc:
+        logger.warning("could not record %s failure in the capture report: %s", tool_name, exc)
+
+
 def run_analyzer_for_session(session_dir: Path) -> None:
     if not ANALYZER_SCRIPT.exists() or not ANALYZER_SCRIPT.is_file():
         raise DownloadWorkflowError("analyzer3.py not found", status_code=500)
@@ -176,7 +201,7 @@ def run_analyzer_for_session(session_dir: Path) -> None:
     env["MPLCONFIGDIR"] = str(mpl_config_dir)
     env["MPLBACKEND"] = "Agg"
 
-    tools = [ANALYZER_SCRIPT, *(ANALYZER_SCRIPT.parent / name for name in OFFLINE_TOOLS[1:])]
+    tools = [ANALYZER_SCRIPT, *(ANALYZER_SCRIPT.parent / name for name in OFFLINE_TOOL_NAMES)]
     for tool in tools:
         if not tool.is_file():
             continue
@@ -194,6 +219,7 @@ def run_analyzer_for_session(session_dir: Path) -> None:
                     f"failed to execute {tool.name}: {exc}", status_code=500
                 ) from exc
             logger.warning("optional offline tool %s failed to start: %s", tool.name, exc)
+            note_offline_tool_failure(session_dir, tool.name, str(exc))
             continue
 
         if completed.returncode != 0:
@@ -202,6 +228,7 @@ def run_analyzer_for_session(session_dir: Path) -> None:
             combined = f"{stderr}\n{stdout}".strip()
             if tool != ANALYZER_SCRIPT:
                 logger.warning("optional offline tool %s failed: %s", tool.name, stderr or stdout)
+                note_offline_tool_failure(session_dir, tool.name, stderr or stdout)
                 continue
             if "Matplotlib is building the font cache" in combined:
                 raise DownloadWorkflowError(

@@ -42,12 +42,21 @@ def write_snapshot(
     vaps: list[dict],
     captured_at: str,
 ) -> list[Path]:
-    """Write a JSON + CSV snapshot pair for one survey. Returns the two paths.
+    """Write a JSON (+ CSV) snapshot for one survey. Returns the paths written.
 
     The JSON holds the full payload (for restore + programmatic use); the CSV is
     a flat neighbor table for spreadsheet users. Raising is fine — the caller
     wraps this so a write failure never fails the originating request.
+
+    **A survey that observed nothing at all writes nothing and returns ``[]``**,
+    and a survey with VAPs but no neighbors keeps its JSON and writes no CSV.
+    Same rule, same reason as context_snapshot.write_capture (contract §7): a
+    header-only neighbor CSV sitting in a bundle is indistinguishable from a
+    real measurement of zero. Applied per artifact — zero neighbors *is* a
+    reading when the scan itself ran, so the JSON that records it stays.
     """
+    if not recommendations and not neighbors and not vaps:
+        return []
     SURVEY_SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     base = f"site-survey-{dut_id}-{stamp}"
@@ -67,6 +76,9 @@ def write_snapshot(
         ),
         encoding="utf-8",
     )
+
+    if not neighbors:
+        return [json_path]
 
     with csv_path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle)
@@ -120,23 +132,35 @@ def list_snapshots() -> list[dict]:
 
 
 def restore_cache() -> None:
-    """Feed each DUT's newest persisted recommendation back into survey_cache.
+    """Feed each DUT's newest *recommendation-bearing* snapshot back into survey_cache.
+
+    Newest-first with a fallback, not strictly newest: /api/wifi/site-survey now
+    persists its scan too, and that endpoint computes no recommendation (it has
+    no SSID-capability capture to reconcile against and must not spend a second
+    serial round-trip getting one), so its snapshots carry
+    ``recommendations: []``. Restoring one of those over a real recommendation
+    would blank the Overview/Fleet band badges after every restart — the exact
+    regression the cache exists to prevent. A snapshot with no recommendations
+    is therefore skipped rather than restored as "the recommendation is empty".
 
     Best-effort: a missing/corrupt file is skipped so one bad snapshot never
     blocks startup.
     """
-    duts = {dut for dut, _, ext, _ in _snapshot_names() if ext == "json"}
-    for dut in duts:
-        pair = latest_for(dut)
-        json_path = next((p for p in pair if p.suffix == ".json"), None)
-        if json_path is None:
-            continue
-        try:
-            data = json.loads(json_path.read_text(encoding="utf-8"))
-            recommendations = data["recommendations"]
-            captured_at = data["captured_at"]
-        except (OSError, ValueError, KeyError, TypeError):
-            logger.warning("skipping unreadable survey snapshot: %s", json_path.name)
-            continue
-        if isinstance(recommendations, list) and isinstance(captured_at, str):
-            remember_recommendation(dut, recommendations, captured_at)
+    stamps_by_dut: dict[str, list[str]] = {}
+    for dut, ts, ext, _path in _snapshot_names():
+        if ext == "json":
+            stamps_by_dut.setdefault(dut, []).append(ts)
+
+    for dut, stamps in stamps_by_dut.items():
+        for ts in sorted(stamps, reverse=True):
+            json_path = SURVEY_SNAPSHOT_DIR / f"site-survey-{dut}-{ts}.json"
+            try:
+                data = json.loads(json_path.read_text(encoding="utf-8"))
+                recommendations = data["recommendations"]
+                captured_at = data["captured_at"]
+            except (OSError, ValueError, KeyError, TypeError):
+                logger.warning("skipping unreadable survey snapshot: %s", json_path.name)
+                continue
+            if isinstance(recommendations, list) and recommendations and isinstance(captured_at, str):
+                remember_recommendation(dut, recommendations, captured_at)
+                break

@@ -16,6 +16,20 @@ def snapshot_file_for(dut_id: str) -> Path:
 TOOLS_DIR = BASE_DIR / "tools"
 ANALYZER_SCRIPT = TOOLS_DIR / "analyzer3.py"
 ANALYZER_OUTPUT_DIR = LOG_DIR / "analyzer_output"
+# Extra offline post-processing tools run over a session directory *after* the
+# primary analyzer, in this order. Both invocation points (the Download flow in
+# serial_api.run_analyzer_for_session and the Analyze flow in AnalyzerService)
+# read this one list, so a new tool is wired by editing exactly one line.
+#
+# analyzer3.py is deliberately NOT listed: it is ANALYZER_SCRIPT above — the
+# fail-hard primary, and the module attribute the download-workflow tests patch
+# to point the loop at a stub. It used to head a per-module copy of this list,
+# where it was pure decoration (both call sites sliced it off and used
+# ANALYZER_SCRIPT instead), so editing that entry changed nothing.
+#
+# Everything here is best-effort: a missing tool is skipped, and a failing one
+# is logged and reported in context/capture-report.txt, never fatal.
+OFFLINE_TOOL_NAMES: tuple[str, ...] = ("wifi_timeseries.py", "context_render.py")
 # Persisted site-survey snapshots (json+csv pairs; runtime state, gitignored).
 SURVEY_SNAPSHOT_DIR = LOG_DIR / "site-surveys"
 # Connect-time DUT context captures other than the site survey (Wi-Fi clients,
