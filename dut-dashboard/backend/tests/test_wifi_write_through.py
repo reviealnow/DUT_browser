@@ -20,7 +20,7 @@ import subprocess
 import tempfile
 import unittest
 import zipfile
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -72,19 +72,53 @@ class _StubContextObj:
         self.serial_worker = worker
 
 
-def _without_timestamps(response: dict) -> dict:
-    """A response minus its clock-derived fields, for baseline comparison.
+class _FrozenClock(datetime):
+    """A ``datetime`` whose ``now()`` never moves.
 
-    ``captured_at`` is wall-clock and so differs between two runs of the same
-    endpoint for reasons that have nothing to do with C2; the key's *presence*
-    is asserted separately, so dropping the value here cannot hide a dropped
-    field.
+    Patched over ``main.datetime`` so baseline and live responses can be
+    compared **whole**, with no field stripped. Dropping ``captured_at`` from
+    the comparison instead would blind the tests to the one regression these
+    handlers could plausibly introduce: C2 moved when ``captured_at`` is
+    evaluated (it is now bound before persisting rather than inline in the
+    return), so a second-boundary drift is exactly the kind of drift worth
+    catching.
     """
-    return {k: v for k, v in response.items() if not k.startswith("captured_at")}
+
+    FIXED = datetime(2026, 8, 3, 12, 34, 56)
+
+    @classmethod
+    def now(cls, tz=None):  # noqa: D102 — see class docstring
+        return cls.FIXED
+
+
+_FROZEN_ISO = _FrozenClock.FIXED.isoformat(timespec="seconds")
+
+
+class _TickingClock(datetime):
+    """A ``datetime`` whose ``now()`` advances one second on every call.
+
+    The frozen clock proves the response did not change; this one proves
+    ``captured_at`` is evaluated **once** and shared with the snapshot. Under a
+    frozen clock a handler that called ``now()`` twice — once for the snapshot,
+    once for the response — looks identical to one that did not, and that
+    second-boundary drift between what the bundle says and what the operator
+    saw is exactly what C2's rearrangement could have introduced.
+    """
+
+    _calls = 0
+
+    @classmethod
+    def reset(cls) -> None:
+        cls._calls = 0
+
+    @classmethod
+    def now(cls, tz=None):  # noqa: D102 — see class docstring
+        cls._calls += 1
+        return datetime(2026, 8, 3, 12, 0, 0) + timedelta(seconds=cls._calls)
 
 
 class _WriteThroughCase(unittest.TestCase):
-    """Shared fixture: snapshot dirs on a tempdir, plus the baseline harness."""
+    """Shared fixture: snapshot dirs on a tempdir, a frozen clock, the baseline harness."""
 
     def setUp(self) -> None:
         self._dir = tempfile.TemporaryDirectory()
@@ -96,6 +130,7 @@ class _WriteThroughCase(unittest.TestCase):
             # Site surveys are written through survey_snapshot, which reaches
             # for its own module-level directory constant.
             mock.patch.object(survey_snapshot, "SURVEY_SNAPSHOT_DIR", self.dirs["site-survey"]),
+            mock.patch.object(main, "datetime", _FrozenClock),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -106,9 +141,12 @@ class _WriteThroughCase(unittest.TestCase):
         return sorted(p.name for d in self.dirs.values() if d.is_dir() for p in d.iterdir())
 
     def assert_matches_baseline(self, live: dict, baseline: dict) -> None:
-        """The C2 claim: persisting changed neither the keys nor the values."""
-        self.assertEqual(set(live), set(baseline))
-        self.assertEqual(_without_timestamps(live), _without_timestamps(baseline))
+        """The C2 claim: persisting changed nothing about the response.
+
+        Complete dicts, timestamps included — under the frozen clock the
+        pre-C2 handler and the live one must agree on every byte.
+        """
+        self.assertEqual(live, baseline)
 
 
 class WifiClientsWriteThroughTests(_WriteThroughCase):
@@ -142,7 +180,21 @@ class WifiClientsWriteThroughTests(_WriteThroughCase):
         live = self._call(worker)
         self.assert_matches_baseline(live, baseline)
         self.assertTrue(live["clients"] and live["vaps"], "fixture must be non-empty to prove anything")
-        datetime.fromisoformat(live["captured_at"])
+        self.assertEqual(live["captured_at"], _FROZEN_ISO)
+
+    def test_the_snapshot_and_the_response_share_one_timestamp(self) -> None:
+        """One `now()`, used twice — not two `now()` calls that can straddle a
+        second and make the bundle disagree with what the operator was shown."""
+        worker = _StubWorker({"iwconfig": _IWCONFIG, "wlanconfig": _WLANCONFIG})
+        _TickingClock.reset()
+        with mock.patch.object(main, "datetime", _TickingClock):
+            response = self._call(worker)
+        payload = json.loads(
+            next(
+                e["path"] for e in context_snapshot.snapshot_entries() if e["ext"] == "json"
+            ).read_text(encoding="utf-8")
+        )
+        self.assertEqual(payload["captured_at"], response["captured_at"])
 
     def test_an_empty_scan_writes_nothing_and_no_skip_marker(self) -> None:
         """No files is the whole point of C1; C2 must not reintroduce empties.
@@ -198,6 +250,31 @@ class WifiCapabilityWriteThroughTests(_WriteThroughCase):
         self.assert_matches_baseline(live, baseline)
         self.assertEqual(live["ssids"], _SSIDS)
 
+    def test_the_capability_snapshot_and_response_share_one_timestamp(self) -> None:
+        _TickingClock.reset()
+        with mock.patch.object(main, "datetime", _TickingClock):
+            response = self._call(main.get_wifi_capabilities)
+        payload = json.loads(
+            next(
+                e["path"] for e in context_snapshot.snapshot_entries() if e["ext"] == "json"
+            ).read_text(encoding="utf-8")
+        )
+        self.assertEqual(payload["captured_at"], response["captured_at"])
+
+    def test_the_capability_report_snapshot_shares_its_captured_at_a(self) -> None:
+        _TickingClock.reset()
+        with (
+            mock.patch.object(main, "datetime", _TickingClock),
+            mock.patch.object(main, "get_wifi_survey", return_value={"available": False, "networks": []}),
+        ):
+            response = self._call(main.get_wifi_capability_report)
+        payload = json.loads(
+            next(
+                e["path"] for e in context_snapshot.snapshot_entries() if e["ext"] == "json"
+            ).read_text(encoding="utf-8")
+        )
+        self.assertEqual(payload["captured_at"], response["captured_at_a"])
+
     def test_empty_capabilities_write_nothing(self) -> None:
         self._call(main.get_wifi_capabilities, capability=lambda _w: [])
         self.assertEqual(self.files_written(), [])
@@ -215,6 +292,16 @@ class WifiCapabilityWriteThroughTests(_WriteThroughCase):
         baseline = self._call(main.get_wifi_capabilities, persist=False)
         with mock.patch.object(context_snapshot, "write_capability", side_effect=OSError("read-only fs")):
             live = self._call(main.get_wifi_capabilities)
+        self.assert_matches_baseline(live, baseline)
+        self.assertEqual(self.files_written(), [])
+
+    def test_a_writer_failure_leaves_the_capability_report_untouched(self) -> None:
+        with mock.patch.object(main, "get_wifi_survey", return_value={"available": False, "networks": []}):
+            baseline = self._call(main.get_wifi_capability_report, persist=False)
+            with mock.patch.object(
+                context_snapshot, "write_capability", side_effect=OSError("read-only fs")
+            ):
+                live = self._call(main.get_wifi_capability_report)
         self.assert_matches_baseline(live, baseline)
         self.assertEqual(self.files_written(), [])
 
@@ -250,8 +337,10 @@ class SiteSurveyWriteThroughTests(_WriteThroughCase):
             )
         )
         self.assertEqual(payload["neighbors"], _NEIGHBORS)
-        # No recommendation was computed by this endpoint, so none is claimed.
+        # No recommendation was computed by this endpoint, so none is claimed —
+        # and the snapshot says which of the two kinds of empty it is.
         self.assertEqual(payload["recommendations"], [])
+        self.assertIs(payload["recommendation_computed"], False)
 
     def test_the_survey_response_is_unchanged_by_persisting(self) -> None:
         baseline = self._call(self.SURVEY, persist=False)
@@ -308,6 +397,87 @@ class SiteSurveyWriteThroughTests(_WriteThroughCase):
         self.assertEqual(cached["recommendations"], recommendations)
 
 
+class RestoreCacheProvenanceTests(_WriteThroughCase):
+    """An empty recommendation list means two different things; restore must tell
+    them apart, so the snapshot records which one it is.
+
+    "Computed and empty" — `/api/wifi/channel-recommendation` ran and the DUT has
+    no own VAPs — is a *current answer* and has to win on recency. "Not computed"
+    — the bare `/api/wifi/site-survey` write-through never ran the recommendation
+    — is an *absence* and has to be passed over. Keying the skip on emptiness
+    alone conflates the two and pins a stale band badge on Overview/Fleet for as
+    long as the DUT keeps being scanned.
+    """
+
+    RECS = [{"band": "5GHz", "current_channel": 36, "recommended_channel": 149}]
+
+    def _snapshot(self, stamp: str, recommendations: list[dict], computed: bool | None) -> None:
+        """Write one snapshot JSON by hand at an exact stamp.
+
+        By hand because write_snapshot stamps with the current second, and every
+        case here turns on which of two snapshots is the newer one. ``computed
+        is None`` writes no flag at all — a pre-C2 file.
+        """
+        payload = {
+            "dut_id": "lab2",
+            "captured_at": f"2026-08-03T{stamp[9:11]}:00:00",
+            "recommendations": recommendations,
+            "neighbors": _NEIGHBORS,
+            "vaps": _SURVEY_VAPS,
+        }
+        if computed is not None:
+            payload["recommendation_computed"] = computed
+        self.dirs["site-survey"].mkdir(parents=True, exist_ok=True)
+        (self.dirs["site-survey"] / f"site-survey-lab2-{stamp}.json").write_text(
+            json.dumps(payload), encoding="utf-8"
+        )
+
+    def _restore(self) -> dict | None:
+        survey_cache.clear()
+        survey_snapshot.restore_cache()
+        return survey_cache.last_recommendation("lab2")
+
+    def test_a_newer_computed_but_empty_recommendation_wins(self) -> None:
+        """The DUT lost its own VAPs; "no recommendation" is the true answer now."""
+        self._snapshot("20260803-090000", self.RECS, computed=True)
+        self._snapshot("20260803-100000", [], computed=True)
+        cached = self._restore()
+        assert cached is not None
+        self.assertEqual(cached["recommendations"], [])
+        self.assertEqual(cached["captured_at"], "2026-08-03T10:00:00")
+
+    def test_a_newer_not_computed_snapshot_is_passed_over(self) -> None:
+        """A bare site-survey scan says nothing about the recommendation."""
+        self._snapshot("20260803-090000", self.RECS, computed=True)
+        self._snapshot("20260803-100000", [], computed=False)
+        cached = self._restore()
+        assert cached is not None
+        self.assertEqual(cached["recommendations"], self.RECS)
+        self.assertEqual(cached["captured_at"], "2026-08-03T09:00:00")
+
+    def test_a_flagless_legacy_snapshot_counts_as_computed(self) -> None:
+        """Pre-C2, channel-recommendation was the only writer and it always
+        computes, so a file with no flag is a computed one — including when its
+        recommendation is empty, which back then could only mean "no own VAPs"."""
+        self._snapshot("20260803-090000", self.RECS, computed=True)
+        self._snapshot("20260803-100000", [], computed=None)
+        cached = self._restore()
+        assert cached is not None
+        self.assertEqual(cached["recommendations"], [])
+
+    def test_a_flagless_legacy_snapshot_still_restores_its_recommendation(self) -> None:
+        self._snapshot("20260803-090000", self.RECS, computed=None)
+        cached = self._restore()
+        assert cached is not None
+        self.assertEqual(cached["recommendations"], self.RECS)
+
+    def test_only_not_computed_snapshots_leaves_the_cache_empty(self) -> None:
+        """No fabricated recommendation: a DUT that was only ever site-surveyed
+        has none, and an absent badge beats an invented one."""
+        self._snapshot("20260803-100000", [], computed=False)
+        self.assertIsNone(self._restore())
+
+
 class ChannelRecommendationWriteThroughTests(_WriteThroughCase):
     SURVEY = {"vaps": _SURVEY_VAPS, "neighbors": _NEIGHBORS, "captured_at": "2026-08-03T10:00:00"}
 
@@ -350,6 +520,18 @@ class ChannelRecommendationWriteThroughTests(_WriteThroughCase):
         self.assertEqual(live, baseline)
         # The survey half still persisted — one failing writer does not stop the other.
         self.assertEqual({e["kind"] for e in context_snapshot.snapshot_entries()}, {"site-survey"})
+
+    def test_both_writers_failing_still_leaves_the_response_untouched(self) -> None:
+        """This endpoint is the only one that persists twice, so it is the only
+        one where a second failure could land after the first was swallowed."""
+        baseline = self._call(persist=False)
+        with (
+            mock.patch.object(survey_snapshot, "write_snapshot", side_effect=OSError("read-only fs")),
+            mock.patch.object(context_snapshot, "write_capability", side_effect=OSError("read-only fs")),
+        ):
+            live = self._call()
+        self.assertEqual(live, baseline)
+        self.assertEqual(self.files_written(), [])
 
 
 class PersistedScanReachesTheBundleTests(unittest.TestCase):

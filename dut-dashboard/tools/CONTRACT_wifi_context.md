@@ -200,8 +200,7 @@ PR states the numbers obtained. Reference-log baseline:
 
 ## 9. Gates
 
-`pytest` (from `dut-dashboard/backend`; baseline was 439 when this file was
-written, 493 after A/B/C1, 517 after C2) and
+`pytest` (from `dut-dashboard/backend`, baseline 439 pass) and
 `npm run typecheck` (from `dut-dashboard/frontend`) green at every commit.
 Each PR names the mutation it ran to prove its test bites (e.g. Track A:
 swap the radio-pairing rule to zip-shortest → the radio-distribution

@@ -41,12 +41,22 @@ def write_snapshot(
     neighbors: list[dict],
     vaps: list[dict],
     captured_at: str,
+    recommendation_computed: bool = True,
 ) -> list[Path]:
     """Write a JSON (+ CSV) snapshot for one survey. Returns the paths written.
 
     The JSON holds the full payload (for restore + programmatic use); the CSV is
     a flat neighbor table for spreadsheet users. Raising is fine — the caller
     wraps this so a write failure never fails the originating request.
+
+    ``recommendation_computed`` records whether ``recommendations`` is a result
+    or an absence, because an empty list cannot tell those apart and
+    :func:`restore_cache` has to. ``/api/wifi/channel-recommendation`` runs the
+    recommendation and passes True even when it comes back empty (a DUT with no
+    own VAPs is a real, current answer); the bare ``/api/wifi/site-survey``
+    write-through never runs it at all and passes False. Defaulting to True is
+    what makes pre-C2 snapshots readable: the channel-recommendation path was
+    the only writer that existed, and it always computed.
 
     **A survey that observed nothing at all writes nothing and returns ``[]``**,
     and a survey with VAPs but no neighbors keeps its JSON and writes no CSV.
@@ -69,6 +79,7 @@ def write_snapshot(
                 "dut_id": dut_id,
                 "captured_at": captured_at,
                 "recommendations": recommendations,
+                "recommendation_computed": recommendation_computed,
                 "neighbors": neighbors,
                 "vaps": vaps,
             },
@@ -132,16 +143,25 @@ def list_snapshots() -> list[dict]:
 
 
 def restore_cache() -> None:
-    """Feed each DUT's newest *recommendation-bearing* snapshot back into survey_cache.
+    """Feed each DUT's newest *computed* recommendation back into survey_cache.
 
     Newest-first with a fallback, not strictly newest: /api/wifi/site-survey now
-    persists its scan too, and that endpoint computes no recommendation (it has
-    no SSID-capability capture to reconcile against and must not spend a second
-    serial round-trip getting one), so its snapshots carry
-    ``recommendations: []``. Restoring one of those over a real recommendation
-    would blank the Overview/Fleet band badges after every restart — the exact
-    regression the cache exists to prevent. A snapshot with no recommendations
-    is therefore skipped rather than restored as "the recommendation is empty".
+    persists its scan too, and that endpoint never runs the recommendation (it
+    has no SSID-capability capture to reconcile against and must not spend a
+    second serial round-trip getting one). Restoring one of those over a real
+    recommendation would blank the Overview/Fleet band badges after every
+    restart — the exact regression the cache exists to prevent.
+
+    The skip is keyed on ``recommendation_computed``, **not** on the list being
+    empty. An empty list is a legitimate current answer when the recommendation
+    actually ran and the DUT has no own VAPs; skipping it on emptiness alone
+    would resurrect a stale badge from an older snapshot and keep showing it
+    indefinitely. So: a *computed* snapshot wins on recency even when empty, and
+    only a not-computed one is passed over.
+
+    A snapshot with no flag is treated as computed. Before C2 the
+    channel-recommendation path was the only writer of survey snapshots and it
+    always computes, so every legacy file on disk is a computed one.
 
     Best-effort: a missing/corrupt file is skipped so one bad snapshot never
     blocks startup.
@@ -161,6 +181,8 @@ def restore_cache() -> None:
             except (OSError, ValueError, KeyError, TypeError):
                 logger.warning("skipping unreadable survey snapshot: %s", json_path.name)
                 continue
-            if isinstance(recommendations, list) and recommendations and isinstance(captured_at, str):
+            if data.get("recommendation_computed", True) is False:
+                continue
+            if isinstance(recommendations, list) and isinstance(captured_at, str):
                 remember_recommendation(dut, recommendations, captured_at)
                 break

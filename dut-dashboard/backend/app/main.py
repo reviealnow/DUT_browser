@@ -425,13 +425,15 @@ def get_wifi_site_survey(dut: str = DEFAULT_DUT_ID) -> dict:
     # No recommendation is computed here: it needs the DUT's own SSID capability
     # (channel_recommendation's own_vaps), and buying that with a second serial
     # round-trip would change what this endpoint costs on the wire. The snapshot
-    # records the scan; survey_snapshot.restore_cache is what keeps its empty
-    # recommendation list from ever reaching the recommendation cache.
+    # records the scan and says so with recommendation_computed=False, which is
+    # what keeps its empty list out of the recommendation cache on restart —
+    # an *absence*, not the empty answer a real computation can legitimately give.
     _persist_scan(
         context_snapshot.SITE_SURVEY,
         dut,
         lambda: survey_snapshot.write_snapshot(
-            dut, [], survey["neighbors"], survey["vaps"], survey["captured_at"]
+            dut, [], survey["neighbors"], survey["vaps"], survey["captured_at"],
+            recommendation_computed=False,
         ),
     )
     return survey
@@ -461,11 +463,16 @@ def get_wifi_channel_recommendation(dut: str = DEFAULT_DUT_ID) -> dict:
     remember_recommendation(dut, recommendations, survey["captured_at"])
     # Persist the survey to disk (json+csv) for Downloads / log-ZIP bundling and
     # restart restore. Best-effort: a write failure must never fail the scan.
+    # recommendation_computed=True even when `recommendations` is empty: this
+    # request ran channel_recommendation, so an empty result means "no own VAPs
+    # right now", which is a current answer and must beat an older non-empty one
+    # on restart rather than being mistaken for a missing computation.
     _persist_scan(
         context_snapshot.SITE_SURVEY,
         dut,
         lambda: survey_snapshot.write_snapshot(
-            dut, recommendations, survey["neighbors"], survey["vaps"], survey["captured_at"]
+            dut, recommendations, survey["neighbors"], survey["vaps"], survey["captured_at"],
+            recommendation_computed=True,
         ),
     )
     # This request also captured the DUT's own SSID capability on its way to the
