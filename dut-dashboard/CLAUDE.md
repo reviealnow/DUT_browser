@@ -86,7 +86,10 @@ dut-dashboard/
     styles/
   tools/          analyzer3.py · log_event_detector.py (offline) ·
                   mock_survey_server.py (dev aid: serves a fixed survey payload
-                  so the Site Survey UI can be worked on without a DUT)
+                  so the Site Survey UI can be worked on without a DUT) ·
+                  wifi_timeseries.py · context_render.py (offline Wi-Fi context
+                  tooling — interface, schemas and file ownership are fixed in
+                  tools/CONTRACT_wifi_context.md; implemented in parallel PRs)
   scripts/        sysMon.sh (DUT-side telemetry)
 ```
 
