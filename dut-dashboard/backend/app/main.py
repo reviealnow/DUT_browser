@@ -284,6 +284,11 @@ def capture_dut_context(dut: str = DEFAULT_DUT_ID) -> dict:
     Never raises: each kind is captured and written independently and reports its
     own outcome, so one failure (or no serial at all) neither blocks the other
     nor surfaces as a failed connect.
+
+    A capture that comes back empty writes no snapshot at all (see
+    context_snapshot.write_capture) and is reported as not-ok; its reason is
+    persisted as a skip marker so the session's bundle can still explain the
+    absence months later.
     """
     captures: list[dict] = []
     try:
@@ -291,15 +296,34 @@ def capture_dut_context(dut: str = DEFAULT_DUT_ID) -> dict:
     except HTTPException:
         raise
     captured_at = datetime.now().isoformat(timespec="seconds")
+    # sysMon saturates the console for a whole run, so a capture racing it gets
+    # no round-trip and comes back empty rather than failing. Stated as a cause,
+    # not a guess: it is what the 40-hour reference log shows (contract §1).
+    empty_reason = "empty payload (serial line busy or capture timed out)"
+
+    def note_skip(kind: str, reason: str) -> None:
+        """Persist why a kind produced no snapshot, for context/capture-report.txt."""
+        try:
+            context_snapshot.write_skip(kind, dut, reason, captured_at)
+        except Exception:  # noqa: BLE001 — explaining a skip must never fail a connect
+            logging.getLogger(__name__).exception("failed to record %s skip for %s", kind, dut)
 
     def record(kind: str, capture) -> None:
         try:
             paths = capture()
         except Exception as exc:  # noqa: BLE001 — context capture is best-effort
             logging.getLogger(__name__).warning("context capture %s failed for %s: %s", kind, dut, exc)
+            note_skip(kind, str(exc))
             captures.append({"kind": kind, "ok": False, "error": str(exc), "files": []})
         else:
-            captures.append({"kind": kind, "ok": True, "error": None, "files": [p.name for p in paths]})
+            if not paths:
+                logging.getLogger(__name__).info("context capture %s empty for %s", kind, dut)
+                note_skip(kind, empty_reason)
+                captures.append({"kind": kind, "ok": False, "error": empty_reason, "files": []})
+            else:
+                captures.append(
+                    {"kind": kind, "ok": True, "error": None, "files": [p.name for p in paths]}
+                )
 
     def clients_capture() -> list[Path]:
         clients, vaps = _capture_clients(worker)

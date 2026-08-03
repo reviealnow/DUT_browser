@@ -27,6 +27,17 @@ _SSIDS = [
 ]
 
 
+# One VAP with one client — the shape of a capture that actually got the line.
+_IWCONFIG = """ath0      IEEE 802.11axg  ESSID:"LabAP"
+          Mode:Master  Frequency:2.437 GHz (Channel 6)  Access Point: C8:4F:86:95:CE:E4
+          Bit Rate:573.5 Mb/s   Tx-Power:29 dBm
+"""
+_WLANCONFIG = """wlanconfig ath0 list
+ADDR               AID CHAN TXRATE RXRATE RSSI  ANT_RSSI MINRSSI MAXRSSI IDLE  TXSEQ  RXSEQ  CAPS XCAPS ACAPS     ERP    STATE MAXRATE(DOT11) HTCAPS   VHTCAPS ASSOCTIME    IEs   MODE RXNSS TXNSS                   PSMODE
+aa:bb:cc:dd:ee:ff    1    6 573M   573M   -48  40/40/40     -61     -54    0      0   65535   EPR   EBO NULL    0          3        1201000               Q              00 00:01:40     RSN WME IEEE80211_MODE_11AXG_HE20  2 2   0
+"""
+
+
 def _stamp(path: Path, ts: str) -> Path:
     """Force a file's mtime, which is the end of its session window."""
     epoch = datetime.strptime(ts, "%Y%m%d-%H%M%S").timestamp()
@@ -80,13 +91,40 @@ class ContextCaptureEndpointTests(unittest.TestCase):
             return main.capture_dut_context(dut="lab2")
 
     def test_both_kinds_are_captured_and_written(self) -> None:
-        worker = _StubWorker({"iwconfig": "", "iw dev": ""})
+        worker = _StubWorker({"iwconfig": _IWCONFIG, "wlanconfig": _WLANCONFIG})
         result = self._capture(worker)
         self.assertEqual({c["kind"] for c in result["captures"]}, set(context_snapshot.KINDS) - {"site-survey"})
         self.assertTrue(all(c["ok"] for c in result["captures"]))
         entries = context_snapshot.snapshot_entries()
         self.assertEqual({e["kind"] for e in entries}, {"wifi-clients", "ssid-capability"})
         self.assertEqual({e["dut"] for e in entries}, {"lab2"})
+        self.assertEqual({e["ext"] for e in entries}, {"json", "csv"})
+        self.assertEqual(context_snapshot.skip_entries(), [])
+
+    def test_an_empty_capture_writes_a_reason_instead_of_an_empty_snapshot(self) -> None:
+        """A console saturated by sysMon answers nothing, which is not a failure
+        and not a measurement. The 40-hour bundle shipped it as the latter."""
+        worker = _StubWorker({"iwconfig": "", "iw dev": ""})
+        result = self._capture(worker, capability=lambda _worker: [])
+        self.assertFalse(any(c["ok"] for c in result["captures"]))
+        self.assertTrue(all("empty payload" in c["error"] for c in result["captures"]))
+        self.assertEqual(all(c["files"] == [] for c in result["captures"]), True)
+        # No snapshot files at all; a marker per kind carrying the reason.
+        self.assertEqual(context_snapshot.snapshot_entries(), [])
+        skips = context_snapshot.skip_entries()
+        self.assertEqual({s["kind"] for s in skips}, {"wifi-clients", "ssid-capability"})
+
+    def test_a_failed_capture_also_records_why(self) -> None:
+        worker = _StubWorker({"iwconfig": RuntimeError("Serial port is not open")})
+        self._capture(worker)
+        marker = next(s for s in context_snapshot.skip_entries() if s["kind"] == "wifi-clients")
+        self.assertIn("Serial port is not open", marker["path"].read_text(encoding="utf-8"))
+
+    def test_a_marker_write_failure_never_fails_the_capture(self) -> None:
+        worker = _StubWorker({"iwconfig": "", "iw dev": ""})
+        with mock.patch.object(context_snapshot, "write_skip", side_effect=OSError("read-only fs")):
+            result = self._capture(worker, capability=lambda _worker: [])
+        self.assertEqual(len(result["captures"]), 2)
 
     def test_a_failing_kind_neither_raises_nor_blocks_the_other(self) -> None:
         worker = _StubWorker({"iwconfig": RuntimeError("Serial port is not open"), "iw dev": ""})
@@ -259,7 +297,9 @@ class AnalyzerContextBundleTests(unittest.TestCase):
 
     def test_bundle_lands_under_its_own_log_directory(self) -> None:
         result = self.analyzer_service._bundle_context(self.log)
-        self.assertEqual(len(result["files"]), 2)
+        # The two snapshot files, plus the report accounting for all three kinds.
+        self.assertEqual(len(result["files"]), 3)
+        self.assertIn(context_snapshot.CAPTURE_REPORT_NAME, result["files"])
         self.assertTrue((self.bundles / self.log.stem / "context" / "wifi-clients").is_dir())
 
     def test_clearing_analyzer_outputs_does_not_touch_the_bundle(self) -> None:

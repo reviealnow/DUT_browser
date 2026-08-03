@@ -59,6 +59,19 @@ class ContextSnapshotTestCase(unittest.TestCase):
         base.with_suffix(".csv").write_text("a,b\n1,2\n", encoding="utf-8")
         return json_path
 
+    def place_skip(self, kind: str, dut: str, ts: str, reason: str = "serial line busy") -> Path:
+        """A skip marker for `kind`/`dut` stamped at `ts` (as write_skip lays it out)."""
+        directory = self.dirs[kind]
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / f"{kind}-{dut}-{ts}.skip.json"
+        path.write_text(
+            json.dumps(
+                {"kind": kind, "dut_id": dut, "reason": reason, "skipped_at": "2026-07-29T10:06:00"}
+            ),
+            encoding="utf-8",
+        )
+        return path
+
     def session_log(self, name: str, mtime: str) -> Path:
         """A session log file whose mtime is set to `mtime` (YYYYmmdd-HHMMSS)."""
         path = self.tmp / name
@@ -98,9 +111,37 @@ class WriterTests(ContextSnapshotTestCase):
         # A None stays empty rather than rendering the word "None".
         self.assertEqual(rows[0]["group_mgmt_cipher"], "")
 
-    def test_capture_of_nothing_still_writes_a_header_only_csv(self) -> None:
-        _json_path, csv_path = context_snapshot.write_clients("lab2", [], [], "2026-07-29T10:00:00")
-        self.assertEqual(csv_path.read_text(encoding="utf-8").strip().count("\n"), 0)
+    def test_capture_of_nothing_writes_no_file_at_all(self) -> None:
+        """A header-only CSV in a bundle reads as a measurement of zero. A real
+        40-hour run shipped three of them; absence is the honest outcome."""
+        self.assertEqual(context_snapshot.write_clients("lab2", [], [], "2026-07-29T10:00:00"), [])
+        self.assertEqual(context_snapshot.write_capability("lab2", [], "2026-07-29T10:00:00"), [])
+        self.assertEqual(context_snapshot.snapshot_entries(), [])
+        # Not even an empty directory is left behind.
+        self.assertFalse(self.dirs["wifi-clients"].exists())
+
+    def test_vaps_with_no_clients_keep_the_json_and_drop_the_csv(self) -> None:
+        """Contract §7 is per artifact: VAPs were observed, so the payload is a
+        real reading of zero associated clients — but there is no row to put in
+        a CSV, so no CSV is written."""
+        written = context_snapshot.write_clients("lab2", [], _CLIENT_VAPS, "2026-07-29T10:00:00")
+        self.assertEqual([p.suffix for p in written], [".json"])
+        self.assertEqual(json.loads(written[0].read_text())["vaps"], _CLIENT_VAPS)
+
+    def test_skip_marker_records_the_reason_without_looking_like_data(self) -> None:
+        path = context_snapshot.write_skip(
+            "wifi-clients", "lab2", "serial line busy", "2026-07-29T10:00:00"
+        )
+        self.assertTrue(path.name.endswith(".skip.json"))
+        self.assertEqual(json.loads(path.read_text())["reason"], "serial line busy")
+        # Invisible to everything that treats a file as a capture.
+        self.assertEqual(context_snapshot.snapshot_entries(), [])
+        self.assertEqual(context_snapshot.list_snapshots(), [])
+        self.assertEqual([e["kind"] for e in context_snapshot.skip_entries()], ["wifi-clients"])
+
+    def test_skip_marker_of_a_hyphenated_dut_parses_back(self) -> None:
+        context_snapshot.write_skip("wifi-clients", "ap6-420e", "timeout", "2026-07-29T10:00:00")
+        self.assertEqual({e["dut"] for e in context_snapshot.skip_entries()}, {"ap6-420e"})
 
     def test_hyphenated_dut_id_round_trips_through_the_name(self) -> None:
         context_snapshot.write_clients("ap6-420e", _CLIENTS, _CLIENT_VAPS, "2026-07-29T10:00:00")
@@ -184,11 +225,18 @@ class BundleContextTests(ContextSnapshotTestCase):
         self.log = self.session_log("dut-session-20260729-100000.log", "20260729-110000")
         self.dest = self.tmp / "session-dir"
 
+    def report(self) -> list[str]:
+        """The bundled capture report, as lines."""
+        path = self.dest / "context" / context_snapshot.CAPTURE_REPORT_NAME
+        return path.read_text(encoding="utf-8").strip().splitlines()
+
     def test_bundle_lays_files_out_by_kind(self) -> None:
         self.place("site-survey", "lab2", "20260729-100500")
         self.place("wifi-clients", "lab2", "20260729-100600")
         written = context_snapshot.bundle_context(self.dest, self.log)
-        self.assertEqual(len(written), 4)
+        # Four snapshot files, unchanged, plus the report accounting for them.
+        self.assertEqual(len(written), 5)
+        self.assertEqual(written[-1].name, context_snapshot.CAPTURE_REPORT_NAME)
         self.assertTrue((self.dest / "context" / "site-survey").is_dir())
         self.assertTrue((self.dest / "context" / "wifi-clients").is_dir())
 
@@ -196,8 +244,51 @@ class BundleContextTests(ContextSnapshotTestCase):
         self.place("site-survey", "lab2", "20260101-090000")
         written = context_snapshot.bundle_context(self.dest, self.log)
         self.assertEqual(written, [])
-        # Nothing captured means no directory at all, not an empty one.
+        # Nothing captured means no directory at all, not an empty one — and no
+        # report either, because a pre-feature log has nothing to account for.
         self.assertFalse(self.dest.exists())
+
+    def test_report_names_the_files_and_counts_the_rows_it_bundled(self) -> None:
+        self.place("wifi-clients", "lab2", "20260729-100600")  # place() writes 1 data row
+        context_snapshot.bundle_context(self.dest, self.log)
+        line = next(l for l in self.report() if l.startswith("wifi-clients:"))
+        self.assertTrue(line.startswith("wifi-clients: ok, 1 rows, "))
+        self.assertIn("wifi-clients-lab2-20260729-100600.csv", line)
+        self.assertIn("wifi-clients-lab2-20260729-100600.json", line)
+
+    def test_report_explains_a_skipped_kind_with_its_recorded_reason(self) -> None:
+        """The operator's actual complaint: three empty files and no way to know
+        why. The reason has to survive to the bundle, not just the HTTP reply."""
+        self.place_skip("wifi-clients", "lab2", "20260729-100600", reason="serial line busy")
+        context_snapshot.bundle_context(self.dest, self.log)
+        line = next(l for l in self.report() if l.startswith("wifi-clients:"))
+        self.assertEqual(line, "wifi-clients: skipped — serial line busy, 2026-07-29T10:06:00")
+        # A skip is an explanation, never a bundled file.
+        self.assertFalse((self.dest / "context" / "wifi-clients").exists())
+
+    def test_report_accounts_for_every_kind(self) -> None:
+        self.place_skip("wifi-clients", "lab2", "20260729-100600")
+        lines = context_snapshot.capture_report_lines(
+            [], context_snapshot.select_skips_for_session(self.log)
+        )
+        context_snapshot.bundle_context(self.dest, self.log)
+        self.assertEqual(len(self.report()), len(context_snapshot.KINDS))
+        self.assertEqual([l.split(":")[0] for l in lines], list(context_snapshot.KINDS))
+        never = next(l for l in self.report() if l.startswith("ssid-capability:"))
+        self.assertIn(context_snapshot.NO_CAPTURE_REASON, never)
+
+    def test_a_skip_from_another_session_is_not_reported_here(self) -> None:
+        self.place_skip("wifi-clients", "lab2", "20260101-090000")
+        self.assertEqual(context_snapshot.bundle_context(self.dest, self.log), [])
+        self.assertFalse(self.dest.exists())
+
+    def test_an_unreadable_marker_still_reports_the_capture_as_skipped(self) -> None:
+        marker = self.place_skip("wifi-clients", "lab2", "20260729-100600")
+        marker.write_text("{ truncated", encoding="utf-8")
+        context_snapshot.bundle_context(self.dest, self.log)
+        line = next(l for l in self.report() if l.startswith("wifi-clients:"))
+        self.assertIn("skipped", line)
+        self.assertIn("2026-07-29T10:06:00", line)  # falls back to the marker's own stamp
 
     def test_bundle_swallows_copy_errors(self) -> None:
         self.place("wifi-clients", "lab2", "20260729-100500")
