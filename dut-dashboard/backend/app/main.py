@@ -170,21 +170,60 @@ def get_console_tail(limit: int = 500, dut: str = DEFAULT_DUT_ID) -> dict:
     return {"lines": lines}
 
 
+def _persist_scan(kind: str, dut: str, write) -> None:
+    """Persist an on-demand scan's result to disk, invisibly to the caller.
+
+    On-demand scans are the Wi-Fi context that actually succeeds. The
+    connect-time capture races sysMon for the serial line and loses — contract
+    §1, measured on the 40-hour reference run: 11 retries over 97 s, zero
+    round-trips — but a scan the operator triggers does get through. Until now
+    its result lived only in the frontend, so a bundle downloaded afterwards
+    still carried no Wi-Fi context. Writing it through means one successful scan
+    anywhere in a run is enough to put a real snapshot in the ZIP.
+
+    Strictly best-effort and strictly invisible: every response is built from
+    the same values whether this writes, fails, or writes nothing, so no caller
+    can tell it happened. A write failure is a warning here, never an error the
+    operator's scan has to absorb.
+
+    Empty results write nothing — that guard lives in the writers
+    (`context_snapshot.write_capture`, `survey_snapshot.write_snapshot`), not
+    here. No skip marker is written either: a marker asserts "the connect-time
+    capture ran and produced nothing", so minting one from a read-only GET would
+    put invented "skipped" lines into a session's capture report.
+    """
+    try:
+        write()
+    except Exception:  # noqa: BLE001 — write-through must never fail a scan
+        logging.getLogger(__name__).warning(
+            "failed to persist %s scan for %s", kind, dut, exc_info=True
+        )
+
+
 @app.get("/api/wifi/clients")
 def get_wifi_clients(dut: str = DEFAULT_DUT_ID) -> dict:
     """On-demand per-client Wi-Fi detail: discover active VAPs (iwconfig) then run
     `wlanconfig <vap> list` for each and parse the association tables. Serial mode
-    only; briefly pauses sysmon parsing during the captures."""
+    only; briefly pauses sysmon parsing during the captures.
+
+    A non-empty result is also persisted as a wifi-clients snapshot, so a log
+    downloaded later carries it (see _persist_scan)."""
     worker = resolve_dut(app, dut).serial_worker
     try:
         clients, vaps = _capture_clients(worker)
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    captured_at = datetime.now().isoformat(timespec="seconds")
+    _persist_scan(
+        context_snapshot.WIFI_CLIENTS,
+        dut,
+        lambda: context_snapshot.write_clients(dut, clients, vaps, captured_at),
+    )
     return {
         "clients": clients,
         "vaps": vaps,
-        "captured_at": datetime.now().isoformat(timespec="seconds"),
+        "captured_at": captured_at,
     }
 
 
@@ -219,15 +258,24 @@ def wifi_survey() -> dict:
 @app.get("/api/wifi/capabilities")
 def get_wifi_capabilities(dut: str = DEFAULT_DUT_ID) -> dict:
     """On-demand per-VAP SSID capability: iw dev (BSSID/freq) + iwconfig (generation)
-    + /etc/hostapd*.conf (security/PMF/k/v/r). Serial mode only."""
+    + /etc/hostapd*.conf (security/PMF/k/v/r). Serial mode only.
+
+    A non-empty result is also persisted as an ssid-capability snapshot (see
+    _persist_scan)."""
     worker = resolve_dut(app, dut).serial_worker
     try:
         caps = get_ssid_capabilities(worker)
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    captured_at = datetime.now().isoformat(timespec="seconds")
+    _persist_scan(
+        context_snapshot.SSID_CAPABILITY,
+        dut,
+        lambda: context_snapshot.write_capability(dut, caps, captured_at),
+    )
     return {
         "ssids": caps,
-        "captured_at": datetime.now().isoformat(timespec="seconds"),
+        "captured_at": captured_at,
     }
 
 
@@ -246,6 +294,14 @@ def get_wifi_capability_report(dut: str = DEFAULT_DUT_ID) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     survey = get_wifi_survey()
     captured_at_a = datetime.now().isoformat(timespec="seconds")
+    # Source A is the same capture /api/wifi/capabilities persists, so persist it
+    # here too — the operator who reconciles is as likely to be the only one who
+    # scanned during a run as the operator who just listed capabilities.
+    _persist_scan(
+        context_snapshot.SSID_CAPABILITY,
+        dut,
+        lambda: context_snapshot.write_capability(dut, ssids, captured_at_a),
+    )
     report = build_capability_report(ssids, survey)
     report["captured_at_a"] = captured_at_a
     return report
@@ -356,12 +412,31 @@ def _survey_progress_emitter(dut: str):
 def get_wifi_site_survey(dut: str = DEFAULT_DUT_ID) -> dict:
     """On-demand DUT-side neighbor scan: `iw dev <vap> scan` per active VAP.
     Serial mode only; off-channel scans are slower than other captures.
-    Progress is broadcast as survey_progress events on /ws while it runs."""
+    Progress is broadcast as survey_progress events on /ws while it runs.
+
+    A non-empty scan is also persisted as a site-survey snapshot (see
+    _persist_scan), the same file shape /api/wifi/channel-recommendation
+    writes."""
     worker = resolve_dut(app, dut).serial_worker
     try:
-        return get_site_survey(worker, on_progress=_survey_progress_emitter(dut))
+        survey = get_site_survey(worker, on_progress=_survey_progress_emitter(dut))
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # No recommendation is computed here: it needs the DUT's own SSID capability
+    # (channel_recommendation's own_vaps), and buying that with a second serial
+    # round-trip would change what this endpoint costs on the wire. The snapshot
+    # records the scan and says so with recommendation_computed=False, which is
+    # what keeps its empty list out of the recommendation cache on restart —
+    # an *absence*, not the empty answer a real computation can legitimately give.
+    _persist_scan(
+        context_snapshot.SITE_SURVEY,
+        dut,
+        lambda: survey_snapshot.write_snapshot(
+            dut, [], survey["neighbors"], survey["vaps"], survey["captured_at"],
+            recommendation_computed=False,
+        ),
+    )
+    return survey
 
 
 @app.get("/api/wifi/channel-recommendation")
@@ -388,12 +463,26 @@ def get_wifi_channel_recommendation(dut: str = DEFAULT_DUT_ID) -> dict:
     remember_recommendation(dut, recommendations, survey["captured_at"])
     # Persist the survey to disk (json+csv) for Downloads / log-ZIP bundling and
     # restart restore. Best-effort: a write failure must never fail the scan.
-    try:
-        survey_snapshot.write_snapshot(
-            dut, recommendations, survey["neighbors"], survey["vaps"], survey["captured_at"]
-        )
-    except Exception:  # noqa: BLE001 — persistence is best-effort
-        logging.getLogger(__name__).exception("failed to persist survey snapshot for %s", dut)
+    # recommendation_computed=True even when `recommendations` is empty: this
+    # request ran channel_recommendation, so an empty result means "no own VAPs
+    # right now", which is a current answer and must beat an older non-empty one
+    # on restart rather than being mistaken for a missing computation.
+    _persist_scan(
+        context_snapshot.SITE_SURVEY,
+        dut,
+        lambda: survey_snapshot.write_snapshot(
+            dut, recommendations, survey["neighbors"], survey["vaps"], survey["captured_at"],
+            recommendation_computed=True,
+        ),
+    )
+    # This request also captured the DUT's own SSID capability on its way to the
+    # recommendation; it is a real measurement whether or not the caller wanted
+    # the survey, so it is persisted like the survey is.
+    _persist_scan(
+        context_snapshot.SSID_CAPABILITY,
+        dut,
+        lambda: context_snapshot.write_capability(dut, own_vaps, survey["captured_at"]),
+    )
     return {
         "recommendations": recommendations,
         "neighbors": survey["neighbors"],
