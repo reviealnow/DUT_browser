@@ -117,6 +117,21 @@ class _TickingClock(datetime):
         return datetime(2026, 8, 3, 12, 0, 0) + timedelta(seconds=cls._calls)
 
 
+class _StampClock(datetime):
+    """A settable clock for `survey_snapshot`, whose file stamps are second-resolution.
+
+    Lets restore-precedence tests drive the **real** writer while still
+    controlling which of two writes is the newer one; two real calls in the same
+    second would otherwise collide on the filename.
+    """
+
+    STAMP = datetime(2026, 8, 3, 10, 0, 0)
+
+    @classmethod
+    def now(cls, tz=None):  # noqa: D102 — see class docstring
+        return cls.STAMP
+
+
 class _WriteThroughCase(unittest.TestCase):
     """Shared fixture: snapshot dirs on a tempdir, a frozen clock, the baseline harness."""
 
@@ -411,25 +426,52 @@ class RestoreCacheProvenanceTests(_WriteThroughCase):
 
     RECS = [{"band": "5GHz", "current_channel": 36, "recommended_channel": 149}]
 
-    def _snapshot(self, stamp: str, recommendations: list[dict], computed: bool | None) -> None:
-        """Write one snapshot JSON by hand at an exact stamp.
+    def _write(
+        self,
+        stamp: str,
+        recommendations: list[dict],
+        neighbors: list[dict],
+        vaps: list[dict],
+        computed: bool = True,
+    ) -> list[Path]:
+        """Persist through the **real** writer, at a controlled stamp.
 
-        By hand because write_snapshot stamps with the current second, and every
-        case here turns on which of two snapshots is the newer one. ``computed
-        is None`` writes no flag at all — a pre-C2 file.
+        Through the writer, not around it: the all-empty case is precisely the
+        one the writer's §7 guard used to swallow, so a test that handcrafts the
+        JSON proves nothing about it. Only the clock is faked, because every case
+        here turns on which of two writes is the newer one and the writer stamps
+        with the current second.
         """
-        payload = {
-            "dut_id": "lab2",
-            "captured_at": f"2026-08-03T{stamp[9:11]}:00:00",
-            "recommendations": recommendations,
-            "neighbors": _NEIGHBORS,
-            "vaps": _SURVEY_VAPS,
-        }
-        if computed is not None:
-            payload["recommendation_computed"] = computed
+        _StampClock.STAMP = datetime.strptime(stamp, "%Y%m%d-%H%M%S")
+        with mock.patch.object(survey_snapshot, "datetime", _StampClock):
+            return survey_snapshot.write_snapshot(
+                "lab2",
+                recommendations,
+                neighbors,
+                vaps,
+                _StampClock.STAMP.isoformat(timespec="seconds"),
+                recommendation_computed=computed,
+            )
+
+    def _legacy_snapshot(self, stamp: str, recommendations: list[dict]) -> None:
+        """A pre-C2 snapshot: no ``recommendation_computed`` key at all.
+
+        Handcrafted of necessity — the current writer always emits the flag, so
+        a file without one cannot be produced through the public path. This is
+        simulating what is already sitting on operators' disks.
+        """
         self.dirs["site-survey"].mkdir(parents=True, exist_ok=True)
         (self.dirs["site-survey"] / f"site-survey-lab2-{stamp}.json").write_text(
-            json.dumps(payload), encoding="utf-8"
+            json.dumps(
+                {
+                    "dut_id": "lab2",
+                    "captured_at": f"2026-08-03T{stamp[9:11]}:00:00",
+                    "recommendations": recommendations,
+                    "neighbors": _NEIGHBORS,
+                    "vaps": _SURVEY_VAPS,
+                }
+            ),
+            encoding="utf-8",
         )
 
     def _restore(self) -> dict | None:
@@ -437,36 +479,63 @@ class RestoreCacheProvenanceTests(_WriteThroughCase):
         survey_snapshot.restore_cache()
         return survey_cache.last_recommendation("lab2")
 
-    def test_a_newer_computed_but_empty_recommendation_wins(self) -> None:
-        """The DUT lost its own VAPs; "no recommendation" is the true answer now."""
-        self._snapshot("20260803-090000", self.RECS, computed=True)
-        self._snapshot("20260803-100000", [], computed=True)
+    def test_a_fully_empty_computed_result_kills_the_old_recommendation(self) -> None:
+        """The regression: recommendation ran, DUT has no own VAPs, scan saw
+        nothing. §7 forbids writing that as a snapshot, so before the tombstone
+        NOTHING persisted and the next restart resurrected the stale badge."""
+        self._write("20260803-090000", self.RECS, _NEIGHBORS, _SURVEY_VAPS)
+        written = self._write("20260803-100000", [], [], [])
+        self.assertTrue(written, "a computed-empty state must persist something")
         cached = self._restore()
         assert cached is not None
         self.assertEqual(cached["recommendations"], [])
         self.assertEqual(cached["captured_at"], "2026-08-03T10:00:00")
 
+    def test_a_computed_empty_result_with_neighbors_also_wins(self) -> None:
+        """Same state, different route: here the snapshot *is* written (the scan
+        saw neighbors), so recency must be settled between snapshot and snapshot."""
+        self._write("20260803-090000", self.RECS, _NEIGHBORS, _SURVEY_VAPS)
+        self._write("20260803-100000", [], _NEIGHBORS, _SURVEY_VAPS)
+        cached = self._restore()
+        assert cached is not None
+        self.assertEqual(cached["recommendations"], [])
+
+    def test_a_snapshot_newer_than_the_tombstone_wins(self) -> None:
+        """The other direction: the DUT got its VAPs back."""
+        self._write("20260803-090000", [], [], [])
+        self._write("20260803-100000", self.RECS, _NEIGHBORS, _SURVEY_VAPS)
+        cached = self._restore()
+        assert cached is not None
+        self.assertEqual(cached["recommendations"], self.RECS)
+
     def test_a_newer_not_computed_snapshot_is_passed_over(self) -> None:
         """A bare site-survey scan says nothing about the recommendation."""
-        self._snapshot("20260803-090000", self.RECS, computed=True)
-        self._snapshot("20260803-100000", [], computed=False)
+        self._write("20260803-090000", self.RECS, _NEIGHBORS, _SURVEY_VAPS)
+        self._write("20260803-100000", [], _NEIGHBORS, _SURVEY_VAPS, computed=False)
         cached = self._restore()
         assert cached is not None
         self.assertEqual(cached["recommendations"], self.RECS)
         self.assertEqual(cached["captured_at"], "2026-08-03T09:00:00")
 
+    def test_a_bare_site_survey_never_writes_a_tombstone(self) -> None:
+        """recommendation_computed=False means "did not run", which is not a
+        state to record — only a computed emptiness is."""
+        self.assertEqual(self._write("20260803-100000", [], [], [], computed=False), [])
+        self.assertEqual(self.files_written(), [])
+        self.assertIsNone(self._restore())
+
     def test_a_flagless_legacy_snapshot_counts_as_computed(self) -> None:
         """Pre-C2, channel-recommendation was the only writer and it always
         computes, so a file with no flag is a computed one — including when its
         recommendation is empty, which back then could only mean "no own VAPs"."""
-        self._snapshot("20260803-090000", self.RECS, computed=True)
-        self._snapshot("20260803-100000", [], computed=None)
+        self._legacy_snapshot("20260803-090000", self.RECS)
+        self._legacy_snapshot("20260803-100000", [])
         cached = self._restore()
         assert cached is not None
         self.assertEqual(cached["recommendations"], [])
 
     def test_a_flagless_legacy_snapshot_still_restores_its_recommendation(self) -> None:
-        self._snapshot("20260803-090000", self.RECS, computed=None)
+        self._legacy_snapshot("20260803-090000", self.RECS)
         cached = self._restore()
         assert cached is not None
         self.assertEqual(cached["recommendations"], self.RECS)
@@ -474,17 +543,60 @@ class RestoreCacheProvenanceTests(_WriteThroughCase):
     def test_only_not_computed_snapshots_leaves_the_cache_empty(self) -> None:
         """No fabricated recommendation: a DUT that was only ever site-surveyed
         has none, and an absent badge beats an invented one."""
-        self._snapshot("20260803-100000", [], computed=False)
+        self._write("20260803-100000", [], _NEIGHBORS, _SURVEY_VAPS, computed=False)
         self.assertIsNone(self._restore())
+
+    def test_a_tombstone_alone_restores_an_empty_recommendation(self) -> None:
+        self._write("20260803-100000", [], [], [])
+        cached = self._restore()
+        assert cached is not None
+        self.assertEqual(cached["recommendations"], [])
+
+    def test_the_tombstone_is_one_file_overwritten_in_place(self) -> None:
+        """The lifecycle decision, pinned: repeated empty results must not
+        accumulate a series that would then need a prune policy."""
+        for stamp in ("20260803-100000", "20260803-110000", "20260803-120000"):
+            self._write(stamp, [], [], [])
+        self.assertEqual(self.files_written(), ["site-survey-lab2.empty.json"])
+        cached = self._restore()
+        assert cached is not None
+        self.assertEqual(cached["captured_at"], "2026-08-03T12:00:00")
+
+
+class TombstoneInvisibilityTests(_WriteThroughCase):
+    """A tombstone is a state, never a measurement — so it must be invisible to
+    every path that presents measurements, exactly like C1's `.skip.json`."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        survey_snapshot.write_empty_state("lab2", "2026-08-03T10:00:00")
+
+    def test_it_is_not_a_downloadable_survey_snapshot(self) -> None:
+        self.assertEqual(survey_snapshot.list_snapshots(), [])
+        self.assertEqual(survey_snapshot.latest_for("lab2"), [])
+
+    def test_it_is_not_selectable_as_context(self) -> None:
+        """snapshot_entries feeds bundling and the per-session context listing;
+        skip_entries feeds the capture report. It belongs to neither."""
+        self.assertEqual(context_snapshot.snapshot_entries(), [])
+        self.assertEqual(context_snapshot.skip_entries(), [])
+
+    def test_it_does_not_disturb_a_real_snapshot_beside_it(self) -> None:
+        survey_snapshot.write_snapshot(
+            "lab2", [{"band": "5GHz"}], _NEIGHBORS, _SURVEY_VAPS, "2026-08-03T11:00:00"
+        )
+        self.assertEqual({e["kind"] for e in context_snapshot.snapshot_entries()}, {"site-survey"})
+        self.assertEqual({e["dut"] for e in context_snapshot.snapshot_entries()}, {"lab2"})
+        self.assertEqual(len(survey_snapshot.list_snapshots()), 2)  # the json + csv, not the tombstone
 
 
 class ChannelRecommendationWriteThroughTests(_WriteThroughCase):
     SURVEY = {"vaps": _SURVEY_VAPS, "neighbors": _NEIGHBORS, "captured_at": "2026-08-03T10:00:00"}
 
-    def _call(self, persist: bool = True, capability=lambda _w: _SSIDS) -> dict:
+    def _call(self, persist: bool = True, capability=lambda _w: _SSIDS, survey=None) -> dict:
         stack = [
             mock.patch.object(main, "resolve_dut", return_value=_StubContextObj(_StubWorker({}))),
-            mock.patch.object(main, "get_site_survey", return_value=self.SURVEY),
+            mock.patch.object(main, "get_site_survey", return_value=self.SURVEY if survey is None else survey),
             mock.patch.object(main, "get_ssid_capabilities", side_effect=capability),
             mock.patch.object(main, "_survey_progress_emitter", return_value=lambda _p: None),
         ]
@@ -521,6 +633,24 @@ class ChannelRecommendationWriteThroughTests(_WriteThroughCase):
         # The survey half still persisted — one failing writer does not stop the other.
         self.assertEqual({e["kind"] for e in context_snapshot.snapshot_entries()}, {"site-survey"})
 
+    def test_a_fully_empty_computed_recommendation_persists_its_state(self) -> None:
+        """Through the endpoint, end to end: the recommendation ran and found
+        nothing, the scan saw nothing, so no snapshot may be written — and the
+        state must survive a restart anyway, or the previous badge comes back."""
+        self._call(
+            survey={"vaps": [], "neighbors": [], "captured_at": "2026-08-03T10:00:00"},
+            capability=lambda _w: [],
+        )
+        # §7 intact: nothing was written as a measurement.
+        self.assertEqual(context_snapshot.snapshot_entries(), [])
+        self.assertEqual(self.files_written(), ["site-survey-lab2.empty.json"])
+
+        survey_cache.clear()  # the restart
+        survey_snapshot.restore_cache()
+        cached = survey_cache.last_recommendation("lab2")
+        assert cached is not None
+        self.assertEqual(cached["recommendations"], [])
+
     def test_both_writers_failing_still_leaves_the_response_untouched(self) -> None:
         """This endpoint is the only one that persists twice, so it is the only
         one where a second failure could land after the first was swallowed."""
@@ -555,25 +685,26 @@ class PersistedScanReachesTheBundleTests(unittest.TestCase):
         self.dirs = {kind: self.base / "context" / kind for kind in context_snapshot.KINDS}
         for patcher in (
             mock.patch.object(context_snapshot, "_KIND_DIRS", self.dirs),
+            # The survey writer keeps its own handle on the same directory, so a
+            # tombstone lands exactly where the bundler will scan for snapshots.
+            mock.patch.object(survey_snapshot, "SURVEY_SNAPSHOT_DIR", self.dirs["site-survey"]),
             mock.patch.object(serial_api, "LOG_DIR", self.log_dir),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)
 
-    def test_a_scanned_snapshot_is_bundled_and_reported_ok(self) -> None:
-        worker = _StubWorker({"iwconfig": _IWCONFIG, "wlanconfig": _WLANCONFIG})
-        with mock.patch.object(main, "resolve_dut", return_value=_StubContextObj(worker)):
-            main.get_wifi_clients(dut="lab2")
-        written = sorted(self.dirs["wifi-clients"].iterdir())
-        self.assertEqual(len(written), 2, written)
+    def _download(self) -> tuple[list[str], str]:
+        """Run the real download flow over a log whose window brackets now.
 
-        # A session log whose window brackets the scan we just persisted.
+        Returns the ZIP's entry names and the capture report ("" when the bundle
+        carries no context at all).
+        """
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         log_name = f"dut-session-{stamp}.log"
         (self.log_dir / log_name).write_text(self.LOG, encoding="utf-8")
 
         analyzer_script = self.base / "tools" / "analyzer3.py"
-        analyzer_script.parent.mkdir(parents=True)
+        analyzer_script.parent.mkdir(parents=True, exist_ok=True)
         analyzer_script.write_text("print('stub')\n", encoding="utf-8")
 
         def fake_run(*_args, **kwargs):
@@ -590,14 +721,38 @@ class PersistedScanReachesTheBundleTests(unittest.TestCase):
 
         with zipfile.ZipFile(Path(response.path)) as zf:
             names = zf.namelist()
-            report = zf.read(
-                next(n for n in names if n.endswith("context/capture-report.txt"))
-            ).decode()
+            report_name = next((n for n in names if n.endswith("context/capture-report.txt")), None)
+            report = zf.read(report_name).decode() if report_name else ""
+        return names, report
+
+    def _scan_clients(self) -> None:
+        worker = _StubWorker({"iwconfig": _IWCONFIG, "wlanconfig": _WLANCONFIG})
+        with mock.patch.object(main, "resolve_dut", return_value=_StubContextObj(worker)):
+            main.get_wifi_clients(dut="lab2")
+
+    def test_a_scanned_snapshot_is_bundled_and_reported_ok(self) -> None:
+        self._scan_clients()
+        self.assertEqual(len(sorted(self.dirs["wifi-clients"].iterdir())), 2)
+
+        names, report = self._download()
         bundled = [n for n in names if "/context/wifi-clients/" in n]
         self.assertEqual(len(bundled), 2, names)
         self.assertIn("wifi-clients: ok, 1 rows", report)
         # The kinds nobody scanned are still accounted for, not silently absent.
         self.assertIn("ssid-capability: skipped", report)
+
+    def test_a_recommendation_tombstone_never_enters_the_bundle(self) -> None:
+        """The tombstone sits in the site-survey directory the bundler scans, so
+        "it is not a measurement" has to hold at the ZIP, not just in a regex."""
+        self._scan_clients()
+        survey_snapshot.write_empty_state("lab2", "2026-08-03T10:00:00")
+
+        names, report = self._download()
+        self.assertFalse([n for n in names if n.endswith(".empty.json")], names)
+        self.assertFalse([n for n in names if "/context/site-survey/" in n], names)
+        # Reported as absent, never as an empty measurement of the site.
+        self.assertIn("site-survey: skipped", report)
+        self.assertNotIn("site-survey: ok", report)
 
 
 class OfflineToolFailureReportTests(unittest.TestCase):

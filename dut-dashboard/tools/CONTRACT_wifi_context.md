@@ -50,7 +50,13 @@ by adding periodic serial polling** — it will starve exactly the same way
 - The empty-payload rule above now also binds `survey_snapshot.write_snapshot`,
   which previously always wrote a JSON+CSV pair: a survey that observed nothing
   writes no file, and one with VAPs but no neighbours keeps its JSON and writes
-  no header-only neighbour CSV (same per-artifact rule as §7).
+  no header-only neighbour CSV (same per-artifact rule as §7). Because that rule
+  would otherwise lose the fact that a recommendation *ran* and came back empty,
+  a computed-empty result also drops `site-survey-<dut>.empty.json` — a
+  recommendation-state tombstone, one per DUT, overwritten in place. It is a
+  state, not a measurement: like C1's `.skip.json` it is unmatchable by the
+  snapshot name patterns, so it never reaches a listing, a bundle, or
+  `context_render.py`. Do not treat it as an observation.
 
 ## 3. Modules and ownership
 
