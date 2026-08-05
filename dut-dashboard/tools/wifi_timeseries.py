@@ -15,6 +15,8 @@ import pandas as pd
 
 
 LOG_EXT = (".log", ".txt")
+# analyzer3.py's own output name; the anchor its prefix is read back from.
+ANALYZER_ANCHOR = "cpu_usage.csv"
 SUMMARY_COLUMNS = [
     "ts", "cycle", "connected_clients", "cpu_load_pct", "mem_load_pct",
     "cpu_temp_c", "radio_temp_c", "util_2g4_pct", "util_5g_pct", "util_6g_pct",
@@ -50,29 +52,36 @@ def extract_fw_tag(filename: str) -> str:
     return match.group(1) if match else "nofw"
 
 
-def adopted_run_stamp(session_dir: Path) -> str:
-    """analyzer3's ``mmddHHMM`` for this session, or ``""`` if it has not run.
+def adopted_prefix(session_dir: Path) -> str:
+    """analyzer3's own output prefix for this session, or ``""`` if absent.
 
-    analyzer3 runs first in the offline-tool sequence and owns the reference
-    stamp; adopting it stops one bundle from carrying two prefixes when a run
-    crosses a minute boundary. Only the stamp is taken — the tags stay this
-    tool's own — and the newest output wins, so re-running in a directory that
-    still holds older analyzer3 output cannot pin a stale stamp.
+    analyzer3 runs first in the offline-tool sequence and owns the bundle's
+    prefix, so it is taken **whole** — stamp and tags together. Adopting only
+    the stamp left each tool to recompute the tags, and any difference in how a
+    tool selects its logs then reopened the very split this closes. The newest
+    anchor wins, so a directory still holding older analyzer3 output cannot pin
+    a stale prefix.
     """
     try:
-        marks = [p for p in session_dir.iterdir() if p.is_file() and p.name.endswith("_cpu_usage.csv")]
+        anchors = [
+            path for path in session_dir.iterdir()
+            if path.is_file() and path.name.endswith(ANALYZER_ANCHOR) and path.name != ANALYZER_ANCHOR
+        ]
     except OSError:
         return ""
-    for path in sorted(marks, key=lambda p: p.stat().st_mtime, reverse=True):
-        stamp = path.name.split("_", 1)[0]
-        if len(stamp) == 8 and stamp.isdigit():
-            return stamp
+    for path in sorted(anchors, key=lambda p: p.stat().st_mtime, reverse=True):
+        prefix = path.name[: -len(ANALYZER_ANCHOR)]
+        if re.fullmatch(r"\d{8}_.+_", prefix):
+            return prefix
     return ""
 
 
 def output_prefix(log_files: list[Path]) -> str:
     session_dir = log_files[0].parent if log_files else Path.cwd()
-    run_prefix = adopted_run_stamp(session_dir) or datetime.now().strftime("%m%d%H%M")
+    adopted = adopted_prefix(session_dir)
+    if adopted:
+        return adopted
+    run_prefix = datetime.now().strftime("%m%d%H%M")
     time_tags = {extract_time_tag(path.name) for path in log_files}
     fw_tags = {extract_fw_tag(path.name) for path in log_files}
     time_tag = next(iter(time_tags)) if len(time_tags) == 1 else "MULTI"
@@ -312,7 +321,9 @@ def _plot(path: Path, title: str, ylabel: str, frames: list[tuple[pd.DataFrame, 
 
 
 def main() -> int:
-    log_files = sorted(path for path in Path.cwd().iterdir() if path.is_file() and path.suffix.lower() in LOG_EXT)
+    # Case-sensitive, exactly as analyzer3.py selects — a tool that reads a log
+    # analyzer3 skipped would describe a different data set under its prefix.
+    log_files = sorted(path for path in Path.cwd().iterdir() if path.is_file() and path.name.endswith(LOG_EXT))
     if not log_files:
         print("No log files found; no Wi-Fi output written.")
         return 0

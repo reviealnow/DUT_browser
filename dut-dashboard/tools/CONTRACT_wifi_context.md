@@ -102,14 +102,25 @@ Reuse analyzer3.py's prefix exactly: `<mmddHHMM>_<time_tag>_<fw_tag>_`
 absent-fw fallbacks identical — copy `extract_time_tag`, `extract_fw_tag`,
 and the prefix assembly from `analyzer3.py:29-67`).
 
-**analyzer3 owns the `mmddHHMM` stamp for a bundle.** It runs first in the
-offline-tool sequence; every later tool adopts the stamp off the analyzer3
-output already in the session directory (anchor: `*_cpu_usage.csv`, newest
-wins) and only falls back to its own clock when analyzer3 has not run there.
-Each tool reading its own clock is what produced two prefixes in one real
-bundle (`08041541_` for analyzer3, `08041542_` for the others) when the run
-crossed a minute boundary. `analyzer3.py` itself is never modified for this —
-it is the reference, and the alignment is one-directional.
+**analyzer3 owns the whole prefix for a bundle.** It runs first in the
+offline-tool sequence; every later tool adopts the prefix — stamp *and* tags —
+off the analyzer3 output already in the session directory (anchor:
+`<prefix>cpu_usage.csv`, newest wins), and only computes its own when
+analyzer3 has not run there. Each tool reading its own clock is what produced
+two prefixes in one real bundle (`08041541_` for analyzer3, `08041542_` for
+the others) when the run crossed a minute boundary; adopting only the *stamp*
+was not enough either, because the tags stayed per-tool and any difference in
+how a tool selects its logs split them again (a mixed-case `.LOG` gave
+`MULTI_MULTI` on one side and concrete tags on the other).
+
+Two rules follow, and both matter:
+
+- Tools select logs **exactly as analyzer3 does** — `name.endswith(LOG_EXT)`,
+  case-sensitive. A tool that reads a log analyzer3 skipped describes a
+  different data set under a prefix that claims otherwise.
+- `analyzer3.py` itself is **never modified** for this. It is the reference the
+  others align to — one-directional, so the naming of the reports it has always
+  produced cannot shift.
 
 Track A outputs (session dir root):
 

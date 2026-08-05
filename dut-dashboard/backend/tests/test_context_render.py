@@ -108,6 +108,21 @@ class OutputPrefixTests(unittest.TestCase):
             (base / "dut-session-1.9.300_101500_20260803.log").write_text("x", encoding="utf-8")
             self.assertRegex(cr.output_prefix(base), r"^\d{8}_101500_19300_$")
 
+    def test_the_whole_prefix_is_adopted_not_only_the_stamp(self) -> None:
+        """Tags come from the anchor too.
+
+        Adopting only the stamp left every tool recomputing the tags, so any
+        difference in how a tool selects its logs — a mixed-case `.LOG` was the
+        real case — split the bundle's prefixes again. wifi_timeseries pins the
+        same expected value, and the pair of assertions is the agreement.
+        """
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            (base / "a_111111_v1.9.1.log").write_text("x", encoding="utf-8")
+            (base / "b_222222_v2.0.2.LOG").write_text("x", encoding="utf-8")
+            (base / "08010900_111111_19001_cpu_usage.csv").write_text("x", encoding="utf-8")
+            self.assertEqual(cr.output_prefix(base), "08010900_111111_19001_")
+
     def test_render_session_adopts_the_stamp_on_the_real_path(self) -> None:
         """The default path must adopt too, not just a direct output_prefix call.
 

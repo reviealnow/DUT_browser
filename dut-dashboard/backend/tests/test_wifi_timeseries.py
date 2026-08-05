@@ -226,3 +226,35 @@ def test_without_analyzer3_output_the_tool_uses_its_own_clock(
     assert re.fullmatch(
         r"\d{8}_101900_19300_wifi_summary\.csv", artifact(tmp_path, "wifi_summary.csv").name
     )
+
+
+def test_a_mixed_case_log_is_ignored_exactly_as_analyzer3_ignores_it(
+    tmp_path: Path, mpl_config_dir: Path
+) -> None:
+    """Log selection must match analyzer3's, case included.
+
+    Selecting case-insensitively made this tool read a log analyzer3 skipped,
+    so the two collapsed different log sets into different tags (`MULTI` here
+    against analyzer3's concrete pair) — the prefixes split again even with a
+    shared stamp, and the CSV described a data set its own name denied.
+    """
+    shutil.copy2(next(FIXTURES.glob("*.log")), tmp_path / "a_101900_v1.9.300.log")
+    (tmp_path / "b_222222_v2.0.2.LOG").write_text("not a log analyzer3 would read\n", encoding="utf-8")
+
+    result = run_tool(tmp_path, mpl_config_dir)
+    assert result.returncode == 0, result.stderr
+    assert re.fullmatch(
+        r"\d{8}_101900_19300_wifi_summary\.csv", artifact(tmp_path, "wifi_summary.csv").name
+    )
+
+
+def test_the_whole_prefix_is_adopted_not_only_the_stamp(
+    tmp_path: Path, mpl_config_dir: Path
+) -> None:
+    """Tags come from the anchor too, so no per-tool tag logic can split them."""
+    shutil.copy2(next(FIXTURES.glob("*.log")), tmp_path / "a_101900_v1.9.300.log")
+    (tmp_path / "08010900_111111_19001_cpu_usage.csv").write_text("x", encoding="utf-8")
+
+    result = run_tool(tmp_path, mpl_config_dir)
+    assert result.returncode == 0, result.stderr
+    assert artifact(tmp_path, "wifi_summary.csv").name == "08010900_111111_19001_wifi_summary.csv"

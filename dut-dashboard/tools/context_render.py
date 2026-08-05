@@ -76,6 +76,8 @@ VERSION_NAME = "context_render v1.0.0"
 #   Do NOT replace these with `import analyzer3`.
 # ======================================================
 LOG_EXT = (".log", ".txt")
+# analyzer3.py's own output name; the anchor its prefix is read back from.
+ANALYZER_ANCHOR = "cpu_usage.csv"
 
 
 def extract_time_tag(filename: str) -> str:
@@ -101,23 +103,27 @@ def extract_fw_tag(filename: str) -> str:
     return "nofw"
 
 
-def adopted_run_stamp(session_dir: Path) -> str:
-    """analyzer3's ``mmddHHMM`` for this session, or ``""`` if it has not run.
+def adopted_prefix(session_dir: Path) -> str:
+    """analyzer3's own output prefix for this session, or ``""`` if absent.
 
-    analyzer3 runs first in the offline-tool sequence and owns the reference
-    stamp; adopting it stops one bundle from carrying two prefixes when a run
-    crosses a minute boundary. Only the stamp is taken — the tags stay this
-    tool's own — and the newest output wins, so re-running in a directory that
-    still holds older analyzer3 output cannot pin a stale stamp.
+    analyzer3 runs first in the offline-tool sequence and owns the bundle's
+    prefix, so it is taken **whole** — stamp and tags together. Adopting only
+    the stamp left each tool to recompute the tags, and any difference in how a
+    tool selects its logs then reopened the very split this closes. The newest
+    anchor wins, so a directory still holding older analyzer3 output cannot pin
+    a stale prefix.
     """
     try:
-        marks = [p for p in session_dir.iterdir() if p.is_file() and p.name.endswith("_cpu_usage.csv")]
+        anchors = [
+            path for path in session_dir.iterdir()
+            if path.is_file() and path.name.endswith(ANALYZER_ANCHOR) and path.name != ANALYZER_ANCHOR
+        ]
     except OSError:
         return ""
-    for path in sorted(marks, key=lambda p: p.stat().st_mtime, reverse=True):
-        stamp = path.name.split("_", 1)[0]
-        if len(stamp) == 8 and stamp.isdigit():
-            return stamp
+    for path in sorted(anchors, key=lambda p: p.stat().st_mtime, reverse=True):
+        prefix = path.name[: -len(ANALYZER_ANCHOR)]
+        if re.fullmatch(r"\d{8}_.+_", prefix):
+            return prefix
     return ""
 
 
@@ -129,12 +135,14 @@ def output_prefix(session_dir: Path, now: datetime | None = None) -> str:
     analyzer3 a log-less directory is not an error here — the context JSONs are
     renderable on their own — so it falls back to ``notime`` and no fw tag.
 
-    The stamp is analyzer3's when it has already run here (see
-    :func:`adopted_run_stamp`); an explicit ``now`` still wins, for tests.
+    The whole prefix is analyzer3's when it has already run here (see
+    :func:`adopted_prefix`); an explicit ``now`` still wins, for tests.
     """
-    stamp = now.strftime("%m%d%H%M") if now else (
-        adopted_run_stamp(session_dir) or datetime.now().strftime("%m%d%H%M")
-    )
+    if now is None:
+        adopted = adopted_prefix(session_dir)
+        if adopted:
+            return adopted
+    stamp = (now or datetime.now()).strftime("%m%d%H%M")
     try:
         logs = sorted(p.name for p in session_dir.iterdir() if p.is_file() and p.name.endswith(LOG_EXT))
     except OSError:
