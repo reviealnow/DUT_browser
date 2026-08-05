@@ -95,12 +95,48 @@ class OutputPrefixTests(unittest.TestCase):
             os.utime(old, (1_000_000, 1_000_000))
             self.assertEqual(cr.output_prefix(base), "08031129_101500_19300_")
 
-    def test_an_explicit_now_still_wins(self) -> None:
+    def test_an_anchor_wins_over_an_explicit_now(self) -> None:
+        """`now` pins the fallback stamp only; it cannot switch adoption off.
+
+        The reverse precedence is how adoption got silently disabled once
+        already (render_session pre-resolved `now`), so a caller passing one
+        must not be able to reopen that path.
+        """
         with tempfile.TemporaryDirectory() as d:
             base = Path(d)
             (base / "dut-session-1.9.300_101500_20260803.log").write_text("x", encoding="utf-8")
             (base / "08031129_101500_19300_cpu_usage.csv").write_text("x", encoding="utf-8")
+            self.assertEqual(cr.output_prefix(base, FIXED_NOW), "08031129_101500_19300_")
+
+    def test_a_file_analyzer3_could_not_have_written_is_not_authoritative(self) -> None:
+        """Suffix-matching alone must not let a foreign file name the bundle."""
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            (base / "dut-session-1.9.300_101500_20260803.log").write_text("x", encoding="utf-8")
+            (base / "12345678_NOT-ANALYZER_PREFIX_cpu_usage.csv").write_text("x", encoding="utf-8")
+            (base / "my_cpu_usage.csv").write_text("x", encoding="utf-8")
+            (base / "cpu_usage.csv").write_text("x", encoding="utf-8")
             self.assertEqual(cr.output_prefix(base, FIXED_NOW), "08031130_101500_19300_")
+
+    def test_a_malformed_newest_anchor_does_not_shadow_a_real_one(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            (base / "dut-session-1.9.300_101500_20260803.log").write_text("x", encoding="utf-8")
+            real = base / "08031129_101500_19300_cpu_usage.csv"
+            junk = base / "12345678_NOT-ANALYZER_PREFIX_cpu_usage.csv"
+            real.write_text("x", encoding="utf-8")
+            junk.write_text("x", encoding="utf-8")
+            os.utime(real, (1_000_000, 1_000_000))          # junk is newer
+            self.assertEqual(cr.output_prefix(base), "08031129_101500_19300_")
+
+    def test_every_shape_analyzer3_can_emit_is_accepted(self) -> None:
+        for prefix in ("08041541_notime_", "08041541_101900_19300_",
+                       "08041541_MULTI_MULTI_", "08041541_notime_MULTI_",
+                       "08041541_101900_101005_"):
+            with self.subTest(prefix=prefix), tempfile.TemporaryDirectory() as d:
+                base = Path(d)
+                (base / f"{prefix}{cr.ANALYZER_ANCHOR}").write_text("x", encoding="utf-8")
+                self.assertEqual(cr.adopted_prefix(base), prefix)
 
     def test_without_analyzer3_output_the_tool_uses_its_own_clock(self) -> None:
         with tempfile.TemporaryDirectory() as d:

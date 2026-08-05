@@ -258,3 +258,32 @@ def test_the_whole_prefix_is_adopted_not_only_the_stamp(
     result = run_tool(tmp_path, mpl_config_dir)
     assert result.returncode == 0, result.stderr
     assert artifact(tmp_path, "wifi_summary.csv").name == "08010900_111111_19001_wifi_summary.csv"
+
+
+def test_a_file_analyzer3_could_not_have_written_is_not_authoritative(
+    tmp_path: Path, mpl_config_dir: Path
+) -> None:
+    """Suffix-matching alone must not let a foreign file name the bundle."""
+    shutil.copy2(next(FIXTURES.glob("*.log")), tmp_path / "a_101900_v1.9.300.log")
+    (tmp_path / "12345678_NOT-ANALYZER_PREFIX_cpu_usage.csv").write_text("x", encoding="utf-8")
+    (tmp_path / "cpu_usage.csv").write_text("x", encoding="utf-8")
+
+    result = run_tool(tmp_path, mpl_config_dir)
+    assert result.returncode == 0, result.stderr
+    assert re.fullmatch(
+        r"\d{8}_101900_19300_wifi_summary\.csv", artifact(tmp_path, "wifi_summary.csv").name
+    )
+
+
+def test_a_malformed_newest_anchor_does_not_shadow_a_real_one(
+    tmp_path: Path, mpl_config_dir: Path
+) -> None:
+    shutil.copy2(next(FIXTURES.glob("*.log")), tmp_path / "a_101900_v1.9.300.log")
+    real = tmp_path / "08031129_101900_19300_cpu_usage.csv"
+    junk = tmp_path / "12345678_NOT-ANALYZER_PREFIX_cpu_usage.csv"
+    real.write_text("x", encoding="utf-8")
+    junk.write_text("x", encoding="utf-8")
+    os.utime(real, (1_000_000, 1_000_000))          # junk is newer
+    result = run_tool(tmp_path, mpl_config_dir)
+    assert result.returncode == 0, result.stderr
+    assert artifact(tmp_path, "wifi_summary.csv").name == "08031129_101900_19300_wifi_summary.csv"

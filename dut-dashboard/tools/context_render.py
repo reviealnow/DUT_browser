@@ -78,6 +78,12 @@ VERSION_NAME = "context_render v1.0.0"
 LOG_EXT = (".log", ".txt")
 # analyzer3.py's own output name; the anchor its prefix is read back from.
 ANALYZER_ANCHOR = "cpu_usage.csv"
+# analyzer3's prefix grammar, as tightly as it can actually emit: an mmddHHMM
+# stamp, a time tag that is six digits / notime / MULTI, and an optional
+# firmware tag that is digits or MULTI ("nofw" is stripped by analyzer3, so it
+# never reaches a filename). Anything looser lets an unrelated file whose name
+# happens to end in cpu_usage.csv dictate the bundle's prefix.
+ANALYZER_PREFIX_RE = re.compile(r"\d{8}_(?:\d{6}|notime|MULTI)_(?:(?:\d+|MULTI)_)?")
 
 
 def extract_time_tag(filename: str) -> str:
@@ -122,7 +128,7 @@ def adopted_prefix(session_dir: Path) -> str:
         return ""
     for path in sorted(anchors, key=lambda p: p.stat().st_mtime, reverse=True):
         prefix = path.name[: -len(ANALYZER_ANCHOR)]
-        if re.fullmatch(r"\d{8}_.+_", prefix):
+        if ANALYZER_PREFIX_RE.fullmatch(prefix):
             return prefix
     return ""
 
@@ -135,13 +141,14 @@ def output_prefix(session_dir: Path, now: datetime | None = None) -> str:
     analyzer3 a log-less directory is not an error here — the context JSONs are
     renderable on their own — so it falls back to ``notime`` and no fw tag.
 
-    The whole prefix is analyzer3's when it has already run here (see
-    :func:`adopted_prefix`); an explicit ``now`` still wins, for tests.
+    An analyzer3 prefix in this directory always wins (see
+    :func:`adopted_prefix`). ``now`` only pins the stamp for the fallback, so a
+    caller that passes one cannot silently switch adoption off — that is the
+    exact defect this precedence was inverted to remove.
     """
-    if now is None:
-        adopted = adopted_prefix(session_dir)
-        if adopted:
-            return adopted
+    adopted = adopted_prefix(session_dir)
+    if adopted:
+        return adopted
     stamp = (now or datetime.now()).strftime("%m%d%H%M")
     try:
         logs = sorted(p.name for p in session_dir.iterdir() if p.is_file() and p.name.endswith(LOG_EXT))

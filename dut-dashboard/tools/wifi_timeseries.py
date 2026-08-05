@@ -17,6 +17,12 @@ import pandas as pd
 LOG_EXT = (".log", ".txt")
 # analyzer3.py's own output name; the anchor its prefix is read back from.
 ANALYZER_ANCHOR = "cpu_usage.csv"
+# analyzer3's prefix grammar, as tightly as it can actually emit: an mmddHHMM
+# stamp, a time tag that is six digits / notime / MULTI, and an optional
+# firmware tag that is digits or MULTI ("nofw" is stripped by analyzer3, so it
+# never reaches a filename). Anything looser lets an unrelated file whose name
+# happens to end in cpu_usage.csv dictate the bundle's prefix.
+ANALYZER_PREFIX_RE = re.compile(r"\d{8}_(?:\d{6}|notime|MULTI)_(?:(?:\d+|MULTI)_)?")
 SUMMARY_COLUMNS = [
     "ts", "cycle", "connected_clients", "cpu_load_pct", "mem_load_pct",
     "cpu_temp_c", "radio_temp_c", "util_2g4_pct", "util_5g_pct", "util_6g_pct",
@@ -71,7 +77,7 @@ def adopted_prefix(session_dir: Path) -> str:
         return ""
     for path in sorted(anchors, key=lambda p: p.stat().st_mtime, reverse=True):
         prefix = path.name[: -len(ANALYZER_ANCHOR)]
-        if re.fullmatch(r"\d{8}_.+_", prefix):
+        if ANALYZER_PREFIX_RE.fullmatch(prefix):
             return prefix
     return ""
 
