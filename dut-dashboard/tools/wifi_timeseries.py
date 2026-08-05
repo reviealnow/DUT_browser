@@ -50,8 +50,29 @@ def extract_fw_tag(filename: str) -> str:
     return match.group(1) if match else "nofw"
 
 
+def adopted_run_stamp(session_dir: Path) -> str:
+    """analyzer3's ``mmddHHMM`` for this session, or ``""`` if it has not run.
+
+    analyzer3 runs first in the offline-tool sequence and owns the reference
+    stamp; adopting it stops one bundle from carrying two prefixes when a run
+    crosses a minute boundary. Only the stamp is taken — the tags stay this
+    tool's own — and the newest output wins, so re-running in a directory that
+    still holds older analyzer3 output cannot pin a stale stamp.
+    """
+    try:
+        marks = [p for p in session_dir.iterdir() if p.is_file() and p.name.endswith("_cpu_usage.csv")]
+    except OSError:
+        return ""
+    for path in sorted(marks, key=lambda p: p.stat().st_mtime, reverse=True):
+        stamp = path.name.split("_", 1)[0]
+        if len(stamp) == 8 and stamp.isdigit():
+            return stamp
+    return ""
+
+
 def output_prefix(log_files: list[Path]) -> str:
-    run_prefix = datetime.now().strftime("%m%d%H%M")
+    session_dir = log_files[0].parent if log_files else Path.cwd()
+    run_prefix = adopted_run_stamp(session_dir) or datetime.now().strftime("%m%d%H%M")
     time_tags = {extract_time_tag(path.name) for path in log_files}
     fw_tags = {extract_fw_tag(path.name) for path in log_files}
     time_tag = next(iter(time_tags)) if len(time_tags) == 1 else "MULTI"

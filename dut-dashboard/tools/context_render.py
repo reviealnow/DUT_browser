@@ -101,6 +101,26 @@ def extract_fw_tag(filename: str) -> str:
     return "nofw"
 
 
+def adopted_run_stamp(session_dir: Path) -> str:
+    """analyzer3's ``mmddHHMM`` for this session, or ``""`` if it has not run.
+
+    analyzer3 runs first in the offline-tool sequence and owns the reference
+    stamp; adopting it stops one bundle from carrying two prefixes when a run
+    crosses a minute boundary. Only the stamp is taken — the tags stay this
+    tool's own — and the newest output wins, so re-running in a directory that
+    still holds older analyzer3 output cannot pin a stale stamp.
+    """
+    try:
+        marks = [p for p in session_dir.iterdir() if p.is_file() and p.name.endswith("_cpu_usage.csv")]
+    except OSError:
+        return ""
+    for path in sorted(marks, key=lambda p: p.stat().st_mtime, reverse=True):
+        stamp = path.name.split("_", 1)[0]
+        if len(stamp) == 8 and stamp.isdigit():
+            return stamp
+    return ""
+
+
 def output_prefix(session_dir: Path, now: datetime | None = None) -> str:
     """``<mmddHHMM>_<time_tag>_<fw_tag>_`` for this session directory.
 
@@ -108,8 +128,13 @@ def output_prefix(session_dir: Path, now: datetime | None = None) -> str:
     (``MULTI`` when several logs disagree, ``_nofw_`` dropped). Unlike
     analyzer3 a log-less directory is not an error here — the context JSONs are
     renderable on their own — so it falls back to ``notime`` and no fw tag.
+
+    The stamp is analyzer3's when it has already run here (see
+    :func:`adopted_run_stamp`); an explicit ``now`` still wins, for tests.
     """
-    now = now or datetime.now()
+    stamp = now.strftime("%m%d%H%M") if now else (
+        adopted_run_stamp(session_dir) or datetime.now().strftime("%m%d%H%M")
+    )
     try:
         logs = sorted(p.name for p in session_dir.iterdir() if p.is_file() and p.name.endswith(LOG_EXT))
     except OSError:
@@ -123,7 +148,7 @@ def output_prefix(session_dir: Path, now: datetime | None = None) -> str:
     else:
         time_tag, fw_tag = "notime", "nofw"
 
-    return f"{now.strftime('%m%d%H%M')}_{time_tag}_{fw_tag}_".replace("_nofw_", "_")
+    return f"{stamp}_{time_tag}_{fw_tag}_".replace("_nofw_", "_")
 
 
 # ======================================================
@@ -573,8 +598,10 @@ def render_session(session_dir: Path, now: datetime | None = None) -> list[Path]
     Returns the PNG paths written — possibly none, which is a valid outcome and
     never an error (§7).
     """
-    now = now or datetime.now()
-    generated_at = now.strftime("%Y-%m-%d %H:%M:%S")
+    # The caption records when this render actually ran; the prefix stamp does
+    # not, so `now` is forwarded still-unset and output_prefix stays free to
+    # adopt analyzer3's stamp for the bundle.
+    generated_at = (now or datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
     context_dir = session_dir / CONTEXT_DIR_NAME
     if not context_dir.is_dir():
         print(f"[SKIP] no {CONTEXT_DIR_NAME}/ directory in {session_dir} — nothing to render")

@@ -19,6 +19,11 @@ no network.
 parsed from the session log's filename in the same directory. A directory with
 no log still renders, using the `notime` / no-fw fallbacks.
 
+The `mmddHHMM` stamp is **adopted from analyzer3's own output** in the session
+directory (`*_cpu_usage.csv`, newest wins) so one bundle carries one prefix
+even when the tool sequence crosses a minute boundary; without analyzer3
+output — a standalone render — this tool's own clock is used instead.
+
 Only the **newest** snapshot per kind is rendered. `context/capture-report.txt`,
 `.csv` siblings and `.skip.json` markers are not inputs and are ignored.
 

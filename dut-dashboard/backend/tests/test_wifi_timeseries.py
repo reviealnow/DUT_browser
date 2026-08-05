@@ -182,3 +182,47 @@ def test_optional_tools_are_best_effort_at_both_invocation_points(tmp_path: Path
     ):
         result = analyzer_service.AnalyzerService().run(str(log))
     assert result["ok"] is True
+
+
+def test_analyzer3s_stamp_is_adopted_so_one_bundle_has_one_prefix(
+    tmp_path: Path, mpl_config_dir: Path
+) -> None:
+    """analyzer3 runs first and owns the stamp for the whole bundle.
+
+    Each tool reading its own clock gave a run that crossed a minute boundary
+    two different prefixes (seen on a real download: 08041541_ for analyzer3,
+    08041542_ for this tool).
+    """
+    shutil.copy2(next(FIXTURES.glob("*.log")), tmp_path)
+    (tmp_path / "08031129_101900_19300_cpu_usage.csv").write_text("x", encoding="utf-8")
+
+    result = run_tool(tmp_path, mpl_config_dir)
+    assert result.returncode == 0, result.stderr
+
+    for suffix in ("wifi_summary.csv", "wifi_clients.csv"):
+        assert artifact(tmp_path, suffix).name.startswith("08031129_101900_19300_")
+
+
+def test_the_newest_analyzer3_output_wins(tmp_path: Path, mpl_config_dir: Path) -> None:
+    """A directory still holding older analyzer3 output must not pin a stale stamp."""
+    shutil.copy2(next(FIXTURES.glob("*.log")), tmp_path)
+    stale = tmp_path / "08010900_101900_19300_cpu_usage.csv"
+    fresh = tmp_path / "08031129_101900_19300_cpu_usage.csv"
+    stale.write_text("x", encoding="utf-8")
+    fresh.write_text("x", encoding="utf-8")
+    os.utime(stale, (1_000_000, 1_000_000))
+
+    result = run_tool(tmp_path, mpl_config_dir)
+    assert result.returncode == 0, result.stderr
+    assert artifact(tmp_path, "wifi_summary.csv").name.startswith("08031129_")
+
+
+def test_without_analyzer3_output_the_tool_uses_its_own_clock(
+    tmp_path: Path, mpl_config_dir: Path
+) -> None:
+    shutil.copy2(next(FIXTURES.glob("*.log")), tmp_path)
+    result = run_tool(tmp_path, mpl_config_dir)
+    assert result.returncode == 0, result.stderr
+    assert re.fullmatch(
+        r"\d{8}_101900_19300_wifi_summary\.csv", artifact(tmp_path, "wifi_summary.csv").name
+    )

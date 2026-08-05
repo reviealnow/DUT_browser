@@ -102,6 +102,15 @@ Reuse analyzer3.py's prefix exactly: `<mmddHHMM>_<time_tag>_<fw_tag>_`
 absent-fw fallbacks identical — copy `extract_time_tag`, `extract_fw_tag`,
 and the prefix assembly from `analyzer3.py:29-67`).
 
+**analyzer3 owns the `mmddHHMM` stamp for a bundle.** It runs first in the
+offline-tool sequence; every later tool adopts the stamp off the analyzer3
+output already in the session directory (anchor: `*_cpu_usage.csv`, newest
+wins) and only falls back to its own clock when analyzer3 has not run there.
+Each tool reading its own clock is what produced two prefixes in one real
+bundle (`08041541_` for analyzer3, `08041542_` for the others) when the run
+crossed a minute boundary. `analyzer3.py` itself is never modified for this —
+it is the reference, and the alignment is one-directional.
+
 Track A outputs (session dir root):
 
     {prefix}wifi_summary.csv        {prefix}wifi_clients.csv
