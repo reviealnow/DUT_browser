@@ -29,6 +29,13 @@ MPLBACKEND=Agg MPLCONFIGDIR=/tmp/wifi-mpl \
 No arguments are required. Output is written to the current directory using
 the same timestamp/firmware prefix convention as `analyzer3.py`.
 
+The prefix is **adopted whole from analyzer3's own output** in the session
+directory (`<prefix>cpu_usage.csv`, newest wins) — stamp and tags together —
+so one bundle carries one prefix even when the tool sequence crosses a minute
+boundary. Without analyzer3 output (a standalone run) it is computed here
+instead, from logs selected exactly as analyzer3 selects them: case-sensitive,
+so a `.LOG` is ignored by both tools alike.
+
 ## Output
 
 - `{prefix}wifi_summary.csv`

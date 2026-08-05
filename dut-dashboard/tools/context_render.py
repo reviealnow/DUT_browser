@@ -76,6 +76,14 @@ VERSION_NAME = "context_render v1.0.0"
 #   Do NOT replace these with `import analyzer3`.
 # ======================================================
 LOG_EXT = (".log", ".txt")
+# analyzer3.py's own output name; the anchor its prefix is read back from.
+ANALYZER_ANCHOR = "cpu_usage.csv"
+# analyzer3's prefix grammar, as tightly as it can actually emit: an mmddHHMM
+# stamp, a time tag that is six digits / notime / MULTI, and an optional
+# firmware tag that is digits or MULTI ("nofw" is stripped by analyzer3, so it
+# never reaches a filename). Anything looser lets an unrelated file whose name
+# happens to end in cpu_usage.csv dictate the bundle's prefix.
+ANALYZER_PREFIX_RE = re.compile(r"\d{8}_(?:\d{6}|notime|MULTI)_(?:(?:\d+|MULTI)_)?")
 
 
 def extract_time_tag(filename: str) -> str:
@@ -101,6 +109,30 @@ def extract_fw_tag(filename: str) -> str:
     return "nofw"
 
 
+def adopted_prefix(session_dir: Path) -> str:
+    """analyzer3's own output prefix for this session, or ``""`` if absent.
+
+    analyzer3 runs first in the offline-tool sequence and owns the bundle's
+    prefix, so it is taken **whole** — stamp and tags together. Adopting only
+    the stamp left each tool to recompute the tags, and any difference in how a
+    tool selects its logs then reopened the very split this closes. The newest
+    anchor wins, so a directory still holding older analyzer3 output cannot pin
+    a stale prefix.
+    """
+    try:
+        anchors = [
+            path for path in session_dir.iterdir()
+            if path.is_file() and path.name.endswith(ANALYZER_ANCHOR) and path.name != ANALYZER_ANCHOR
+        ]
+    except OSError:
+        return ""
+    for path in sorted(anchors, key=lambda p: p.stat().st_mtime, reverse=True):
+        prefix = path.name[: -len(ANALYZER_ANCHOR)]
+        if ANALYZER_PREFIX_RE.fullmatch(prefix):
+            return prefix
+    return ""
+
+
 def output_prefix(session_dir: Path, now: datetime | None = None) -> str:
     """``<mmddHHMM>_<time_tag>_<fw_tag>_`` for this session directory.
 
@@ -108,8 +140,16 @@ def output_prefix(session_dir: Path, now: datetime | None = None) -> str:
     (``MULTI`` when several logs disagree, ``_nofw_`` dropped). Unlike
     analyzer3 a log-less directory is not an error here — the context JSONs are
     renderable on their own — so it falls back to ``notime`` and no fw tag.
+
+    An analyzer3 prefix in this directory always wins (see
+    :func:`adopted_prefix`). ``now`` only pins the stamp for the fallback, so a
+    caller that passes one cannot silently switch adoption off — that is the
+    exact defect this precedence was inverted to remove.
     """
-    now = now or datetime.now()
+    adopted = adopted_prefix(session_dir)
+    if adopted:
+        return adopted
+    stamp = (now or datetime.now()).strftime("%m%d%H%M")
     try:
         logs = sorted(p.name for p in session_dir.iterdir() if p.is_file() and p.name.endswith(LOG_EXT))
     except OSError:
@@ -123,7 +163,7 @@ def output_prefix(session_dir: Path, now: datetime | None = None) -> str:
     else:
         time_tag, fw_tag = "notime", "nofw"
 
-    return f"{now.strftime('%m%d%H%M')}_{time_tag}_{fw_tag}_".replace("_nofw_", "_")
+    return f"{stamp}_{time_tag}_{fw_tag}_".replace("_nofw_", "_")
 
 
 # ======================================================
@@ -573,8 +613,10 @@ def render_session(session_dir: Path, now: datetime | None = None) -> list[Path]
     Returns the PNG paths written — possibly none, which is a valid outcome and
     never an error (§7).
     """
-    now = now or datetime.now()
-    generated_at = now.strftime("%Y-%m-%d %H:%M:%S")
+    # The caption records when this render actually ran; the prefix stamp does
+    # not, so `now` is forwarded still-unset and output_prefix stays free to
+    # adopt analyzer3's stamp for the bundle.
+    generated_at = (now or datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
     context_dir = session_dir / CONTEXT_DIR_NAME
     if not context_dir.is_dir():
         print(f"[SKIP] no {CONTEXT_DIR_NAME}/ directory in {session_dir} — nothing to render")

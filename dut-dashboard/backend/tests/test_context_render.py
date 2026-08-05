@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -72,6 +73,115 @@ class OutputPrefixTests(unittest.TestCase):
         # analyzer3 exits here; context JSONs are renderable without a log.
         with tempfile.TemporaryDirectory() as d:
             self.assertEqual(cr.output_prefix(Path(d), FIXED_NOW), "08031130_notime_")
+
+    def test_analyzer3s_stamp_is_adopted_so_one_bundle_has_one_prefix(self) -> None:
+        # analyzer3 runs first and owns the stamp; a run that crosses a minute
+        # boundary must not give the bundle a second prefix.
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            (base / "dut-session-1.9.300_101500_20260803.log").write_text("x", encoding="utf-8")
+            (base / "08031129_101500_19300_cpu_usage.csv").write_text("x", encoding="utf-8")
+            self.assertEqual(cr.output_prefix(base), "08031129_101500_19300_")
+
+    def test_the_newest_analyzer3_output_wins(self) -> None:
+        # A dirty directory must not pin a stale stamp.
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            (base / "dut-session-1.9.300_101500_20260803.log").write_text("x", encoding="utf-8")
+            old = base / "08010900_101500_19300_cpu_usage.csv"
+            new = base / "08031129_101500_19300_cpu_usage.csv"
+            old.write_text("x", encoding="utf-8")
+            new.write_text("x", encoding="utf-8")
+            os.utime(old, (1_000_000, 1_000_000))
+            self.assertEqual(cr.output_prefix(base), "08031129_101500_19300_")
+
+    def test_an_anchor_wins_over_an_explicit_now(self) -> None:
+        """`now` pins the fallback stamp only; it cannot switch adoption off.
+
+        The reverse precedence is how adoption got silently disabled once
+        already (render_session pre-resolved `now`), so a caller passing one
+        must not be able to reopen that path.
+        """
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            (base / "dut-session-1.9.300_101500_20260803.log").write_text("x", encoding="utf-8")
+            (base / "08031129_101500_19300_cpu_usage.csv").write_text("x", encoding="utf-8")
+            self.assertEqual(cr.output_prefix(base, FIXED_NOW), "08031129_101500_19300_")
+
+    def test_a_file_analyzer3_could_not_have_written_is_not_authoritative(self) -> None:
+        """Suffix-matching alone must not let a foreign file name the bundle."""
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            (base / "dut-session-1.9.300_101500_20260803.log").write_text("x", encoding="utf-8")
+            (base / "12345678_NOT-ANALYZER_PREFIX_cpu_usage.csv").write_text("x", encoding="utf-8")
+            (base / "my_cpu_usage.csv").write_text("x", encoding="utf-8")
+            (base / "cpu_usage.csv").write_text("x", encoding="utf-8")
+            self.assertEqual(cr.output_prefix(base, FIXED_NOW), "08031130_101500_19300_")
+
+    def test_a_malformed_newest_anchor_does_not_shadow_a_real_one(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            (base / "dut-session-1.9.300_101500_20260803.log").write_text("x", encoding="utf-8")
+            real = base / "08031129_101500_19300_cpu_usage.csv"
+            junk = base / "12345678_NOT-ANALYZER_PREFIX_cpu_usage.csv"
+            real.write_text("x", encoding="utf-8")
+            junk.write_text("x", encoding="utf-8")
+            os.utime(real, (1_000_000, 1_000_000))          # junk is newer
+            self.assertEqual(cr.output_prefix(base), "08031129_101500_19300_")
+
+    def test_every_shape_analyzer3_can_emit_is_accepted(self) -> None:
+        for prefix in ("08041541_notime_", "08041541_101900_19300_",
+                       "08041541_MULTI_MULTI_", "08041541_notime_MULTI_",
+                       "08041541_101900_101005_"):
+            with self.subTest(prefix=prefix), tempfile.TemporaryDirectory() as d:
+                base = Path(d)
+                (base / f"{prefix}{cr.ANALYZER_ANCHOR}").write_text("x", encoding="utf-8")
+                self.assertEqual(cr.adopted_prefix(base), prefix)
+
+    def test_without_analyzer3_output_the_tool_uses_its_own_clock(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            (base / "dut-session-1.9.300_101500_20260803.log").write_text("x", encoding="utf-8")
+            self.assertRegex(cr.output_prefix(base), r"^\d{8}_101500_19300_$")
+
+    def test_the_whole_prefix_is_adopted_not_only_the_stamp(self) -> None:
+        """Tags come from the anchor too.
+
+        Adopting only the stamp left every tool recomputing the tags, so any
+        difference in how a tool selects its logs — a mixed-case `.LOG` was the
+        real case — split the bundle's prefixes again. wifi_timeseries pins the
+        same expected value, and the pair of assertions is the agreement.
+        """
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            (base / "a_111111_v1.9.1.log").write_text("x", encoding="utf-8")
+            (base / "b_222222_v2.0.2.LOG").write_text("x", encoding="utf-8")
+            (base / "08010900_111111_19001_cpu_usage.csv").write_text("x", encoding="utf-8")
+            self.assertEqual(cr.output_prefix(base), "08010900_111111_19001_")
+
+    def test_render_session_adopts_the_stamp_on_the_real_path(self) -> None:
+        """The default path must adopt too, not just a direct output_prefix call.
+
+        render_session resolves `now` for its caption; forwarding the resolved
+        value to output_prefix silently defeated adoption, and every unit test
+        here passes `now` explicitly so none of them saw it — only a run against
+        a real session directory did.
+        """
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            (base / "dut-session-1.9.300_101500_20260803.log").write_text("x", encoding="utf-8")
+            (base / "08031129_101500_19300_cpu_usage.csv").write_text("x", encoding="utf-8")
+            kind_dir = base / cr.CONTEXT_DIR_NAME / cr.SSID_CAPABILITY
+            kind_dir.mkdir(parents=True)
+            shutil.copy2(
+                FIXTURE_CONTEXT / cr.SSID_CAPABILITY / "ssid-capability-lab-ap6-20260803-101500.json",
+                kind_dir,
+            )
+            with redirect_stdout(io.StringIO()):
+                written = cr.render_session(base)
+            self.assertTrue(written)
+            for path in written:
+                self.assertTrue(path.name.startswith("08031129_"), path.name)
 
 
 class LatestSnapshotTests(unittest.TestCase):
