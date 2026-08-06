@@ -110,7 +110,7 @@ tbody tr.file-row:hover{background:var(--bg)}
 
 <!-- This screen's content, per the repo's inline-data convention. Unlike the
      monitoring screens it is synthetic throughout — see the provenance line. -->
-<script id="demo-data" type="application/json">{"uploader":"nelson","files":[{"id":1,"name":"dut-session-20260804-110255.log","size":4512771,"uploader":"Nelson C","sha":"9f2c41ab7e05","at":"2026-08-04 15:41","tags":["ap6-840e","phase-75"],"kind":"log","head":"# mode=serial source=/dev/cu.PL2303G-USBtoUART1130\n=== CPU Utilization ===\nCPU0:   0.0% usr   2.0% sys  73.3% idle\nCPU1:   1.0% usr   6.1% sys  88.9% idle\n=== Memory Utilization (/proc/meminfo) ===\nMemTotal:   921552 kB\nMemAvailable:  581380 kB"},{"id":2,"name":"08041542_notime_survey_channels_2g4.png","size":50158,"uploader":"Nelson C","sha":"3ad8810c94f1","at":"2026-08-04 15:42","tags":["site-survey"],"kind":"image"},{"id":3,"name":"08041542_notime_wifi_summary.csv","size":869,"uploader":"Nelson C","sha":"c17e0b3d5a92","at":"2026-08-04 15:42","tags":["phase-75","csv"],"kind":"text","head":"ts,cycle,connected_clients,cpu_load_pct,mem_load_pct,cpu_temp_c,radio_temp_c\n2026-08-04 07:16:55,1,0,8,55,64,82\n2026-08-04 07:17:34,2,0,5,56,64,82\n2026-08-04 07:18:13,3,0,5,55,64,82"},{"id":4,"name":"wifix.tar.gz.sig","size":35763146,"uploader":"Amy","sha":"0685884c872f","at":"2026-07-31 05:40","tags":["firmware","1.10.339"],"kind":"other"},{"id":5,"name":"crash-events-20260802.csv","size":2418,"uploader":"Kevin","sha":"5e10bb27c3d4","at":"2026-08-02 03:22","tags":["crash"],"kind":"text","head":"time,severity,line\n08-01 07:22:13,critical,wlan1: STA deauthenticated (reason 4)\n08-01 14:05:52,warning,ath_dfs: radar detected on channel 60"},{"id":6,"name":"bench-layout.png","size":181402,"uploader":"Amy","sha":"7c93de40182b","at":"2026-07-28 11:04","tags":["bench"],"kind":"image"},{"id":7,"name":"sysMon001.sh","size":9907,"uploader":"Kevin","sha":"b204fa71ee38","at":"2026-07-12 09:15","tags":["tooling"],"kind":"text","head":"#!/bin/sh\n# DUT-side telemetry: one snapshot per interval\ntimestamp() { date '+%Y-%m-%d %H:%M:%S'; }\ncurl_hooks() {\n  echo \"=== CURL Hooks ===\"\n  run_curl \"https://127.0.0.1:10443/ap/info/system/basic\""},{"id":8,"name":"ap6-420e-notes.txt","size":612,"uploader":"Nelson C","sha":null,"at":"2026-07-09 16:48","tags":["ap6-420e"],"kind":"text","head":"420E is the 2-core unit \u2014 cpu_usage.csv has CPU0/CPU1 only.\nSerial adapter: PL2303, 115200.\nConsole needs a human login after any reboot."}],"stats":{"perDay":[0,0,2,0,1,0,0,3,1,0,0,2,4,3],"byType":[["log",1],["png",2],["csv",2],["txt",2],["sig",1]],"topUploaders":[["Nelson C",4],["Amy",2],["Kevin",2]]}}</script>
+<script id="demo-data" type="application/json">{"uploader":"alex.doe","files":[{"id":1,"name":"dut-session-20260804-110255.log","size":4512771,"uploader":"Alex Doe","sha":"9f2c41ab7e05","at":"2026-08-04 15:41","tags":["ap6-840e","phase-75"],"kind":"log","head":"# mode=serial source=/dev/cu.usbserial-XXXX\n=== CPU Utilization ===\nCPU0:   0.0% usr   2.0% sys  73.3% idle\nCPU1:   1.0% usr   6.1% sys  88.9% idle\n=== Memory Utilization (/proc/meminfo) ===\nMemTotal:   921552 kB\nMemAvailable:  581380 kB"},{"id":2,"name":"08041542_notime_survey_channels_2g4.png","size":50158,"uploader":"Alex Doe","sha":"3ad8810c94f1","at":"2026-08-04 15:42","tags":["site-survey"],"kind":"image"},{"id":3,"name":"08041542_notime_wifi_summary.csv","size":869,"uploader":"Alex Doe","sha":"c17e0b3d5a92","at":"2026-08-04 15:42","tags":["phase-75","csv"],"kind":"text","head":"ts,cycle,connected_clients,cpu_load_pct,mem_load_pct,cpu_temp_c,radio_temp_c\n2026-08-04 07:16:55,1,0,8,55,64,82\n2026-08-04 07:17:34,2,0,5,56,64,82\n2026-08-04 07:18:13,3,0,5,55,64,82"},{"id":4,"name":"wifix.tar.gz.sig","size":35763146,"uploader":"Sam Roe","sha":"0685884c872f","at":"2026-07-31 05:40","tags":["firmware","1.10.339"],"kind":"other"},{"id":5,"name":"crash-events-20260802.csv","size":2418,"uploader":"Jo Coe","sha":"5e10bb27c3d4","at":"2026-08-02 03:22","tags":["crash"],"kind":"text","head":"time,severity,line\n08-01 07:22:13,critical,wlan1: STA deauthenticated (reason 4)\n08-01 14:05:52,warning,ath_dfs: radar detected on channel 60"},{"id":6,"name":"bench-layout.png","size":181402,"uploader":"Sam Roe","sha":"7c93de40182b","at":"2026-07-28 11:04","tags":["bench"],"kind":"image"},{"id":7,"name":"sysMon001.sh","size":9907,"uploader":"Jo Coe","sha":"b204fa71ee38","at":"2026-07-12 09:15","tags":["tooling"],"kind":"text","head":"#!/bin/sh\n# DUT-side telemetry: one snapshot per interval\ntimestamp() { date '+%Y-%m-%d %H:%M:%S'; }\ncurl_hooks() {\n  echo \"=== CURL Hooks ===\"\n  run_curl \"https://127.0.0.1:10443/ap/info/system/basic\""},{"id":8,"name":"ap6-420e-notes.txt","size":612,"uploader":"Alex Doe","sha":null,"at":"2026-07-09 16:48","tags":["ap6-420e"],"kind":"text","head":"Two-core unit \u2014 cpu_usage.csv carries CPU0/CPU1 only.\nSerial adapter: USB-to-UART bridge, 115200 8N1.\nConsole needs a human login after any reboot."}],"stats":{"perDay":[0,0,2,0,1,0,0,3,1,0,0,2,4,3],"byType":[["log",1],["png",2],["csv",2],["txt",2],["sig",1]],"topUploaders":[["Alex Doe",4],["Sam Roe",2],["Jo Coe",2]]}}</script>
 
 <div class="layout">
   <aside class="sidebar">
@@ -153,7 +153,9 @@ tbody tr.file-row:hover{background:var(--bg)}
         </div>
         <div class="card-body" style="display:flex;flex-direction:column;gap:var(--space-3)">
           <div style="display:flex;gap:var(--space-3);flex-wrap:wrap">
-            <input class="field" id="uploader" type="text" aria-label="Uploader name" placeholder="e.g. nelson — tags the uploader">
+            <!-- FilesSection hardcodes a colleague's first name in this placeholder;
+               the demo keeps the shape and uses its own identity instead. -->
+          <input class="field" id="uploader" type="text" aria-label="Uploader name" maxlength="40" placeholder="e.g. alex.doe — tags the uploader">
             <input class="field" id="tags" type="text" aria-label="Tags" placeholder="tags, comma separated">
           </div>
           <div class="drop" id="drop" role="button" tabindex="0" aria-label="Drag files here, or click to browse">
@@ -265,8 +267,17 @@ function bytes(n){
 /* ---------------- state ---------------- */
 let files = DATA.files.slice();
 let sortCol = "name", sortAsc = true, search = "";
-const expanded = new Set();
-const tagEditing = new Set();
+// FilesSection keeps a single expandedId and a single tagEditId — opening one
+// row closes the other, rather than letting several stay open at once.
+let expandedId = null;
+let tagEditId = null;
+// Preview is offered only for types previewKind() can render.
+const PREVIEW_IMAGE = new Set(["png", "jpg", "jpeg", "gif", "webp"]);
+const PREVIEW_TEXT = new Set(["csv", "log", "txt", "sh", "json", "md", "conf"]);
+const previewKind = (name) => {
+  const ext = (name.split(".").pop() || "").toLowerCase();
+  return PREVIEW_IMAGE.has(ext) ? "image" : PREVIEW_TEXT.has(ext) ? "text" : null;
+};
 
 function visible(){
   const q = search.trim().toLowerCase();
@@ -299,8 +310,9 @@ function previewHtml(f){
 function renderTable(){
   const rows = visible();
   $("tbody").innerHTML = rows.map(f => {
-    const open = expanded.has(f.id);
-    const editing = tagEditing.has(f.id);
+    const open = expandedId === f.id;
+    const editing = tagEditId === f.id;
+    const kind = previewKind(f.name);
     return `
       <tr class="file-row">
         <td>
@@ -308,14 +320,15 @@ function renderTable(){
           <div style="margin-top:2px">${(f.tags || []).map(tagPill).join("")}</div>
           ${editing ? `<div style="margin-top:6px;display:flex;gap:6px">
               <input class="field" data-tagfield="${f.id}" value="${(f.tags || []).join(", ")}" aria-label="Tags for ${f.name}">
-              <button class="btn" data-tagsave="${f.id}">Save</button></div>` : ""}
+              <button class="btn" data-tagsave="${f.id}">Save</button>
+              <button class="btn" data-tagcancel="${f.id}">Cancel</button></div>` : ""}
         </td>
         <td class="nowrap">${bytes(f.size)}</td>
         <td class="nowrap">${authorPill(f.uploader)}</td>
         <td class="mono nowrap" title="${f.sha || "no checksum recorded"}">${f.sha || "—"}</td>
         <td class="nowrap">
           <button class="btn btn-icon" data-tag="${f.id}" title="${editing ? "Close tag editor" : "Edit tags"}">🏷</button>
-          <button class="btn btn-icon" data-eye="${f.id}" title="${open ? "Hide preview" : "Preview"}" aria-expanded="${open}">${open ? "▴" : "👁"}</button>
+          ${kind ? `<button class="btn btn-icon" data-eye="${f.id}" title="${open ? "Hide preview" : "Preview"}" aria-expanded="${open}">${open ? "▴" : "👁"}</button>` : ""}
           <button class="btn btn-icon" data-dl="${f.id}" title="Download">⬇</button>
           <button class="btn btn-icon btn-danger" data-del="${f.id}" title="Delete">🗑</button>
         </td>
@@ -383,20 +396,22 @@ $("tbody").addEventListener("click", (ev) => {
   const eye = hit("eye"), tag = hit("tag"), dl = hit("dl"), del = hit("del"), save = hit("tagsave");
   if (eye){
     const id = Number(eye.dataset.eye);
-    expanded.has(id) ? expanded.delete(id) : expanded.add(id);
+    expandedId = expandedId === id ? null : id;
     renderTable(); return;
   }
   if (tag){
     const id = Number(tag.dataset.tag);
-    tagEditing.has(id) ? tagEditing.delete(id) : tagEditing.add(id);
+    tagEditId = tagEditId === id ? null : id;
     renderTable(); return;
   }
+  const cancel = ev.target.closest("[data-tagcancel]");
+  if (cancel){ tagEditId = null; renderTable(); return; }
   if (save){
     const id = Number(save.dataset.tagsave);
     const field = document.querySelector(`[data-tagfield="${id}"]`);
     const f = files.find(x => x.id === id);
     f.tags = field.value.split(",").map(t => t.trim()).filter(Boolean);
-    tagEditing.delete(id);
+    tagEditId = null;
     renderTable();
     toast(`Tags saved on ${f.name}`); return;
   }
@@ -406,9 +421,9 @@ $("tbody").addEventListener("click", (ev) => {
   }
   if (del){
     const f = files.find(x => x.id === Number(del.dataset.del));
-    if (!confirm(`Delete ${f.name}? This cannot be undone.`)) return;
+    if (!confirm(`Delete "${f.name}"? This cannot be undone.`)) return;
     files = files.filter(x => x.id !== f.id);
-    expanded.delete(f.id);
+    if (expandedId === f.id) expandedId = null;
     renderTable();
     toast(`Removed ${f.name} from this page — nothing was deleted anywhere.`);
   }
@@ -440,7 +455,12 @@ const KIND = { png: "image", jpg: "image", jpeg: "image", gif: "image",
 function accept(list){
   const chosen = [...list];
   const tags = $("tags").value.split(",").map(t => t.trim()).filter(Boolean);
-  const who = $("uploader").value.trim() || "you";
+  const who = $("uploader").value.trim();
+  if (!who){
+    toast("Set an uploader name first — the product requires one.");
+    $("uploader").focus();
+    return;
+  }
   const results = [];
   let i = 0;
 

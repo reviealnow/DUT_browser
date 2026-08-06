@@ -94,7 +94,7 @@ button{cursor:pointer}
 
 <!-- This screen's content, per the repo's inline-data convention. Like Files it
      is synthetic in full — see the provenance line. -->
-<script id="demo-data" type="application/json">{"identity":"nelson","posts":[{"id":1,"title":"AP6_840E is on the bench until Friday","author":"Nelson C","verified":true,"at":"2026-08-04 15:52","edited":null,"tags":["ap6-840e","bench"],"body":"Running a 40-hour sysMon capture for the phase-75 acceptance. Please don't grab the PL2303 \u2014 the console needs a human login after any reboot and I'd lose the run.","comments":[{"id":11,"author":"Amy","verified":true,"at":"2026-08-04 16:10","edited":null,"body":"Noted. I'll use bench3 for the 6 GHz checks.","replies":[{"id":12,"author":"Nelson C","verified":true,"at":"2026-08-04 16:14","edited":null,"body":"Perfect \u2014 bench3 has the newer sysMon build with the CLIENTS Radio markers."}]},{"id":13,"author":"Kevin","verified":false,"at":"2026-08-04 17:02","edited":"2026-08-04 17:05","body":"Bundle looked good on my side: two CSVs and nine PNGs, no empty files.","replies":[]}]},{"id":2,"title":"2.4 GHz is saturated in this room","author":"Amy","verified":true,"at":"2026-08-04 12:50","edited":"2026-08-04 13:02","tags":["site-survey","rf"],"body":"Latest survey shows 2.4 GHz utilisation at 85-94% all day, 1098 neighbouring SSIDs across 13 channels. Recommendation is ch1 -> ch11. 5 GHz is fine.","comments":[{"id":21,"author":"Nelson C","verified":true,"at":"2026-08-04 13:30","edited":null,"body":"Matches what the offline render shows. Worth moving before the next long run.","replies":[]}]},{"id":3,"title":"Firmware 1.10.339 flashed OK","author":"Kevin","verified":false,"at":"2026-07-31 06:20","edited":null,"tags":["firmware"],"body":"Upload took 24 s, then wifix_downloader.sh ran and the unit came back healthy. Reboot reason logged as FWUPGRADE_VIA_LOCAL_UI.","comments":[]}]}</script>
+<script id="demo-data" type="application/json">{"identity":"alex.doe","posts":[{"id":1,"title":"Lab unit booked for a long capture until Friday","author":"Alex Doe","verified":true,"at":"2026-08-04 15:52","edited":null,"tags":["bench","long-run"],"body":"Running a 40-hour telemetry capture for the offline-analysis acceptance. Please leave the serial adapter alone \u2014 the console needs a human login after any reboot and a reconnect would end the run.","comments":[{"id":11,"author":"Sam Roe","verified":true,"at":"2026-08-04 16:10","edited":null,"body":"Noted \u2014 I'll use the spare unit for the 6 GHz checks.","replies":[{"id":12,"author":"Alex Doe","verified":true,"at":"2026-08-04 16:14","edited":null,"body":"Good, that one has the newer telemetry script with the per-radio client markers."}]},{"id":13,"author":"Jo Coe","verified":false,"at":"2026-08-04 17:02","edited":"2026-08-04 17:05","body":"Bundle looked right on my side: two CSVs, nine plots, no empty files.","replies":[]}]},{"id":2,"title":"2.4 GHz is saturated in this room","author":"Sam Roe","verified":true,"at":"2026-08-04 12:50","edited":"2026-08-04 13:02","tags":["site-survey","rf"],"body":"Latest survey has 2.4 GHz utilisation at 85-94% all day, with over a thousand neighbouring SSIDs across the band. The recommendation moves us off the busiest channel. 5 GHz is fine.","comments":[{"id":21,"author":"Alex Doe","verified":true,"at":"2026-08-04 13:30","edited":null,"body":"Matches the offline render. Worth moving before the next long run.","replies":[]}]},{"id":3,"title":"Firmware upgrade went through cleanly","author":"Jo Coe","verified":false,"at":"2026-07-31 06:20","edited":null,"tags":["firmware"],"body":"Upload took about 24 s, the downloader ran, and the unit came back healthy. The device logged the reboot as a local-UI firmware upgrade.","comments":[]}]}</script>
 
 <div class="layout">
   <aside class="sidebar">
@@ -135,12 +135,12 @@ button{cursor:pointer}
         <div class="card-body">
           <label class="posting-as">
             <span>Posting as</span>
-            <input class="field" id="identity" type="text" placeholder="your name" aria-label="Your name">
+            <input class="field" id="identity" type="text" placeholder="your name" aria-label="Your name" maxlength="40">
             <span id="identityTag"></span>
           </label>
           <input class="field" id="title" type="text" placeholder="Title" aria-label="Post title" maxlength="120">
           <textarea class="field" id="body" rows="3" placeholder="What's the note?" aria-label="Post content" maxlength="1000"></textarea>
-          <input class="field" id="tags" type="text" placeholder="tags, comma separated" aria-label="Post tags">
+          <input class="field" id="tags" type="text" placeholder="tags, comma separated" aria-label="Post tags" maxlength="200">
           <div><button class="btn btn-primary" id="btnPost" disabled>Post note</button></div>
         </div>
       </section>
@@ -198,11 +198,26 @@ function tagPill(tag){
 const esc = (s) => String(s).replace(/[<&]/g, c => c === "<" ? "&lt;" : "&amp;");
 const editedMark = (at) => at ? `<span class="edited" title="Edited ${at}"> · edited</span>` : "";
 
+async function copyToClipboard(text){
+  try {
+    if (navigator.clipboard?.writeText){
+      try { await navigator.clipboard.writeText(text); return true; } catch { /* fall through */ }
+    }
+    const holder = document.createElement("textarea");
+    holder.value = text; holder.setAttribute("readonly", "");
+    holder.style.position = "fixed"; holder.style.opacity = "0";
+    document.body.appendChild(holder);
+    try { holder.select(); return document.execCommand("copy"); }
+    finally { holder.remove(); }
+  } catch { return false; }
+}
+
 /* ---------------- state ---------------- */
 let posts = DATA.posts.slice();
 let identity = DATA.identity || "";
 const replying = new Set();
 const editing = new Set();   // inline editors, as CommentEditor does
+const opened = new Set();    // BulletinSection collapses a post's comments behind Open/Hide
 let nextId = 1000;
 function findByKey(key){
   const [kind, postId, a, b] = key.split(":");
@@ -216,9 +231,23 @@ function findByKey(key){
 
 const countReplies = (list) => list.reduce((n, c) => n + 1 + countReplies(c.replies || []), 0);
 
-function editorBox(key, value, rows){
+/* CommentEditor is a single-line 600-character input whose Save is disabled
+   while the draft is empty; the post editor is title + body + tags. */
+function commentEditor(key, value){
   return `<div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
-      <textarea class="field" data-editfield="${key}" rows="${rows}">${esc(value)}</textarea>
+      <input class="field" data-editfield="${key}" maxlength="600" value="${esc(value)}" aria-label="Edit comment">
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-primary" data-editsave="${key}">Save</button>
+        <button class="btn" data-editcancel="${key}">Cancel</button>
+      </div>
+    </div>`;
+}
+
+function postEditor(key, post){
+  return `<div style="display:flex;flex-direction:column;gap:var(--space-2)">
+      <input class="field" data-edittitle="${key}" maxlength="120" value="${esc(post.title)}" aria-label="Edit post title">
+      <textarea class="field" data-editfield="${key}" rows="3" maxlength="1000" aria-label="Edit post content">${esc(post.body)}</textarea>
+      <input class="field" data-edittags="${key}" maxlength="200" value="${esc((post.tags || []).join(", "))}" aria-label="Edit post tags">
       <div style="display:flex;gap:6px">
         <button class="btn btn-primary" data-editsave="${key}">Save</button>
         <button class="btn" data-editcancel="${key}">Cancel</button>
@@ -231,7 +260,7 @@ function replyHtml(r, postId, parentId){
   return `<div class="comment">
       ${authorTag(r.author, r.verified)}
       <span class="post-meta"> ${r.at}${editedMark(r.edited)}</span>
-      ${editing.has(key) ? editorBox(key, r.body, 2)
+      ${editing.has(key) ? commentEditor(key, r.body)
         : `<div class="comment-body">${esc(r.body)}</div>
            <button class="linklike" data-editopen="${key}" style="margin-top:2px">Edit</button>`}
     </div>`;
@@ -241,7 +270,7 @@ function commentHtml(c, postId){
   return `<div class="comment">
       ${authorTag(c.author, c.verified)}
       <span class="post-meta"> ${c.at}${editedMark(c.edited)}</span>
-      ${editing.has(`c:${postId}:${c.id}`) ? editorBox(`c:${postId}:${c.id}`, c.body, 2)
+      ${editing.has(`c:${postId}:${c.id}`) ? commentEditor(`c:${postId}:${c.id}`, c.body)
         : `<div class="comment-body">${esc(c.body)}</div>
            <div style="display:flex;gap:var(--space-3);margin-top:4px">
              <button class="linklike" data-reply="${postId}:${c.id}">Reply</button>
@@ -270,18 +299,23 @@ function renderPosts(){
             ${authorTag(p.author, p.verified)} <span>${p.at}${editedMark(p.edited)}</span>
           </div>
         </div>
-        <button class="btn" data-editopen="p:${p.id}" title="Edit this note">✎</button>
+        <div style="display:flex;gap:var(--space-2);align-items:center">
+          <button class="btn" data-open="${p.id}">${opened.has(p.id) ? "Hide" : "Open"}</button>
+          <button class="btn" data-copy="${p.id}" title="Copy this note">⧉</button>
+          <button class="btn" data-editopen="p:${p.id}" title="Edit this note">✎</button>
+          <button class="btn" data-delpost="${p.id}" title="Delete this note">🗑</button>
+        </div>
       </div>
       <div class="card-body">
-        ${editing.has(`p:${p.id}`) ? editorBox(`p:${p.id}`, p.body, 4)
+        ${editing.has(`p:${p.id}`) ? postEditor(`p:${p.id}`, p)
           : `<div class="post-body">${esc(p.body)}</div>`}
         <div>${(p.tags || []).map(tagPill).join("")}</div>
-        <div class="comments">
-          <div class="post-meta">${n} repl${n === 1 ? "y" : "ies"}</div>
+        <div class="post-meta">${n} repl${n === 1 ? "y" : "ies"}</div>
+        ${opened.has(p.id) ? `<div class="comments">
           ${(p.comments || []).map(c => commentHtml(c, p.id)).join("")}
           ${replying.has(`${p.id}:root`) ? replyBox(p.id, "root", "Add a reply…")
             : `<button class="linklike" data-reply="${p.id}:root" style="align-self:flex-start">Add a reply</button>`}
-        </div>
+        </div>` : ""}
       </div>
     </section>`;
   }).join("");
@@ -360,6 +394,29 @@ $("posts").addEventListener("click", (ev) => {
   }
   // Inline editors, as CommentEditor does for posts, comments and replies
   // alike — the product never uses a browser prompt here.
+  const toggle = ev.target.closest("[data-open]");
+  if (toggle){
+    const id = Number(toggle.dataset.open);
+    opened.has(id) ? opened.delete(id) : opened.add(id);
+    renderPosts(); return;
+  }
+  const copy = ev.target.closest("[data-copy]");
+  if (copy){
+    const post = posts.find(p => String(p.id) === copy.dataset.copy);
+    const text = `${post.title}\n\n${post.body}`;
+    void copyToClipboard(text).then(ok =>
+      toast(ok ? "Note copied" : "Copy failed — select the text instead"));
+    return;
+  }
+  const delPost = ev.target.closest("[data-delpost]");
+  if (delPost){
+    const post = posts.find(p => String(p.id) === delPost.dataset.delpost);
+    if (!confirm(`Delete "${post.title}"? This cannot be undone.`)) return;
+    posts = posts.filter(p => p.id !== post.id);
+    renderPosts();
+    toast("Removed from this page — nothing was deleted anywhere.");
+    return;
+  }
   const open = ev.target.closest("[data-editopen]");
   if (open){ editing.add(open.dataset.editopen); renderPosts();
              document.querySelector(`[data-editfield="${open.dataset.editopen}"]`)?.focus(); return; }
@@ -370,10 +427,20 @@ $("posts").addEventListener("click", (ev) => {
     const key = save.dataset.editsave;
     const text = (document.querySelector(`[data-editfield="${key}"]`)?.value || "").trim();
     const target = findByKey(key);
-    if (target && text && text !== target.body){
+    const titleField = document.querySelector(`[data-edittitle="${key}"]`);
+    const tagsField = document.querySelector(`[data-edittags="${key}"]`);
+    if (!text){                      // Save is a no-op on an empty draft
+      toast("A note cannot be emptied."); return;
+    }
+    if (target){
+      const before = JSON.stringify([target.title, target.body, target.tags]);
       target.body = text;
-      target.edited = new Date().toISOString().slice(0, 16).replace("T", " ");
-      toast("Edited — the “· edited” marker keeps the change visible, as in the product.");
+      if (titleField) target.title = titleField.value.trim() || target.title;
+      if (tagsField) target.tags = tagsField.value.split(",").map(t => t.trim()).filter(Boolean);
+      if (JSON.stringify([target.title, target.body, target.tags]) !== before){
+        target.edited = new Date().toISOString().slice(0, 16).replace("T", " ");
+        toast("Edited — the “· edited” marker keeps the change visible, as in the product.");
+      }
     }
     editing.delete(key); renderPosts();
   }

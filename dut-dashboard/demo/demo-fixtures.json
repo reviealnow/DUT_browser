@@ -8,7 +8,7 @@
     "reference capture contained no crash lines, and connection state is live UI",
     "that no capture records. Each page prints which of its content is synthetic.",
     "MACs use the 02: locally-administered prefix so they are visibly not real.",
-    "files.html and bulletin.html are synthetic in full. A workspace file list and a note board are CONTENT, not measurements, so there is no measured claim to preserve; and the real ones on this bench are test scaffolding carrying colleagues' names. Both pages say so in their provenance line."
+    "files.html and bulletin.html are synthetic in full. A workspace file list and a note board are CONTENT, not measurements, so there is no measured claim to preserve. Names here are deliberate placeholders (Doe/Roe/Coe) and the note bodies are generic: an earlier revision reused real colleagues' names straight from the bench database, which is exactly what 'synthetic' was meant to prevent. Both pages say so in their provenance line."
   ],
   "overview.html": {
     "statusKpi": {
@@ -95,13 +95,13 @@
   },
   "site-survey.html": {},
   "files.html": {
-    "uploader": "nelson",
+    "uploader": "alex.doe",
     "files": [
       {
         "id": 1,
         "name": "dut-session-20260804-110255.log",
         "size": 4512771,
-        "uploader": "Nelson C",
+        "uploader": "Alex Doe",
         "sha": "9f2c41ab7e05",
         "at": "2026-08-04 15:41",
         "tags": [
@@ -109,13 +109,13 @@
           "phase-75"
         ],
         "kind": "log",
-        "head": "# mode=serial source=/dev/cu.PL2303G-USBtoUART1130\n=== CPU Utilization ===\nCPU0:   0.0% usr   2.0% sys  73.3% idle\nCPU1:   1.0% usr   6.1% sys  88.9% idle\n=== Memory Utilization (/proc/meminfo) ===\nMemTotal:   921552 kB\nMemAvailable:  581380 kB"
+        "head": "# mode=serial source=/dev/cu.usbserial-XXXX\n=== CPU Utilization ===\nCPU0:   0.0% usr   2.0% sys  73.3% idle\nCPU1:   1.0% usr   6.1% sys  88.9% idle\n=== Memory Utilization (/proc/meminfo) ===\nMemTotal:   921552 kB\nMemAvailable:  581380 kB"
       },
       {
         "id": 2,
         "name": "08041542_notime_survey_channels_2g4.png",
         "size": 50158,
-        "uploader": "Nelson C",
+        "uploader": "Alex Doe",
         "sha": "3ad8810c94f1",
         "at": "2026-08-04 15:42",
         "tags": [
@@ -127,7 +127,7 @@
         "id": 3,
         "name": "08041542_notime_wifi_summary.csv",
         "size": 869,
-        "uploader": "Nelson C",
+        "uploader": "Alex Doe",
         "sha": "c17e0b3d5a92",
         "at": "2026-08-04 15:42",
         "tags": [
@@ -141,7 +141,7 @@
         "id": 4,
         "name": "wifix.tar.gz.sig",
         "size": 35763146,
-        "uploader": "Amy",
+        "uploader": "Sam Roe",
         "sha": "0685884c872f",
         "at": "2026-07-31 05:40",
         "tags": [
@@ -154,7 +154,7 @@
         "id": 5,
         "name": "crash-events-20260802.csv",
         "size": 2418,
-        "uploader": "Kevin",
+        "uploader": "Jo Coe",
         "sha": "5e10bb27c3d4",
         "at": "2026-08-02 03:22",
         "tags": [
@@ -167,7 +167,7 @@
         "id": 6,
         "name": "bench-layout.png",
         "size": 181402,
-        "uploader": "Amy",
+        "uploader": "Sam Roe",
         "sha": "7c93de40182b",
         "at": "2026-07-28 11:04",
         "tags": [
@@ -179,7 +179,7 @@
         "id": 7,
         "name": "sysMon001.sh",
         "size": 9907,
-        "uploader": "Kevin",
+        "uploader": "Jo Coe",
         "sha": "b204fa71ee38",
         "at": "2026-07-12 09:15",
         "tags": [
@@ -192,14 +192,14 @@
         "id": 8,
         "name": "ap6-420e-notes.txt",
         "size": 612,
-        "uploader": "Nelson C",
+        "uploader": "Alex Doe",
         "sha": null,
         "at": "2026-07-09 16:48",
         "tags": [
           "ap6-420e"
         ],
         "kind": "text",
-        "head": "420E is the 2-core unit — cpu_usage.csv has CPU0/CPU1 only.\nSerial adapter: PL2303, 115200.\nConsole needs a human login after any reboot."
+        "head": "Two-core unit — cpu_usage.csv carries CPU0/CPU1 only.\nSerial adapter: USB-to-UART bridge, 115200 8N1.\nConsole needs a human login after any reboot."
       }
     ],
     "stats": {
@@ -243,61 +243,61 @@
       ],
       "topUploaders": [
         [
-          "Nelson C",
+          "Alex Doe",
           4
         ],
         [
-          "Amy",
+          "Sam Roe",
           2
         ],
         [
-          "Kevin",
+          "Jo Coe",
           2
         ]
       ]
     }
   },
   "bulletin.html": {
-    "identity": "nelson",
+    "identity": "alex.doe",
     "posts": [
       {
         "id": 1,
-        "title": "AP6_840E is on the bench until Friday",
-        "author": "Nelson C",
+        "title": "Lab unit booked for a long capture until Friday",
+        "author": "Alex Doe",
         "verified": true,
         "at": "2026-08-04 15:52",
         "edited": null,
         "tags": [
-          "ap6-840e",
-          "bench"
+          "bench",
+          "long-run"
         ],
-        "body": "Running a 40-hour sysMon capture for the phase-75 acceptance. Please don't grab the PL2303 — the console needs a human login after any reboot and I'd lose the run.",
+        "body": "Running a 40-hour telemetry capture for the offline-analysis acceptance. Please leave the serial adapter alone — the console needs a human login after any reboot and a reconnect would end the run.",
         "comments": [
           {
             "id": 11,
-            "author": "Amy",
+            "author": "Sam Roe",
             "verified": true,
             "at": "2026-08-04 16:10",
             "edited": null,
-            "body": "Noted. I'll use bench3 for the 6 GHz checks.",
+            "body": "Noted — I'll use the spare unit for the 6 GHz checks.",
             "replies": [
               {
                 "id": 12,
-                "author": "Nelson C",
+                "author": "Alex Doe",
                 "verified": true,
                 "at": "2026-08-04 16:14",
                 "edited": null,
-                "body": "Perfect — bench3 has the newer sysMon build with the CLIENTS Radio markers."
+                "body": "Good, that one has the newer telemetry script with the per-radio client markers."
               }
             ]
           },
           {
             "id": 13,
-            "author": "Kevin",
+            "author": "Jo Coe",
             "verified": false,
             "at": "2026-08-04 17:02",
             "edited": "2026-08-04 17:05",
-            "body": "Bundle looked good on my side: two CSVs and nine PNGs, no empty files.",
+            "body": "Bundle looked right on my side: two CSVs, nine plots, no empty files.",
             "replies": []
           }
         ]
@@ -305,7 +305,7 @@
       {
         "id": 2,
         "title": "2.4 GHz is saturated in this room",
-        "author": "Amy",
+        "author": "Sam Roe",
         "verified": true,
         "at": "2026-08-04 12:50",
         "edited": "2026-08-04 13:02",
@@ -313,30 +313,30 @@
           "site-survey",
           "rf"
         ],
-        "body": "Latest survey shows 2.4 GHz utilisation at 85-94% all day, 1098 neighbouring SSIDs across 13 channels. Recommendation is ch1 -> ch11. 5 GHz is fine.",
+        "body": "Latest survey has 2.4 GHz utilisation at 85-94% all day, with over a thousand neighbouring SSIDs across the band. The recommendation moves us off the busiest channel. 5 GHz is fine.",
         "comments": [
           {
             "id": 21,
-            "author": "Nelson C",
+            "author": "Alex Doe",
             "verified": true,
             "at": "2026-08-04 13:30",
             "edited": null,
-            "body": "Matches what the offline render shows. Worth moving before the next long run.",
+            "body": "Matches the offline render. Worth moving before the next long run.",
             "replies": []
           }
         ]
       },
       {
         "id": 3,
-        "title": "Firmware 1.10.339 flashed OK",
-        "author": "Kevin",
+        "title": "Firmware upgrade went through cleanly",
+        "author": "Jo Coe",
         "verified": false,
         "at": "2026-07-31 06:20",
         "edited": null,
         "tags": [
           "firmware"
         ],
-        "body": "Upload took 24 s, then wifix_downloader.sh ran and the unit came back healthy. Reboot reason logged as FWUPGRADE_VIA_LOCAL_UI.",
+        "body": "Upload took about 24 s, the downloader ran, and the unit came back healthy. The device logged the reboot as a local-UI firmware upgrade.",
         "comments": []
       }
     ]
