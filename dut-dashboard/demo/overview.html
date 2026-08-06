@@ -46,6 +46,7 @@ button{font:inherit; color:inherit; cursor:pointer}
 .pill-demo{background:var(--warn-weak); color:var(--warn); border-color:#f0dfb4}
 .pill-ok{background:var(--ok-weak); color:var(--ok)}
 .pill-muted{background:var(--bg); color:var(--muted); border-color:var(--border)}
+.pill-warn{background:var(--warn-weak); color:var(--warn); border-color:#f0dfb4}
 .dot{width:7px; height:7px; border-radius:50%; background:currentColor; flex:none}
 
 .content{padding:var(--space-5); display:flex; flex-direction:column; gap:var(--space-5); max-width:1400px; width:100%}
@@ -74,7 +75,19 @@ button{font:inherit; color:inherit; cursor:pointer}
 .fleet-grip{display:flex; align-items:center; gap:var(--space-2); cursor:grab; color:var(--faint); font-size:12px; user-select:none}
 .fleet-grip:active{cursor:grabbing}
 .fleet-name{font-weight:650; color:var(--ink); font-size:13px}
-.fleet-meta{color:var(--muted); font-size:12px; display:flex; gap:var(--space-3); flex-wrap:wrap}
+.fleet-id{color:var(--faint); font-size:11px}
+.fleet-card-head{display:flex; align-items:flex-start; justify-content:space-between; gap:var(--space-2)}
+.fleet-cpu{display:flex; align-items:baseline; gap:var(--space-2)}
+.fleet-cpu-value{font-size:22px; font-weight:700; letter-spacing:-.02em}
+.fleet-cpu-sub{color:var(--muted); font-size:12px}
+.band-badge{display:inline-block; padding:2px 9px; border-radius:999px; font-size:11px; font-weight:600; align-self:flex-start}
+.band-ok{background:var(--ok-weak); color:var(--ok)}
+.band-warn{background:var(--warn-weak); color:var(--warn)}
+.band-muted{background:var(--bg); color:var(--muted); border:1px solid var(--border)}
+.stat-list{margin:0; display:flex; flex-direction:column; gap:2px}
+.stat-row{display:flex; justify-content:space-between; gap:var(--space-2); font-size:12px}
+.stat-row dt{color:var(--muted)}
+.stat-row dd{margin:0; color:var(--ink)}
 .fleet-actions{display:flex; gap:var(--space-2); flex-wrap:wrap; margin-top:var(--space-1)}
 
 /* ---------- kpi ---------- */
@@ -125,7 +138,7 @@ button{font:inherit; color:inherit; cursor:pointer}
 
 <!-- Source data for every chart on this page, per the repo's inline-SVG convention
      (CLAUDE.md: charts are hand-rendered and must also emit their data as JSON). -->
-<script id="demo-data" type="application/json">{"generatedFrom":"bundle40 + dut-session-20260804-154148","scannedAt":"2026-08-04 12:44","cpu":{"c0":[26.8,27.2,38.8,32.8,22.2,22.8,19.8,14.9,23.2,41.3,21.0,23.6,26.2,15.0,26.0,19.8,25.5,14.9,34.7,34.0,36.0,45.6,31.2,19.0,40.6,27.0,43.0,27.2,43.6,24.0,35.3,26.5,23.0,27.0,23.0,37.8,36.9,26.0,39.9,26.8,27.2,43.0,26.8,22.5,43.4,22.2,26.0,23.6,26.0,42.3,23.0,33.7,37.3,32.4,29.0,29.3,38.2,23.0,49.5,32.0,38.0,25.8,36.8,15.7,25.0,31.7,32.0,35.9,31.7,59.7,38.0,28.1,26.0,23.5,20.2,25.5,27.5,31.0,24.0,31.0,26.5,36.0,30.5,26.0,42.0,27.8,53.5,23.0,28.8,39.0,47.5,24.8,31.0,46.0,22.2,41.0,37.0,24.8,35.3,39.6,24.5,29.2,28.8,32.7,22.2,24.0,43.0,22.8,26.5,45.3,25.2,28.1,32.0,22.2,30.3,51.0,27.0,26.8,36.1,34.3],"c1":[11.1,15.7,22.1,30.3,13.6,8.2,7.0,5.1,7.2,29.9,7.1,22.0,26.2,5.0,5.0,11.8,22.0,6.0,15.9,10.2,11.2,34.4,21.8,8.2,27.5,25.5,31.0,10.3,29.2,11.1,21.0,21.2,8.1,13.2,15.9,33.7,19.2,14.9,29.7,28.8,20.7,22.7,17.6,4.3,29.8,11.0,10.1,25.3,18.5,29.6,24.8,23.4,21.0,20.8,21.4,15.8,25.3,8.2,28.0,20.2,23.2,11.1,39.4,9.6,15.2,20.8,15.2,20.6,14.4,36.5,24.6,16.9,16.1,9.1,12.6,28.1,23.2,20.4,11.0,17.0,8.1,35.7,32.0,13.2,18.0,7.3,38.3,11.0,12.4,34.6,26.8,17.0,16.2,16.9,12.9,26.5,26.0,10.4,21.0,18.2,15.9,15.2,17.0,18.2,11.7,11.1,51.1,11.7,8.0,47.1,14.0,16.9,22.4,17.2,13.8,26.5,14.1,16.5,30.0,25.8],"labels":[{"i":0,"text":"08-01 03:47"},{"i":39,"text":"08-01 16:33"},{"i":79,"text":"08-02 05:51"},{"i":119,"text":"08-02 19:19"}]},"clients":{"values":[6,6,6,6,6,6,6,6,6,6,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5],"labels":[{"i":0,"text":"08-01 03:47"},{"i":39,"text":"08-01 16:33"},{"i":79,"text":"08-02 05:51"},{"i":119,"text":"08-02 19:19"}]},"bands":[{"band":"2.4GHz","current":1,"recommended":11,"scoreCurrent":1021,"scoreBest":693,"channels":[{"channel":1,"count":451},{"channel":2,"count":14},{"channel":3,"count":0},{"channel":4,"count":45},{"channel":5,"count":79},{"channel":6,"count":210},{"channel":7,"count":0},{"channel":8,"count":15},{"channel":9,"count":54},{"channel":10,"count":27},{"channel":11,"count":203},{"channel":12,"count":0},{"channel":13,"count":0}]},{"band":"5GHz","current":153,"recommended":132,"scoreCurrent":104,"scoreBest":1,"channels":[{"channel":36,"count":328},{"channel":40,"count":151},{"channel":44,"count":170},{"channel":48,"count":91},{"channel":52,"count":26},{"channel":64,"count":23},{"channel":104,"count":13},{"channel":132,"count":1},{"channel":140,"count":13},{"channel":149,"count":211},{"channel":153,"count":39},{"channel":157,"count":132},{"channel":161,"count":116},{"channel":165,"count":26}]}],"roamer":{"mac":"02:71:DC:46:05:81","radios":["2.4G","5G"],"ssid":"DemoAP-IoT","lastSeen":"2026-08-02 19:56:27"},"kpis":[{"label":"DUT status","value":"Streaming","unit":"","foot":"serial open \u00b7 120 snapshots plotted"},{"label":"Latest CPU","value":"34.3","unit":"%","foot":"2 cores \u00b7 peak 59.7%"},{"label":"Wi-Fi clients","value":"5","unit":"","foot":"peak 7 over the session"},{"label":"Neighbours seen","value":"2438","unit":"","foot":"2 band(s) scanned"}],"_comment":["The synthetic half of the demo data, kept apart from anything measured.","Everything build_demo_data.py derives from a real bundle (CPU, clients,","channel counts, the roaming client) stays real and only has its identifiers","replaced. These entries are invented, because a bench with one DUT attached","cannot produce a fleet and the reference capture contained no crash lines.","MACs use the 02: locally-administered prefix so they are visibly not real."],"fleet":[{"name":"AP6_840E","fw":"1.10.339","cpu":8,"clients":6,"uptime":"up 4d 02h","open":true,"lastSerial":"/dev/cu.PL2303G-1130"},{"name":"AP6_420E","fw":"1.9.300","cpu":21,"clients":2,"uptime":"up 11h 47m","open":false,"lastSerial":"/dev/cu.PL2303G-1130"},{"name":"AP6_lab2","fw":"1.10.339","cpu":4,"clients":0,"uptime":"up 26d 09h","open":false,"lastSerial":null},{"name":"AP6_bench3","fw":"1.8.241","cpu":63,"clients":11,"uptime":"up 02h 13m","open":true,"lastSerial":"/dev/cu.usbserial-14"}],"crash":[{"time":"08-01 07:22:13","sev":"crit","text":"wlan1: STA 02:9f:41:c7:0b:e2 deauthenticated (reason 4, inactivity) on both radios"},{"time":"08-01 14:05:52","sev":"warn","text":"ath_dfs: radar detected on channel 60, moving to channel 149"},{"time":"08-02 03:11:07","sev":"warn","text":"nss_queue0: rx ring full, 214 packets dropped"}]}</script>
+<script id="demo-data" type="application/json">{"generatedFrom":"bundle40 + dut-session-20260804-154148","scannedAt":"2026-08-04 12:44","cpu":{"c0":[26.8,27.2,38.8,32.8,22.2,22.8,19.8,14.9,23.2,41.3,21.0,23.6,26.2,15.0,26.0,19.8,25.5,14.9,34.7,34.0,36.0,45.6,31.2,19.0,40.6,27.0,43.0,27.2,43.6,24.0,35.3,26.5,23.0,27.0,23.0,37.8,36.9,26.0,39.9,26.8,27.2,43.0,26.8,22.5,43.4,22.2,26.0,23.6,26.0,42.3,23.0,33.7,37.3,32.4,29.0,29.3,38.2,23.0,49.5,32.0,38.0,25.8,36.8,15.7,25.0,31.7,32.0,35.9,31.7,59.7,38.0,28.1,26.0,23.5,20.2,25.5,27.5,31.0,24.0,31.0,26.5,36.0,30.5,26.0,42.0,27.8,53.5,23.0,28.8,39.0,47.5,24.8,31.0,46.0,22.2,41.0,37.0,24.8,35.3,39.6,24.5,29.2,28.8,32.7,22.2,24.0,43.0,22.8,26.5,45.3,25.2,28.1,32.0,22.2,30.3,51.0,27.0,26.8,36.1,34.3],"c1":[11.1,15.7,22.1,30.3,13.6,8.2,7.0,5.1,7.2,29.9,7.1,22.0,26.2,5.0,5.0,11.8,22.0,6.0,15.9,10.2,11.2,34.4,21.8,8.2,27.5,25.5,31.0,10.3,29.2,11.1,21.0,21.2,8.1,13.2,15.9,33.7,19.2,14.9,29.7,28.8,20.7,22.7,17.6,4.3,29.8,11.0,10.1,25.3,18.5,29.6,24.8,23.4,21.0,20.8,21.4,15.8,25.3,8.2,28.0,20.2,23.2,11.1,39.4,9.6,15.2,20.8,15.2,20.6,14.4,36.5,24.6,16.9,16.1,9.1,12.6,28.1,23.2,20.4,11.0,17.0,8.1,35.7,32.0,13.2,18.0,7.3,38.3,11.0,12.4,34.6,26.8,17.0,16.2,16.9,12.9,26.5,26.0,10.4,21.0,18.2,15.9,15.2,17.0,18.2,11.7,11.1,51.1,11.7,8.0,47.1,14.0,16.9,22.4,17.2,13.8,26.5,14.1,16.5,30.0,25.8],"labels":[{"i":0,"text":"08-01 03:47"},{"i":39,"text":"08-01 16:33"},{"i":79,"text":"08-02 05:51"},{"i":119,"text":"08-02 19:19"}]},"clients":{"values":[6,6,6,6,6,6,6,6,6,6,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5],"labels":[{"i":0,"text":"08-01 03:47"},{"i":39,"text":"08-01 16:33"},{"i":79,"text":"08-02 05:51"},{"i":119,"text":"08-02 19:19"}]},"bands":[{"band":"2.4GHz","current":1,"recommended":11,"scoreCurrent":1021,"scoreBest":693,"channels":[{"channel":1,"count":451},{"channel":2,"count":14},{"channel":3,"count":0},{"channel":4,"count":45},{"channel":5,"count":79},{"channel":6,"count":210},{"channel":7,"count":0},{"channel":8,"count":15},{"channel":9,"count":54},{"channel":10,"count":27},{"channel":11,"count":203},{"channel":12,"count":0},{"channel":13,"count":0}]},{"band":"5GHz","current":153,"recommended":132,"scoreCurrent":104,"scoreBest":1,"channels":[{"channel":36,"count":328},{"channel":40,"count":151},{"channel":44,"count":170},{"channel":48,"count":91},{"channel":52,"count":26},{"channel":64,"count":23},{"channel":104,"count":13},{"channel":132,"count":1},{"channel":140,"count":13},{"channel":149,"count":211},{"channel":153,"count":39},{"channel":157,"count":132},{"channel":161,"count":116},{"channel":165,"count":26}]}],"roamer":{"mac":"02:00:DC:46:05","radios":["2.4G","5G"],"ssid":"DemoAP-IoT","lastSeen":"2026-08-02 19:56:27"},"kpis":[{"label":"Latest CPU","value":"34.3","unit":"%","foot":"2 cores \u00b7 peak 59.7%"},{"label":"Wi-Fi clients","value":"5","unit":"","foot":"peak 7 over the session"},{"label":"Neighbours seen","value":"2438","unit":"","foot":"2 band(s) scanned"},{"label":"Snapshots plotted","value":"120","unit":"","foot":"downsampled from the full session"}],"statusKpi":{"label":"DUT status","value":"Streaming","unit":"","foot":"serial open"},"fleet":[{"label":"AP6_840E","id":"default","status":"streaming","cpu":"34.3%","cpuSub":"2 cores","reco":"2 bands need a move","recoLevel":"warn","crashCount":3,"lastEvent":"12m ago","lastSnapshot":"2026-08-02 19:56:27","open":true,"lastSerial":"/dev/cu.PL2303G-1130"},{"label":"AP6_420E","id":"lab-420","status":"idle","cpu":"\u2014","cpuSub":"no stream","reco":"all bands clear","recoLevel":"ok","crashCount":0,"lastEvent":"\u2014","lastSnapshot":"2026-08-01 09:14:02","open":false,"lastSerial":"/dev/cu.PL2303G-1130"},{"label":"AP6_lab2","id":"lab2","status":"no DUT","cpu":"\u2014","cpuSub":"no stream","reco":"no survey yet","recoLevel":"muted","crashCount":0,"lastEvent":"\u2014","lastSnapshot":"\u2014","open":false,"lastSerial":null},{"label":"AP6_bench3","id":"bench3","status":"streaming","cpu":"62.8%","cpuSub":"4 cores","reco":"1 band needs a move","recoLevel":"warn","crashCount":1,"lastEvent":"3m ago","lastSnapshot":"2026-08-06 10:41:55","open":true,"lastSerial":"/dev/cu.usbserial-14"}],"crash":[{"time":"08-01 07:22:13","sev":"crit","text":"wlan1: STA 02:9f:41:c7:0b:e2 deauthenticated (reason 4, inactivity) on both radios"},{"time":"08-01 14:05:52","sev":"warn","text":"ath_dfs: radar detected on channel 60, moving to channel 149"},{"time":"08-02 03:11:07","sev":"warn","text":"nss_queue0: rx ring full, 214 packets dropped"}]}</script>
 
 <div class="layout">
   <aside class="sidebar">
@@ -207,19 +220,20 @@ button{font:inherit; color:inherit; cursor:pointer}
         </section>
       </div>
 
-      <!-- ============ band recommendation ============ -->
+      <!-- ============ band recommendation ============
+           Overview shows the CACHED recommendation only — one pill per band and
+           its age, no scan. That is OverviewBandReco in the product; the chart,
+           the band filter and Re-scan live on the Site Survey screen, so putting
+           them here would invent an Overview the product does not have. -->
       <section class="card">
         <div class="card-head">
           <h2>Channel recommendation</h2>
-          <span class="hint">DUT-side neighbour scan · 2438 neighbours seen</span>
-          <span class="spacer"></span>
-          <span class="tabs" id="bandTabs"></span>
-          <button class="btn btn-primary" id="btnRescan">Re-scan</button>
+          <span class="hint">from the last survey · no scan is run here</span>
         </div>
         <div class="card-body">
-          <svg class="chart" id="occChart" viewBox="0 0 640 190" role="img" aria-label="Neighbouring SSIDs per channel"></svg>
+          <div id="bandPills" style="display:flex;gap:var(--space-2);flex-wrap:wrap"></div>
         </div>
-        <div class="card-foot"><span id="occFoot"></span><span id="scanTime"></span></div>
+        <div class="card-foot"><span id="scanTime"></span><span>Site Survey has the per-channel chart and Re-scan</span></div>
       </section>
 
       <!-- ============ crash feed ============ -->
@@ -291,32 +305,6 @@ function lineChart(svg, series, opts){
   svg.innerHTML = parts.join("");
 }
 
-/* ---------------- bar chart ---------------- */
-function barChart(svg, bars, marks){
-  const W = 640, H = 190, padL = 34, padR = 8, padT = 24, padB = 26;
-  const hi = Math.max(...bars.map(b => b.value), 1);
-  const bw = (W - padL - padR) / bars.length;
-  const y = v => padT + (1 - v / hi) * (H - padT - padB);
-  const parts = [];
-  for (let t = 0; t <= 3; t++){
-    const v = hi * t / 3, yy = y(v);
-    parts.push(`<line x1="${padL}" y1="${yy.toFixed(1)}" x2="${W - padR}" y2="${yy.toFixed(1)}" stroke="#eef1f6" stroke-width="1"/>`);
-    parts.push(`<text x="${padL - 6}" y="${(yy + 3.5).toFixed(1)}" text-anchor="end" font-size="10" fill="#9aa4b8">${Math.round(v)}</text>`);
-  }
-  bars.forEach((b, i) => {
-    const bx = padL + i * bw + bw * .18, w = bw * .64;
-    const by = y(b.value), h = Math.max(1, (H - padB) - by);
-    const fill = b.role === "best" ? "#0c7a43" : b.role === "busy" ? "#b3261e" : "#9fb0c9";
-    parts.push(`<rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="3" fill="${fill}"><title>ch ${b.label}: ${b.value} SSIDs</title></rect>`);
-    if (b.role){
-      parts.push(`<text x="${(bx + w/2).toFixed(1)}" y="${(by - 12).toFixed(1)}" text-anchor="middle" font-size="10" font-weight="700" fill="${fill}">${b.role === "best" ? "Best" : "Busy"}</text>`);
-      parts.push(`<text x="${(bx + w/2).toFixed(1)}" y="${(by - 3).toFixed(1)}" text-anchor="middle" font-size="10" font-weight="700" fill="${fill}">${b.value}</text>`);
-    }
-    parts.push(`<text x="${(bx + w/2).toFixed(1)}" y="${H - 8}" text-anchor="middle" font-size="10" fill="${b.current ? "#1b2333" : "#9aa4b8"}" font-weight="${b.current ? 700 : 400}">${b.label}${b.current ? " •" : ""}</text>`);
-  });
-  svg.innerHTML = parts.join("");
-}
-
 /* ---------------- fleet strip with drag-to-reorder ---------------- */
 let fleet = DATA.fleet.slice();
 function renderFleet(){
@@ -326,13 +314,28 @@ function renderFleet(){
     const el = document.createElement("div");
     el.className = "fleet-card";
     el.dataset.index = idx;
+    // Field-for-field what FleetStrip.tsx renders: label + id, status pill, CPU
+    // and its sub-label, the band badge, then Crash events / Last event / Last
+    // snapshot. Nothing else — a card carrying firmware or uptime would be
+    // showing an Overview the product does not have.
+    const statusPill = d.status === "streaming" ? "pill-ok"
+                     : d.status === "idle" ? "pill-muted" : "pill-muted";
     el.innerHTML = `
-      <div class="fleet-grip" data-grip>⠿ <span class="fleet-name">${d.name}</span></div>
-      <div class="fleet-meta">
-        <span class="pill ${d.open ? "pill-ok" : "pill-muted"}"><span class="dot"></span>${d.open ? "serial open" : "closed"}</span>
-        <span>${d.fw}</span>
+      <div class="fleet-grip" data-grip title="concept: reorder">⠿</div>
+      <div class="fleet-card-head">
+        <div>
+          <div class="fleet-name">${d.label}</div>
+          <div class="fleet-id">${d.id}</div>
+        </div>
+        <span class="pill ${statusPill}"><span class="dot"></span>${d.status}</span>
       </div>
-      <div class="fleet-meta"><span>CPU ${d.cpu}%</span><span>${d.clients} clients</span><span>${d.uptime}</span></div>
+      <div class="fleet-cpu"><span class="fleet-cpu-value">${d.cpu}</span><span class="fleet-cpu-sub">${d.cpuSub}</span></div>
+      <span class="band-badge band-${d.recoLevel}">${d.reco}</span>
+      <dl class="stat-list">
+        <div class="stat-row"><dt>Crash events</dt><dd>${d.crashCount}${d.crashCount > 0 ? " · since open" : ""}</dd></div>
+        <div class="stat-row"><dt>Last event</dt><dd>${d.lastEvent}</dd></div>
+        <div class="stat-row"><dt>Last snapshot</dt><dd>${d.lastSnapshot}</dd></div>
+      </dl>
       <div class="fleet-actions">
         <button class="btn" data-act="console">Console</button>
         ${d.open
@@ -376,7 +379,7 @@ function wireFleet(){
       const [moved] = fleet.splice(dragIdx, 1);
       fleet.splice(to, 0, moved);
       renderFleet();
-      toast(`Moved ${moved.name} to position ${to + 1}`);
+      toast(`Moved ${moved.label} to position ${to + 1}`);
     }
     dragEl = null; dragIdx = -1;
   });
@@ -387,13 +390,13 @@ function wireFleet(){
     const card = btn.closest(".fleet-card");
     const d = fleet[Number(card.dataset.index)];
     const act = btn.dataset.act;
-    if (act === "console"){ $("dutPill").textContent = d.name; toast(`Serial Console → ${d.name}`); return; }
+    if (act === "console"){ $("dutPill").textContent = d.label; toast(`Serial Console → ${d.label}`); return; }
     btn.innerHTML = `<span class="spin"></span> ${act === "close" ? "Closing" : "Connecting"}`;
     btn.disabled = true;
     setTimeout(() => {
       d.open = act !== "close";
       renderFleet();
-      toast(`${d.name}: serial ${d.open ? "opened on " + d.lastSerial : "closed"}`);
+      toast(`${d.label}: serial ${d.open ? "opened on " + d.lastSerial : "closed"}`);
     }, 750);
   });
 }
@@ -408,26 +411,12 @@ function renderKpis(k){
     </div>`).join("");
 }
 
-/* ---------------- band recommendation ---------------- */
-let band = DATA.bands[0].band;
-function renderBands(){
-  $("bandTabs").innerHTML = DATA.bands.map(b =>
-    `<button class="tab" data-band="${b.band}" aria-selected="${b.band === band}">${b.band}</button>`).join("");
-  const b = DATA.bands.find(x => x.band === band);
-  const values = b.channels.map(c => c.count);
-  const best = Math.min(...values), busy = Math.max(...values);
-  let bestDone = false, busyDone = false;
-  const bars = b.channels.map(c => {
-    let role = null;
-    if (!bestDone && c.channel === b.recommended){ role = "best"; bestDone = true; }
-    else if (!busyDone && c.count === busy){ role = "busy"; busyDone = true; }
-    return { label: c.channel, value: c.count, role, current: c.channel === b.current };
-  });
-  barChart($("occChart"), bars);
-  $("occFoot").innerHTML = b.current === b.recommended
-    ? `<span style="color:var(--ok);font-weight:600">✓ ${b.band}: staying on ch ${b.current}</span>`
-    : `<span style="color:var(--warn);font-weight:600">⚠ ${b.band}: ch ${b.current} → ${b.recommended}</span>
-       <span style="color:var(--muted)"> · interference score ${b.scoreCurrent} → ${b.scoreBest} (bars are raw SSID counts)</span>`;
+/* ---------------- band recommendation (cached pills only) ---------------- */
+function renderPills(){
+  $("bandPills").innerHTML = DATA.bands.map(b => b.current === b.recommended
+    ? `<span class="pill pill-ok">✓ ${b.band}: ch ${b.current}</span>`
+    : `<span class="pill pill-warn">⚠ ${b.band}: ch ${b.current} → ${b.recommended}</span>`
+  ).join("") || `<span style="color:var(--muted)">No survey yet — connect serial to prescan, or open Site Survey and Re-scan.</span>`;
 }
 
 /* ---------------- crash feed ---------------- */
@@ -438,9 +427,11 @@ function renderFeed(){
 
 /* ---------------- boot ---------------- */
 renderFleet(); wireFleet();
-renderKpis(DATA.kpis);
+// The status tile is synthetic (connection state is live UI, absent from any
+// capture), so it comes from demo-fixtures.json and the footer says so.
+renderKpis([DATA.statusKpi, ...DATA.kpis]);
 renderFeed();
-renderBands();
+renderPills();
 
 lineChart($("cpuChart"), [
   { values: DATA.cpu.c0, color: "#1565c0" },
@@ -462,32 +453,11 @@ $("provenance").innerHTML =
   + `channel occupancy, the roaming client) come from a real session bundle `
   + `<b>${DATA.generatedFrom || "—"}</b>; every SSID, MAC and IP in it was replaced before `
   + `commit (see <b>demo/README_demo_kit.md</b>). The fleet list and crash lines are `
-  + `synthetic — a one-DUT bench cannot produce them. Chips marked `
+  + `synthetic — a one-DUT bench cannot produce a fleet, the reference capture had no `
+  + `crash lines, and connection state is live UI no capture records. Chips marked `
   + `<span class="concept">◇ concept</span> are ideas for discussion, not shipped behaviour.`;
 
 /* buttons */
-$("bandTabs").addEventListener("click", (ev) => {
-  const t = ev.target.closest("[data-band]");
-  if (!t) return;
-  band = t.dataset.band; renderBands();
-});
-
-$("btnRescan").addEventListener("click", (ev) => {
-  const b = ev.currentTarget;
-  const original = b.textContent;
-  b.innerHTML = `<span class="spin"></span> Scanning`;
-  b.disabled = true;
-  setTimeout(() => {
-    b.textContent = original; b.disabled = false;
-    DATA.bands.forEach(x => x.channels.forEach(c => {
-      c.count = Math.max(0, c.count + Math.round((Math.random() - .5) * Math.max(2, c.count * .12)));
-    }));
-    $("scanTime").textContent = "scanned just now";
-    renderBands();
-    toast("Neighbour scan complete — 3 bands, 2438 → " + DATA.bands.reduce((s, x) => s + x.channels.reduce((t, c) => t + c.count, 0), 0) + " SSIDs");
-  }, 1400);
-});
-
 $("btnStory").addEventListener("click", () => {
   const r = DATA.roamer;
   if (!r) return;
@@ -495,15 +465,38 @@ $("btnStory").addEventListener("click", () => {
       + `something a point-in-time client table can never show. Last seen ${r.lastSeen}.`);
 });
 
+/* Mirrors utils/clipboard.ts: the Clipboard API is unavailable on plain-HTTP
+   LAN origins and on file://, so fall back to a hidden textarea + execCommand
+   exactly as the product does rather than reporting failure. */
+async function copyToClipboard(text){
+  try {
+    if (navigator.clipboard?.writeText){
+      try { await navigator.clipboard.writeText(text); return true; } catch { /* fall through */ }
+    }
+    const holder = document.createElement("textarea");
+    holder.value = text; holder.setAttribute("readonly", "");
+    holder.style.position = "fixed"; holder.style.opacity = "0";
+    document.body.appendChild(holder);
+    try { holder.select(); return document.execCommand("copy"); }
+    finally { holder.remove(); }
+  } catch { return false; }
+}
+
 $("btnCopy").addEventListener("click", async () => {
   const text = DATA.crash.map(c => `${c.time}  ${c.text}`).join("\n");
-  try { await navigator.clipboard.writeText(text); toast("Copied " + DATA.crash.length + " lines"); }
-  catch { toast("Copy blocked by the browser — select the text instead"); }
+  toast(await copyToClipboard(text)
+    ? `Copied ${DATA.crash.length} lines`
+    : "Copy failed — select the text instead");
 });
 
+const SHIPPED = new Set(["Site Survey"]);   // screens that exist in this kit today
 document.querySelectorAll("[data-screen]").forEach(el => {
   el.addEventListener("click", () => {
-    $("navNote").innerHTML = `<b>${el.dataset.screen}</b> ships as its own file in the demo kit — this page is the Overview only.`;
+    const name = el.dataset.screen;
+    $("navNote").innerHTML = SHIPPED.has(name)
+      ? `<b>${name}</b> is in this kit — open <b>site-survey.html</b> beside this file.`
+      : `<b>${name}</b> is not in the kit yet. Screens are added one file at a time; `
+        + `this page is the Overview and <b>site-survey.html</b> is the other one shipped so far.`;
     $("navNote").scrollIntoView({ behavior: "smooth", block: "nearest" });
   });
 });

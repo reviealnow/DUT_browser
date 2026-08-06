@@ -1,21 +1,27 @@
 {
   "_comment": [
-    "The synthetic half of the demo data, kept apart from anything measured.",
-    "Everything build_demo_data.py derives from a real bundle (CPU, clients,",
-    "channel counts, the roaming client) stays real and only has its identifiers",
-    "replaced. These entries are invented, because a bench with one DUT attached",
-    "cannot produce a fleet and the reference capture contained no crash lines.",
+    "The synthetic half of the demo data, kept apart from anything measured and",
+    "keyed by the page it belongs to. Everything build_demo_data.py derives from",
+    "a real bundle (CPU, clients, channel counts, neighbour rows, the roaming",
+    "client) stays real and only has its identifiers replaced. These entries are",
+    "invented, because a bench with one DUT attached cannot produce a fleet, the",
+    "reference capture contained no crash lines, and connection state is live UI",
+    "that no capture records. Each page prints which of its content is synthetic.",
     "MACs use the 02: locally-administered prefix so they are visibly not real."
   ],
-  "fleet": [
-    {"name": "AP6_840E",  "fw": "1.10.339", "cpu": 8,  "clients": 6,  "uptime": "up 4d 02h",  "open": true,  "lastSerial": "/dev/cu.PL2303G-1130"},
-    {"name": "AP6_420E",  "fw": "1.9.300",  "cpu": 21, "clients": 2,  "uptime": "up 11h 47m", "open": false, "lastSerial": "/dev/cu.PL2303G-1130"},
-    {"name": "AP6_lab2",  "fw": "1.10.339", "cpu": 4,  "clients": 0,  "uptime": "up 26d 09h", "open": false, "lastSerial": null},
-    {"name": "AP6_bench3","fw": "1.8.241",  "cpu": 63, "clients": 11, "uptime": "up 02h 13m", "open": true,  "lastSerial": "/dev/cu.usbserial-14"}
-  ],
-  "crash": [
-    {"time": "08-01 07:22:13", "sev": "crit", "text": "wlan1: STA 02:9f:41:c7:0b:e2 deauthenticated (reason 4, inactivity) on both radios"},
-    {"time": "08-01 14:05:52", "sev": "warn", "text": "ath_dfs: radar detected on channel 60, moving to channel 149"},
-    {"time": "08-02 03:11:07", "sev": "warn", "text": "nss_queue0: rx ring full, 214 packets dropped"}
-  ]
+  "overview.html": {
+    "statusKpi": {"label": "DUT status", "value": "Streaming", "unit": "", "foot": "serial open"},
+    "fleet": [
+      {"label": "AP6_840E",   "id": "default", "status": "streaming", "cpu": "34.3%", "cpuSub": "2 cores", "reco": "2 bands need a move", "recoLevel": "warn", "crashCount": 3, "lastEvent": "12m ago", "lastSnapshot": "2026-08-02 19:56:27", "open": true,  "lastSerial": "/dev/cu.PL2303G-1130"},
+      {"label": "AP6_420E",   "id": "lab-420", "status": "idle",      "cpu": "—",     "cpuSub": "no stream", "reco": "all bands clear",     "recoLevel": "ok",   "crashCount": 0, "lastEvent": "—",       "lastSnapshot": "2026-08-01 09:14:02", "open": false, "lastSerial": "/dev/cu.PL2303G-1130"},
+      {"label": "AP6_lab2",   "id": "lab2",    "status": "no DUT",    "cpu": "—",     "cpuSub": "no stream", "reco": "no survey yet",       "recoLevel": "muted","crashCount": 0, "lastEvent": "—",       "lastSnapshot": "—",                   "open": false, "lastSerial": null},
+      {"label": "AP6_bench3", "id": "bench3",  "status": "streaming", "cpu": "62.8%", "cpuSub": "4 cores", "reco": "1 band needs a move",  "recoLevel": "warn", "crashCount": 1, "lastEvent": "3m ago",  "lastSnapshot": "2026-08-06 10:41:55", "open": true,  "lastSerial": "/dev/cu.usbserial-14"}
+    ],
+    "crash": [
+      {"time": "08-01 07:22:13", "sev": "crit", "text": "wlan1: STA 02:9f:41:c7:0b:e2 deauthenticated (reason 4, inactivity) on both radios"},
+      {"time": "08-01 14:05:52", "sev": "warn", "text": "ath_dfs: radar detected on channel 60, moving to channel 149"},
+      {"time": "08-02 03:11:07", "sev": "warn", "text": "nss_queue0: rx ring full, 214 packets dropped"}
+    ]
+  },
+  "site-survey.html": {}
 }

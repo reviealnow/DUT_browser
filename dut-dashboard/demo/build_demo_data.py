@@ -14,18 +14,23 @@ markup stays hand-editable and regenerating data never clobbers a layout tweak.
 Usage:
     python3 build_demo_data.py --bundle /path/to/dut-session-<ts> [--page overview.html]
 
-Anonymisation rules, all deterministic (a given real value always maps to the
-same fake one, so the demo reads consistently across regenerations) and all
-distribution-preserving (counts per channel, per band and per timestamp are
-untouched — only labels change):
+Anonymisation rules. Aliases are assigned over the **sorted** set of real
+values, so the result does not depend on the order rows happen to be walked,
+and every assignment probes forward past a taken slot, so the mapping is
+injective — distinct networks never collapse into one name. Counts per channel,
+per band and per timestamp are untouched; only labels change.
 
-* SSID      -> a name from a fixed pool; the DUT's own VAPs and neighbouring
-               networks draw from separate pools so the screens still read
-               correctly
+* SSID      -> a generated name; the DUT's own VAPs and neighbouring networks
+               draw from separate namespaces so the screens still read correctly
 * MAC/BSSID -> ``02:``-prefixed. 02 is the locally-administered bit: these are
                visibly not real vendor addresses, which is the honest signal
-* IP        -> 198.51.100.0/24 (RFC 5737 TEST-NET-2, reserved for documentation)
+* IP        -> RFC 5737 documentation ranges (192.0.2/198.51.100/203.0.113)
 * vendor    -> a fixed pool, mapped consistently with the MAC it belongs to
+
+This is pseudonymisation, not encryption. The page cannot be reversed, but a
+deterministic unsalted hash over a small candidate space is guessable by anyone
+already holding the original capture. The goal is that identifiers are never
+published — not that someone with the source bundle is defeated.
 
 Model/DUT names (AP6_840E and friends) are deliberately NOT anonymised: they
 are the product being demonstrated.
@@ -47,15 +52,28 @@ DATA_BLOCK_RE = re.compile(
     r'(<script id="demo-data" type="application/json">)(.*?)(</script>)', re.S
 )
 
-OWN_SSIDS = [
-    "DemoAP-Corp", "DemoAP-Guest", "DemoAP-IoT", "DemoAP-Lab",
-    "DemoAP-Voice", "DemoAP-Legacy", "DemoAP-Test", "DemoAP-Mgmt",
+# The DUT under test broadcasts a lot of VAPs (29 on the reference AP), so its
+# own namespace is generated too — and kept visibly distinct from the neighbour
+# one, because "ours" versus "everyone else's" is a distinction the screens draw.
+_OWN_ROLES = ["Corp", "Guest", "IoT", "Lab", "Voice", "Legacy", "Test", "Mgmt",
+              "Sensor", "Kiosk", "Field", "Depot"]
+OWN_SSIDS = [f"DemoAP-{role}" for role in _OWN_ROLES] + [
+    f"DemoAP-{role}-{n}" for n in (2, 3, 4) for role in _OWN_ROLES
 ]
+# A real scan in an office block turns up a couple of hundred distinct SSIDs, so
+# the neighbour namespace is generated rather than listed: word x form gives
+# enough room that names stay plausible instead of degrading into Name-2, -3, -4.
+_WORDS = [
+    "Cafe", "Office", "Home", "Fiber", "Sky", "Metro", "Tower", "Green",
+    "Blue", "City", "Studio", "River", "North", "Sunset", "Park", "Light",
+    "Orchard", "Redwood", "Stone", "Harbour", "Willow", "Summit", "Amber",
+    "Cedar", "Delta", "Falcon", "Granite", "Ivory", "Juniper", "Quartz",
+]
+_FORMS = ["{w}Net", "{w}-Guest", "{w}-WiFi", "{w}-{n:02d}", "{w}_5G",
+          "{w}-Fibre", "{w}Link", "{w}-Public", "{w}-Home-{n}"]
 NEIGHBOUR_SSIDS = [
-    "Cafe-Guest", "OfficeNet", "HomeWiFi", "FiberLink", "SkyBroadband",
-    "MetroHotspot", "TowerNet", "GreenLeaf", "BlueHarbour", "CityFibre",
-    "StudioNet", "RiverView", "NorthGate", "SunsetWiFi", "Parkside",
-    "Lighthouse", "OrchardNet", "Redwood", "StoneBridge", "HarbourPoint",
+    form.format(w=word, n=(i * 7 % 90) + 10)
+    for i, word in enumerate(_WORDS) for form in _FORMS
 ]
 VENDORS = [
     "Acme Devices", "Northwind Systems", "Contoso Networks", "Fabrikam Inc.",
@@ -69,53 +87,108 @@ def _bucket(value: str, size: int, salt: str) -> int:
 
 
 class Anonymiser:
-    """Deterministic, distribution-preserving identifier replacement."""
+    """Order-independent, collision-free, distribution-preserving replacement.
+
+    Two properties matter and neither is free:
+
+    *Deterministic regardless of encounter order.* Aliases are assigned in one
+    pass over the **sorted** set of real values, not as they are met, so the
+    same bundle always yields the same page no matter which screen is built
+    first or in what order rows happen to be walked.
+
+    *Injective.* Two distinct real values never share an alias. Collapsing two
+    networks into one name would understate how crowded the air is, which is
+    the measurement these pages exist to show, so every assignment probes
+    forward until it finds a free slot instead of accepting a hash collision.
+
+    This is pseudonymisation, not encryption: the mapping is not reversible
+    from the page, but a deterministic unsalted hash over a small candidate
+    space can be guessed by anyone who already holds the original capture. The
+    goal is that identifiers are never published, not that an attacker with the
+    source bundle is defeated.
+    """
 
     def __init__(self) -> None:
-        self._ssid: dict[str, str] = {}
-        self._mac: dict[str, str] = {}
-        self._ip: dict[str, str] = {}
-        self._vendor: dict[str, str] = {}
+        self._maps: dict[str, dict[str, str]] = {
+            "ssid": {}, "mac": {}, "ip": {}, "vendor": {},
+        }
 
+    # -- assignment ------------------------------------------------------
+    def _assign(self, kind: str, values, alias, *, space: int) -> None:
+        """Give every value in ``values`` a distinct alias, sorted-order stable."""
+        table = self._maps[kind]
+        taken = set(table.values())
+        for value in sorted(v for v in set(values) if v):
+            if value in table:
+                continue
+            start = _bucket(value, space, kind)
+            for step in range(space):
+                candidate = alias((start + step) % space)
+                if candidate not in taken:
+                    break
+            else:
+                raise SystemExit(
+                    f"{kind}: {len(taken)} aliases exhausted a space of {space}; "
+                    f"widen the pool in build_demo_data.py"
+                )
+            table[value] = candidate
+            taken.add(candidate)
+
+    def prepare(self, *, ssids=(), own_ssids=(), macs=(), ips=(), vendors=()) -> None:
+        # Own VAPs first: a client or neighbour row naming one of our own SSIDs
+        # must resolve to the DemoAP-* alias, not to a neighbour name.
+        self._assign("ssid", own_ssids, lambda i: OWN_SSIDS[i], space=len(OWN_SSIDS))
+        self._assign("ssid", ssids, lambda i: NEIGHBOUR_SSIDS[i], space=len(NEIGHBOUR_SSIDS))
+        self._assign("mac", (m.lower() for m in macs), _mac_alias, space=1 << 24)
+        self._assign("ip", ips, _ip_alias, space=3 * 254)
+        self._assign("vendor", vendors, lambda i: VENDORS[i], space=len(VENDORS))
+
+    # -- lookup ----------------------------------------------------------
     def ssid(self, value: str | None, *, own: bool = False) -> str | None:
         if not value:
-            return value
-        if value not in self._ssid:
-            pool = OWN_SSIDS if own else NEIGHBOUR_SSIDS
-            index = _bucket(value, len(pool), "ssid")
-            name = pool[index]
-            # Keep names unique so two real networks never collapse into one.
-            suffix = 2
-            while name in self._ssid.values():
-                name = f"{pool[index]}-{suffix}"
-                suffix += 1
-            self._ssid[value] = name
-        return self._ssid[value]
+            return value                     # hidden SSID: nothing to disclose
+        if value not in self._maps["ssid"]:
+            self._assign("ssid", [value],
+                         (lambda i: OWN_SSIDS[i]) if own else (lambda i: NEIGHBOUR_SSIDS[i]),
+                         space=len(OWN_SSIDS) if own else len(NEIGHBOUR_SSIDS))
+        return self._maps["ssid"][value]
 
     def mac(self, value: str | None) -> str | None:
         if not value:
             return value
         key = value.lower()
-        if key not in self._mac:
-            digest = hashlib.sha256(f"mac:{key}".encode()).digest()[:5]
-            tail = ":".join(f"{b:02x}" for b in digest)
-            self._mac[key] = f"02:{tail}"
-        out = self._mac[key]
-        return out.upper() if value == value.upper() else out
+        if key not in self._maps["mac"]:
+            self._assign("mac", [key], _mac_alias, space=1 << 24)
+        alias = self._maps["mac"][key]
+        return alias.upper() if value == value.upper() else alias
 
     def ip(self, value: str | None) -> str | None:
         if not value:
             return value
-        if value not in self._ip:
-            self._ip[value] = f"198.51.100.{_bucket(value, 254, 'ip') + 1}"
-        return self._ip[value]
+        if value not in self._maps["ip"]:
+            self._assign("ip", [value], _ip_alias, space=3 * 254)
+        return self._maps["ip"][value]
 
     def vendor(self, value: str | None) -> str | None:
         if not value:
             return value
-        if value not in self._vendor:
-            self._vendor[value] = VENDORS[_bucket(value, len(VENDORS), "vendor")]
-        return self._vendor[value]
+        if value not in self._maps["vendor"]:
+            self._assign("vendor", [value], lambda i: VENDORS[i], space=len(VENDORS))
+        return self._maps["vendor"][value]
+
+    def counts(self) -> str:
+        return ", ".join(f"{len(v)} {k}s" for k, v in self._maps.items() if v)
+
+
+def _mac_alias(index: int) -> str:
+    """``02:``-prefixed: the locally-administered bit, visibly not a vendor OUI."""
+    return "02:00:" + ":".join(f"{(index >> shift) & 0xFF:02x}" for shift in (16, 8, 0))
+
+
+def _ip_alias(index: int) -> str:
+    """RFC 5737 documentation ranges — three /24s, so 762 distinct addresses."""
+    block = ("192.0.2", "198.51.100", "203.0.113")[index // 254]
+    return f"{block}.{index % 254 + 1}"
 
 
 def _downsample(rows: list, limit: int = 120) -> list:
@@ -165,10 +238,12 @@ def build(bundle: Path, anon: Anonymiser, survey_bundle: Path | None = None) -> 
     survey = _newest_json((survey_bundle or bundle) / "context" / "site-survey")
     bands = _bands(survey) if survey else []
 
+    # Every KPI here is derived from the bundle. A "DUT status" tile would not
+    # be — connection state is live UI, absent from a capture — so it lives in
+    # demo-fixtures.json with the rest of the synthetic copy rather than being
+    # hard-coded here where the provenance line would not account for it.
     latest_clients = clients["values"][-1] if clients["values"] else 0
     kpis = [
-        {"label": "DUT status", "value": "Streaming", "unit": "",
-         "foot": f"serial open · {len(rows)} snapshots plotted"},
         {"label": "Latest CPU", "value": f"{cpu['c0'][-1]:g}", "unit": "%",
          "foot": f"2 cores · peak {max(max(cpu['c0']), max(cpu['c1'])):g}%"},
         {"label": "Wi-Fi clients", "value": str(latest_clients), "unit": "",
@@ -176,6 +251,8 @@ def build(bundle: Path, anon: Anonymiser, survey_bundle: Path | None = None) -> 
         {"label": "Neighbours seen", "value": str(sum(
             c["count"] for b in bands for c in b["channels"])), "unit": "",
          "foot": f"{len(bands)} band(s) scanned"},
+        {"label": "Snapshots plotted", "value": str(len(rows)), "unit": "",
+         "foot": "downsampled from the full session"},
     ]
 
     sources = bundle.name if survey_bundle is None else f"{bundle.name} + {survey_bundle.name}"
@@ -187,6 +264,62 @@ def build(bundle: Path, anon: Anonymiser, survey_bundle: Path | None = None) -> 
         "bands": bands,
         "roamer": roamer,
         "kpis": kpis,
+    }
+
+
+def build_survey(bundle: Path, anon: Anonymiser, survey_bundle: Path | None = None) -> dict:
+    """Site Survey page: the recommendation, the per-band charts and the table.
+
+    Every neighbour row ships, because the point of this screen is the scale of
+    a real scan — a few hundred networks, most of them other people's. That is
+    also why the anonymiser runs over the whole set before anything is emitted.
+    """
+    source = survey_bundle or bundle
+    survey = _newest_json(source / "context" / "site-survey")
+    if survey is None:
+        raise SystemExit(f"no context/site-survey/*.json under {source}")
+
+    neighbours = survey.get("neighbors", [])
+    own = {v.get("ssid") for v in survey.get("vaps", []) if v.get("ssid")}
+    anon.prepare(
+        own_ssids=own,
+        ssids=(n.get("ssid") for n in neighbours if n.get("ssid") not in own),
+        macs=(n.get("bssid") for n in neighbours if n.get("bssid")),
+    )
+
+    securities = sorted({n.get("security") or "—" for n in neighbours})
+    generations = sorted({n.get("generation") or "—" for n in neighbours})
+    band_names = sorted({n.get("band") for n in neighbours if n.get("band")})
+    ssid_pool: list[str] = []
+    ssid_index: dict[str, int] = {}
+
+    rows = []
+    for n in neighbours:
+        raw = n.get("ssid")
+        name = anon.ssid(raw, own=raw in own) if raw else "(hidden)"
+        if name not in ssid_index:
+            ssid_index[name] = len(ssid_pool)
+            ssid_pool.append(name)
+        rows.append([
+            band_names.index(n["band"]) if n.get("band") in band_names else -1,
+            n.get("channel"),
+            ssid_index[name],
+            (anon.mac(n.get("bssid")) or "").replace(":", ""),
+            int(n["signal_dbm"]) if n.get("signal_dbm") is not None else None,
+            securities.index(n.get("security") or "—"),
+            generations.index(n.get("generation") or "—"),
+        ])
+
+    return {
+        "generatedFrom": source.name,
+        "scannedAt": survey.get("captured_at", "")[:16].replace("T", " "),
+        "bands": _bands(survey),
+        "bandNames": band_names,
+        "ssids": ssid_pool,
+        "securities": securities,
+        "generations": generations,
+        "rows": rows,
+        "ownVaps": len(own),
     }
 
 
@@ -267,12 +400,16 @@ def main() -> int:
                     help="demo page to rewrite (default: overview.html)")
     args = ap.parse_args()
 
+    builders = {"overview.html": build, "site-survey.html": build_survey}
+    if args.page not in builders:
+        raise SystemExit(f"no builder for {args.page}; known: {', '.join(builders)}")
+
     anon = Anonymiser()
-    payload = build(args.bundle, anon, args.survey_bundle)
+    payload = builders[args.page](args.bundle, anon, args.survey_bundle)
     fixed = json.loads((HERE / "demo-fixtures.json").read_text(encoding="utf-8"))
-    payload.update(fixed)                   # fleet / KPI / crash copy, see README
+    payload.update(fixed.get(args.page, {}))     # synthetic copy, see README
     inject(HERE / args.page, payload)
-    print(f"anonymised: {len(anon._ssid)} SSIDs, {len(anon._mac)} MACs, {len(anon._ip)} IPs")
+    print(f"anonymised: {anon.counts() or 'nothing'}")
     return 0
 
 
