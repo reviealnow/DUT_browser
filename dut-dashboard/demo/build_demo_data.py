@@ -139,7 +139,7 @@ class Anonymiser:
         # must resolve to the DemoAP-* alias, not to a neighbour name.
         self._assign("ssid", own_ssids, lambda i: OWN_SSIDS[i], space=len(OWN_SSIDS))
         self._assign("ssid", ssids, lambda i: NEIGHBOUR_SSIDS[i], space=len(NEIGHBOUR_SSIDS))
-        self._assign("mac", (m.lower() for m in macs), _mac_alias, space=1 << 24)
+        self._assign("mac", (m.lower() for m in macs), _mac_alias, space=1 << 40)
         self._assign("ip", ips, _ip_alias, space=3 * 254)
         self._assign("vendor", vendors, lambda i: VENDORS[i], space=len(VENDORS))
 
@@ -158,7 +158,7 @@ class Anonymiser:
             return value
         key = value.lower()
         if key not in self._maps["mac"]:
-            self._assign("mac", [key], _mac_alias, space=1 << 24)
+            self._assign("mac", [key], _mac_alias, space=1 << 40)
         alias = self._maps["mac"][key]
         return alias.upper() if value == value.upper() else alias
 
@@ -181,8 +181,14 @@ class Anonymiser:
 
 
 def _mac_alias(index: int) -> str:
-    """``02:``-prefixed: the locally-administered bit, visibly not a vendor OUI."""
-    return "02:00:" + ":".join(f"{(index >> shift) & 0xFF:02x}" for shift in (16, 8, 0))
+    """A full 48-bit address whose first octet sets the locally-administered bit.
+
+    ``02:`` says "not a vendor OUI" at a glance, which is the honest signal; the
+    remaining five octets carry the index. Emitting fewer than six octets — an
+    earlier bug here — produces something that is not a MAC at all.
+    """
+    octets = [(index >> shift) & 0xFF for shift in (32, 24, 16, 8, 0)]
+    return "02:" + ":".join(f"{o:02x}" for o in octets)
 
 
 def _ip_alias(index: int) -> str:
@@ -319,7 +325,86 @@ def build_survey(bundle: Path, anon: Anonymiser, survey_bundle: Path | None = No
         "securities": securities,
         "generations": generations,
         "rows": rows,
-        "ownVaps": len(own),
+        "ownRows": sum(1 for n in neighbours if n.get("ssid") in own),
+        "ownSsidsInTable": len({n["ssid"] for n in neighbours if n.get("ssid") in own}),
+        "distinctBssids": len({r[3] for r in rows}),
+    }
+
+
+def build_clients(bundle: Path, anon: Anonymiser, survey_bundle: Path | None = None) -> dict:
+    """Wi-Fi Clients page: the point-in-time table, plus 40 hours behind it.
+
+    An offline bundle and a live scan do not carry the same fields. The table
+    the product draws is fed by ``wlanconfig`` + ``apstats``; what a downloaded
+    session log carries is the DUT's own REST hooks. Mode, NSS, PER and the
+    instantaneous rates are apstats-only, so they are emitted as ``None`` and
+    the page renders them as "not in this capture" rather than inventing them —
+    which is itself worth showing, because it is true of the product.
+    """
+    clients_csv = next(bundle.glob("*_wifi_clients.csv"), None)
+    if clients_csv is None:
+        raise SystemExit(f"no *_wifi_clients.csv in {bundle} — run tools/wifi_timeseries.py first")
+    rows = list(csv.DictReader(clients_csv.open()))
+    if not rows:
+        raise SystemExit(f"{clients_csv.name} has no client rows")
+
+    anon.prepare(
+        own_ssids={r["ssid_name"] for r in rows if r.get("ssid_name")},
+        macs={r["mac_address"] for r in rows if r.get("mac_address")},
+        ips={r["ip_address"] for r in rows if r.get("ip_address")},
+        vendors={r["vendor"] for r in rows if r.get("vendor")},
+    )
+
+    def num(value, cast=int):
+        try:
+            return cast(value)
+        except (TypeError, ValueError):
+            return None
+
+    last_ts = rows[-1]["ts"]
+    history: dict[str, list] = collections.defaultdict(list)
+    for r in rows:
+        if r.get("mac_address"):
+            history[r["mac_address"]].append((r["ts"], num(r.get("rssi_dbm"))))
+
+    clients = []
+    for r in rows:
+        if r["ts"] != last_ts:
+            continue
+        mac = r["mac_address"]
+        series = [v for _, v in history.get(mac, []) if v is not None]
+        clients.append({
+            "mac": anon.mac(mac),
+            "ssid": anon.ssid(r.get("ssid_name"), own=True),
+            "band": r.get("radio") or "—",
+            "chan": num(r.get("chan")),
+            "rssi": num(r.get("rssi_dbm")),
+            "signalPct": num(r.get("signal_ratio_pct")),
+            "snr": num(r.get("snr_db")),
+            "txBytes": num(r.get("tx_bytes")),
+            "rxBytes": num(r.get("rx_bytes")),
+            "assocSecs": num(r.get("connected_secs")),
+            "idleSecs": num(r.get("idle_secs")),
+            "widthMhz": num(r.get("chan_width_mhz")),
+            "ip": anon.ip(r.get("ip_address")),
+            "vendor": anon.vendor(r.get("vendor")),
+            "vlan": num(r.get("vlan_id")),
+            # apstats-only, absent from a downloaded bundle. Never guessed.
+            "mode": None, "nss": None, "per": None, "txRate": None, "rxRate": None,
+            "rssiSeries": _downsample(series, 60),
+            "samples": len(series),
+        })
+
+    # The finding a point-in-time table can never show: one device associated on
+    # two radios at once. Kept because it is the reason a time axis exists.
+    roamer = _dual_radio_client(rows, anon)
+    return {
+        "generatedFrom": bundle.name,
+        "capturedAt": last_ts,
+        "spanFrom": rows[0]["ts"],
+        "clients": clients,
+        "totalRows": len(rows),
+        "roamer": roamer,
     }
 
 
@@ -350,7 +435,13 @@ def _bands(survey: dict) -> list[dict]:
             "recommended": rec.get("recommended_channel"),
             "scoreCurrent": round(occupancy.get(rec.get("current_channel"), 0)),
             "scoreBest": round(occupancy.get(rec.get("recommended_channel"), 0)),
-            "channels": [{"channel": c, "count": counts.get(c, 0)} for c in channels],
+            # `count` is the raw neighbour count the bars draw; `score` is the
+            # signal-weighted occupancy WhatIfPreview compares. Different
+            # measurements, carried separately so neither can stand in for the
+            # other.
+            "channels": [{"channel": c, "count": counts.get(c, 0),
+                          "score": round(occupancy[c]) if c in occupancy else None}
+                         for c in channels],
         })
     return out
 
@@ -397,10 +488,12 @@ def main() -> int:
                     help="take the neighbour scan from a second bundle when --bundle "
                          "has no usable one (both sources are recorded on the page)")
     ap.add_argument("--page", default="overview.html",
-                    help="demo page to rewrite (default: overview.html)")
+                    help="demo page to rewrite: overview.html, site-survey.html "
+                         "or wifi-clients.html (default: overview.html)")
     args = ap.parse_args()
 
-    builders = {"overview.html": build, "site-survey.html": build_survey}
+    builders = {"overview.html": build, "site-survey.html": build_survey,
+                "wifi-clients.html": build_clients}
     if args.page not in builders:
         raise SystemExit(f"no builder for {args.page}; known: {', '.join(builders)}")
 

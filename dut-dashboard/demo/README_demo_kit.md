@@ -14,7 +14,8 @@ double-click, works offline, and survives being forwarded.
 | Page | Shows |
 |---|---|
 | `overview.html` | Fleet strip, KPI row, 40-hour CPU and client trends, the cached channel recommendation, crash feed |
-| `site-survey.html` | Per-band channel charts over a real 2438-network scan, band filter, SSID/BSSID search, the full neighbour table |
+| `site-survey.html` | Per-band channel charts over a real 2,438-observation scan, band filter, SSID/BSSID search, the full neighbour table |
+| `wifi-clients.html` | The per-client table with row-expand deep stats, grouped by band, with Kick |
 
 More screens are added one file at a time; see *Adding a screen*.
 
@@ -73,10 +74,11 @@ creates work for whoever has to make it true later.
   documentation ranges, so both are visibly not real. Model names (`AP6_840E`)
   are deliberately kept — they are the product being shown.
 
-  This is pseudonymisation, not encryption. The page cannot be reversed, but a
-  deterministic unsalted hash over a small candidate space is guessable by
-  anyone already holding the original capture. The goal is that identifiers are
-  never published — not that someone with the source bundle is defeated.
+  This is pseudonymisation, not encryption. The page does not contain the
+  original-to-alias mapping, but the hash is deterministic and unsalted, so
+  anyone already holding the original capture can re-derive it by guessing over
+  the candidate set. The goal is that identifiers are never published — not that
+  someone with the source bundle is defeated.
 * **Synthetic**, and kept in `demo-fixtures.json` away from anything measured —
   the fleet list (a one-DUT bench cannot produce a fleet) and the crash lines
   (the reference capture contained none).

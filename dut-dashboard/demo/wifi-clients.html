@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DUT_browser — Wi-Fi Clients (demo)</title>
+<style>
+:root{
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:24px;
+  --bg:#f4f6fa; --panel:#fff; --ink:#1b2333; --muted:#687389; --faint:#9aa4b8;
+  --accent:#1565c0; --accent-weak:#e8f0fb;
+  --ok:#0c7a43; --ok-weak:#e4f4ea;
+  --warn:#9a6a00; --warn-weak:#fbf0d9;
+  --danger:#b3261e; --danger-weak:#fce8e6;
+  --border:#e3e8f0;
+  --shadow:0 1px 2px rgba(20,30,55,.04), 0 6px 20px rgba(20,30,55,.06);
+  --radius:14px; --sidebar-w:232px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg); color:var(--ink); font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"PingFang TC","Noto Sans TC",sans-serif; -webkit-font-smoothing:antialiased}
+button,input{font:inherit; color:inherit}
+button{cursor:pointer}
+
+.layout{display:grid; grid-template-columns:var(--sidebar-w) 1fr; min-height:100vh}
+.sidebar{background:var(--panel); border-right:1px solid var(--border); padding:var(--space-4) 0; position:sticky; top:0; height:100vh; overflow-y:auto}
+.brand{display:flex; align-items:center; gap:var(--space-2); padding:0 var(--space-4) var(--space-5)}
+.brand-mark{width:28px; height:28px; border-radius:8px; background:var(--accent); color:#fff; display:grid; place-items:center; font-weight:700; font-size:13px}
+.brand-name{font-weight:650; letter-spacing:-.01em}
+.nav-group{padding:var(--space-3) var(--space-4) var(--space-1); font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--faint); font-weight:650}
+.nav-item{display:flex; align-items:center; gap:var(--space-3); width:100%; border:0; background:none; text-align:left; padding:var(--space-2) var(--space-4); border-left:3px solid transparent; color:var(--muted)}
+.nav-item:hover{background:var(--bg); color:var(--ink)}
+.nav-item[aria-current="page"]{background:var(--accent-weak); border-left-color:var(--accent); color:var(--accent); font-weight:600}
+.nav-icon{width:18px; text-align:center; font-size:13px}
+
+.main{display:flex; flex-direction:column; min-width:0}
+.topbar{display:flex; align-items:center; gap:var(--space-3); padding:var(--space-4) var(--space-5); background:var(--panel); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:5}
+.topbar h1{font-size:17px; margin:0; letter-spacing:-.01em}
+.topbar .sub{color:var(--muted); font-size:12px}
+.spacer{flex:1}
+.pill{display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:999px; font-size:12px; font-weight:600; border:1px solid transparent; white-space:nowrap}
+.pill-demo{background:var(--warn-weak); color:var(--warn); border-color:#f0dfb4}
+.pill-ok{background:var(--ok-weak); color:var(--ok)}
+.pill-muted{background:var(--bg); color:var(--muted); border-color:var(--border)}
+.dot{width:7px; height:7px; border-radius:50%; background:currentColor; flex:none}
+
+.content{padding:var(--space-5); display:flex; flex-direction:column; gap:var(--space-5); max-width:1400px; width:100%}
+.card{background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow)}
+.card-head{display:flex; align-items:center; gap:var(--space-3); padding:var(--space-4) var(--space-4) var(--space-2); flex-wrap:wrap}
+.card-head h2{font-size:14px; margin:0; letter-spacing:-.01em}
+.card-head .hint{color:var(--muted); font-size:12px; font-weight:400}
+.card-body{padding:var(--space-3) var(--space-4) var(--space-4)}
+.card-foot{display:flex; align-items:center; justify-content:space-between; gap:var(--space-3); padding:var(--space-2) var(--space-4) var(--space-4); color:var(--muted); font-size:12px; flex-wrap:wrap}
+
+.btn{border:1px solid var(--border); background:var(--panel); border-radius:9px; padding:5px 11px; font-size:12px; font-weight:600; color:var(--muted); transition:.12s}
+.btn:hover{border-color:var(--accent); color:var(--accent); background:var(--accent-weak)}
+.btn:active{transform:translateY(1px)}
+.btn[disabled]{opacity:.45; cursor:not-allowed}
+.btn-primary{background:var(--accent); border-color:var(--accent); color:#fff}
+.btn-primary:hover{background:#0f4f9c; border-color:#0f4f9c; color:#fff}
+.btn-danger{color:var(--danger)}
+.btn-danger:hover{border-color:var(--danger); color:var(--danger); background:var(--danger-weak)}
+
+table{width:100%; border-collapse:collapse; font-size:12px}
+thead th{text-align:left; color:var(--muted); font-weight:650; padding:var(--space-2) var(--space-3); border-bottom:1px solid var(--border); white-space:nowrap}
+tbody td{padding:var(--space-2) var(--space-3); border-bottom:1px solid #f1f4f9; white-space:nowrap; vertical-align:middle}
+tbody tr.client-row:hover{background:var(--bg)}
+.bandhead td{background:var(--bg); font-weight:650; color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.06em}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.tablewrap{overflow-x:auto; border:1px solid var(--border); border-radius:10px}
+.twist{border:0; background:none; color:var(--muted); padding:0 4px; font-size:12px}
+.absent{color:var(--faint)}
+.sig-strong{color:var(--ok); font-weight:650}
+.sig-mid{color:var(--warn)}
+.sig-weak{color:var(--faint)}
+
+.detail{background:#f7f8fa}
+.detail-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:var(--space-3); padding:var(--space-3) 0}
+.detail-label{font-size:11px; color:var(--faint); text-transform:uppercase; letter-spacing:.04em}
+.detail-value{font-weight:600}
+
+.note{padding:var(--space-3) var(--space-4); border-radius:10px; background:var(--accent-weak); color:#12467f; font-size:12px; border:1px solid #cfe0f6}
+/* A "concept" chip marks an idea shown for discussion. Everything without one
+   mirrors behaviour the product actually ships — a demo must not quietly
+   promise features somebody then has to build. */
+.concept{display:inline-flex; align-items:center; gap:5px; padding:1px 8px; border-radius:999px; font-size:11px; font-weight:650; color:#6b4fa8; background:#f3effb; border:1px dashed #b9a5e0; white-space:nowrap}
+.provenance{color:var(--faint); font-size:11px; line-height:1.6; padding-top:var(--space-2); border-top:1px solid var(--border)}
+.provenance b{color:var(--muted); font-weight:650}
+.toast{position:fixed; left:50%; bottom:24px; transform:translate(-50%,20px); background:var(--ink); color:#fff; padding:9px 16px; border-radius:999px; font-size:13px; opacity:0; pointer-events:none; transition:.2s; z-index:50; max-width:min(720px,90vw); text-align:center}
+.toast.show{opacity:1; transform:translate(-50%,0)}
+.spin{display:inline-block; width:11px; height:11px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; animation:spin .7s linear infinite; vertical-align:-1px}
+@keyframes spin{to{transform:rotate(360deg)}}
+dialog{border:1px solid var(--border); border-radius:var(--radius); box-shadow:0 20px 60px rgba(20,30,55,.25); padding:var(--space-5); max-width:420px}
+dialog::backdrop{background:rgba(20,30,55,.35)}
+@media (max-width:860px){ .layout{grid-template-columns:1fr} .sidebar{display:none} }
+</style>
+</head>
+<body>
+
+<!-- Source data for the table and the per-client sparklines, per the repo's
+     inline-SVG convention (CLAUDE.md). Identifiers are pseudonymised — see
+     README_demo_kit.md. -->
+<script id="demo-data" type="application/json">{"generatedFrom":"bundle40","capturedAt":"2026-08-02 19:56:27","spanFrom":"2026-08-01 03:47:42","clients":[{"mac":"02:00:A9:97:1B:05","ssid":"DemoAP-Depot-3","band":"2.4G","chan":11,"rssi":-39,"signalPct":100,"snr":57,"txBytes":104962457,"rxBytes":315726233,"assocSecs":298616,"idleSecs":5,"widthMhz":20,"ip":"192.0.2.105","vendor":"Private (randomized)","vlan":0,"mode":null,"nss":null,"per":null,"txRate":null,"rxRate":null,"rssiSeries":[-39,-39,-40,-39,-39,-40,-40,-39,-41,-39,-40,-40,-39,-39,-40,-40,-40,-39,-40,-39,-40,-39,-39,-40,-39,-41,-39,-39,-40,-40,-40,-40,-39,-39,-40,-39,-39,-40,-39,-40,-39,-39,-39,-40,-40,-39,-40,-40,-39,-40,-40,-40,-39,-41,-41,-41,-41,-39,-40,-40],"samples":1572},{"mac":"02:00:84:57:C8:B2","ssid":"DemoAP-Depot-3","band":"2.4G","chan":11,"rssi":-37,"signalPct":100,"snr":59,"txBytes":17511219,"rxBytes":57461964,"assocSecs":107814,"idleSecs":0,"widthMhz":20,"ip":"192.0.2.106","vendor":"Fabrikam Inc.","vlan":0,"mode":null,"nss":null,"per":null,"txRate":null,"rxRate":null,"rssiSeries":[-36,-37,-37,-36,-37,-37,-37,-37,-37,-37,-36,-37,-37,-37,-36,-37,-36,-37,-37,-36,-37,-37,-37,-36,-36,-37,-37,-36,-36,-36,-37,-37,-36,-37,-36,-37,-38,-37,-38,-36,-37,-37,-37,-37,-37,-37,-37,-37,-36,-37,-37,-37,-37,-36,-36,-37,-36,-37,-37,-37],"samples":1572},{"mac":"02:00:5D:8F:23:4A","ssid":"DemoAP-Field","band":"5G","chan":157,"rssi":-49,"signalPct":100,"snr":47,"txBytes":21796959027,"rxBytes":289931264,"assocSecs":575748,"idleSecs":5,"widthMhz":40,"ip":"203.0.113.49","vendor":"Litware Hardware","vlan":0,"mode":null,"nss":null,"per":null,"txRate":null,"rxRate":null,"rssiSeries":[-48,-48,-48,-49,-49,-49,-48,-49,-48,-49,-49,-48,-48,-48,-48,-47,-48,-48,-51,-47,-49,-48,-48,-49,-48,-48,-48,-48,-48,-48,-48,-48,-48,-48,-48,-50,-48,-48,-47,-48,-48,-49,-49,-49,-49,-48,-49,-49,-48,-48,-48,-48,-49,-48,-49,-49,-49,-49,-49,-48],"samples":1572},{"mac":"02:00:B8:CA:72:6F","ssid":"DemoAP-Field","band":"5G","chan":157,"rssi":-38,"signalPct":100,"snr":58,"txBytes":266717469081,"rxBytes":4402341478,"assocSecs":573341,"idleSecs":0,"widthMhz":40,"ip":"198.51.100.160","vendor":"Contoso Networks","vlan":0,"mode":null,"nss":null,"per":null,"txRate":null,"rxRate":null,"rssiSeries":[-36,-40,-42,-39,-38,-37,-38,-38,-40,-38,-37,-40,-38,-39,-41,-38,-37,-37,-39,-38,-38,-39,-39,-39,-38,-37,-38,-37,-38,-39,-38,-37,-39,-37,-39,-38,-38,-38,-37,-43,-38,-39,-38,-38,-38,-38,-37,-37,-40,-40,-41,-38,-38,-38,-38,-38,-39,-38,-38,-40],"samples":1572},{"mac":"02:00:71:DC:46:05","ssid":"DemoAP-Field","band":"5G","chan":157,"rssi":-36,"signalPct":100,"snr":60,"txBytes":330930585,"rxBytes":175426764,"assocSecs":10310,"idleSecs":0,"widthMhz":40,"ip":"198.51.100.234","vendor":"Acme Devices","vlan":0,"mode":null,"nss":null,"per":null,"txRate":null,"rxRate":null,"rssiSeries":[-35,-36,-38,-41,-34,-38,-43,-37,-33,-34,-40,-35,-42,-36,-38,-34,-37,-45,-37,-36,-43,-36,-33,-38,-36,-37,-38,-35,-34,-37,-33,-36,-35,-43,-34,-33,-42,-39,-35,-33,-42,-35,-35,-37,-45,-38,-33,-36,-34,-47,-39,-43,-36,-39,-32,-34,-34,-37,-40,-33],"samples":1576}],"totalRows":8011,"roamer":{"mac":"02:00:71:DC:46:05","radios":["2.4G","5G"],"ssid":"DemoAP-Field","lastSeen":"2026-08-02 19:56:27"}}</script>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand"><span class="brand-mark">D</span><span class="brand-name">DUT_browser</span></div>
+    <div class="nav-group">Monitoring</div>
+    <button class="nav-item" data-screen="Overview"><span class="nav-icon">▣</span>Overview</button>
+    <button class="nav-item" data-screen="CPU / Memory"><span class="nav-icon">📈</span>CPU / Memory</button>
+    <button class="nav-item" aria-current="page"><span class="nav-icon">📶</span>Wi-Fi Clients</button>
+    <button class="nav-item" data-screen="SSID Capability"><span class="nav-icon">🔍</span>SSID Capability</button>
+    <button class="nav-item" data-screen="Site Survey"><span class="nav-icon">📡</span>Site Survey</button>
+    <button class="nav-item" data-screen="Logs / Crash Events"><span class="nav-icon">⚠</span>Logs / Crash Events</button>
+    <button class="nav-item" data-screen="Serial Console"><span class="nav-icon">⌨</span>Serial Console</button>
+    <button class="nav-item" data-screen="Downloads"><span class="nav-icon">⬇</span>Downloads</button>
+    <div class="nav-group">Workspace</div>
+    <button class="nav-item" data-screen="Files"><span class="nav-icon">🗂</span>Files</button>
+    <button class="nav-item" data-screen="Bulletin"><span class="nav-icon">📌</span>Bulletin</button>
+    <div class="nav-group">System</div>
+    <button class="nav-item" data-screen="Settings"><span class="nav-icon">⚙</span>Settings</button>
+    <button class="nav-item" data-screen="Upgrade Firmware"><span class="nav-icon">⚡</span>Upgrade Firmware</button>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div>
+        <h1>Wi-Fi clients (detail)</h1>
+        <div class="sub">Per-client RF detail via wlanconfig</div>
+      </div>
+      <span class="spacer"></span>
+      <span class="pill pill-demo">● DEMO — canned data, no DUT attached</span>
+      <span class="pill pill-muted">AP6_420E</span>
+    </header>
+
+    <div class="content">
+      <section class="card">
+        <div class="card-head">
+          <h2>Associated clients</h2>
+          <span class="hint" id="summary"></span>
+          <span class="spacer"></span>
+          <span id="capturedAt" style="color:var(--muted);font-size:12px"></span>
+          <button class="btn btn-primary" id="btnScan">Scan clients</button>
+        </div>
+        <div class="card-body">
+          <div class="tablewrap">
+            <table>
+              <thead><tr>
+                <th style="width:26px"></th>
+                <th>MAC</th><th>SSID / Band</th><th>Chan</th><th>Signal</th><th>SNR</th>
+                <th>TX / RX</th><th>Mode</th><th>NSS</th><th>Assoc</th><th>Vendor</th><th></th>
+              </tr></thead>
+              <tbody id="tbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card-foot">
+          <span>Expand a row for the deep stats the product fetches per MAC with
+            <span class="mono">apstats -s -m</span> — once, then cached.</span>
+          <span id="rowNote"></span>
+        </div>
+      </section>
+
+      <div class="note">
+        <b>Why some columns read “—”.</b> A downloaded session bundle carries the DUT's own
+        REST hooks; <span class="mono">Mode</span>, <span class="mono">NSS</span>,
+        <span class="mono">PER</span> and the instantaneous rates come from a live
+        <span class="mono">apstats</span> call and are simply not in the capture. They are shown
+        empty rather than filled in — the gap is real, and it is the honest thing for this screen
+        to say about an offline bundle.
+      </div>
+
+      <div class="note" id="navNote">
+        This is the <b>Wi-Fi Clients</b> screen of the demo kit. <b>overview.html</b> and
+        <b>site-survey.html</b> ship beside it; the rest of the sidebar is not in the kit yet.
+      </div>
+
+      <div class="provenance" id="provenance"></div>
+    </div>
+  </div>
+</div>
+
+<dialog id="kickDlg">
+  <h3 style="margin:0 0 var(--space-3);font-size:15px">Kick this client?</h3>
+  <p style="margin:0 0 var(--space-4);color:var(--muted);font-size:13px" id="kickText"></p>
+  <div style="display:flex;gap:var(--space-2);justify-content:flex-end">
+    <button class="btn" id="kickCancel">Cancel</button>
+    <button class="btn btn-danger" id="kickConfirm">Kick</button>
+  </div>
+</dialog>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+"use strict";
+const DATA = JSON.parse(document.getElementById("demo-data").textContent);
+const $ = (id) => document.getElementById(id);
+
+let toastTimer;
+function toast(msg){
+  const el = $("toast");
+  el.textContent = msg; el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 3600);
+}
+
+/* ---------------- formatting, mirroring the product's helpers ------------ */
+function bytes(n){
+  if (n === null || n === undefined) return "—";
+  const u = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0, v = n;
+  while (v >= 1024 && i < u.length - 1){ v /= 1024; i++; }
+  return `${v.toFixed(v < 10 && i > 0 ? 2 : 0)} ${u[i]}`;
+}
+function assoc(secs){
+  if (secs === null || secs === undefined) return "—";
+  const h = Math.floor(secs / 3600), m = Math.floor(secs % 3600 / 60), s = secs % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+const dash = (v, suffix = "") => v === null || v === undefined
+  ? `<span class="absent">—</span>` : `${v}${suffix}`;
+function sigClass(v){ return v >= -55 ? "sig-strong" : v >= -75 ? "sig-mid" : "sig-weak"; }
+
+/* ---------------- sparkline (hand-rendered SVG) ---------------- */
+function sparkline(values){
+  if (!values || values.length < 2) return "";
+  const W = 220, H = 40, pad = 3;
+  const lo = Math.min(...values), hi = Math.max(...values), span = (hi - lo) || 1;
+  const x = i => pad + (i / (values.length - 1)) * (W - pad * 2);
+  const y = v => pad + (1 - (v - lo) / span) * (H - pad * 2);
+  const d = values.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="RSSI over the session">
+      <path d="${d}L${x(values.length-1).toFixed(1)},${(H-pad).toFixed(1)}L${x(0).toFixed(1)},${(H-pad).toFixed(1)}Z" fill="#1565c0" opacity=".10"/>
+      <path d="${d}" fill="none" stroke="#1565c0" stroke-width="1.6" stroke-linejoin="round"/>
+    </svg>
+    <div style="font-size:11px;color:var(--faint)">${lo} to ${hi} dBm over ${values.length} samples</div>`;
+}
+
+/* ---------------- table ---------------- */
+const BANDS = ["2.4G", "5G", "6G"];
+const expanded = new Set();
+// The product fetches apstats once per MAC and keeps it across collapse/expand;
+// the same cache shape is kept here so the interaction reads the same.
+const statsCache = new Map();
+
+function renderTable(){
+  const byBand = new Map();
+  DATA.clients.forEach(c => {
+    if (!byBand.has(c.band)) byBand.set(c.band, []);
+    byBand.get(c.band).push(c);
+  });
+  const order = [...byBand.keys()].sort((a, b) => BANDS.indexOf(a) - BANDS.indexOf(b));
+
+  const html = [];
+  order.forEach(band => {
+    const list = byBand.get(band).sort((a, b) => (b.rssi ?? -999) - (a.rssi ?? -999));
+    html.push(`<tr class="bandhead"><td colspan="12">${band} · ${list.length} client${list.length === 1 ? "" : "s"}</td></tr>`);
+    list.forEach(c => {
+      const open = expanded.has(c.mac);
+      html.push(`
+        <tr class="client-row">
+          <td><button class="twist" data-mac="${c.mac}" aria-expanded="${open}">${open ? "▾" : "▸"}</button></td>
+          <td class="mono">${c.mac}</td>
+          <td>${c.ssid} · ${c.band}</td>
+          <td>${dash(c.chan)}</td>
+          <td><span class="${sigClass(c.rssi)}">${dash(c.signalPct, "%")} (${dash(c.rssi)})</span></td>
+          <td>${dash(c.snr)}</td>
+          <td>${dash(c.txRate)}</td>
+          <td>${dash(c.mode)}</td>
+          <td>${dash(c.nss)}</td>
+          <td class="mono">${assoc(c.assocSecs)}</td>
+          <td>${c.vendor || "—"}</td>
+          <td><button class="btn btn-danger" data-kick="${c.mac}">Kick</button></td>
+        </tr>`);
+      if (open) html.push(`<tr class="detail"><td colspan="12">${detailHtml(c)}</td></tr>`);
+    });
+  });
+  $("tbody").innerHTML = html.join("");
+
+  const counts = order.map(b => `${b}: ${byBand.get(b).length}`).join(" · ");
+  $("summary").textContent = `${DATA.clients.length} client${DATA.clients.length === 1 ? "" : "s"} · ${counts}`;
+  $("rowNote").textContent = `${DATA.totalRows.toLocaleString()} samples behind this snapshot`;
+}
+
+function detailHtml(c){
+  if (statsCache.get(c.mac) === "loading"){
+    return `<span style="color:var(--faint)">Loading stats…</span>`;
+  }
+  // Exactly the ten fields ClientStatsDetail renders. The five this capture
+  // cannot supply stay empty rather than being filled with plausible numbers.
+  const items = [
+    ["Tx bytes", bytes(c.txBytes)], ["Rx bytes", bytes(c.rxBytes)],
+    ["Avg Tx", dash(c.txRate)], ["Avg Rx", dash(c.rxRate)],
+    ["Tx now", dash(null)], ["Rx now", dash(null)],
+    ["Width", c.widthMhz ? `${c.widthMhz} MHz` : dash(null)],
+    ["NSS", dash(c.nss)], ["Rx RSSI", dash(c.rssi)], ["PER", dash(c.per)],
+  ];
+  return `<div class="detail-grid">${items.map(([k, v]) =>
+      `<div><div class="detail-label">${k}</div><div class="detail-value">${v}</div></div>`).join("")}
+    </div>
+    <div style="padding:0 0 var(--space-3);display:flex;gap:var(--space-4);align-items:center;flex-wrap:wrap">
+      <span class="concept">◇ concept: signal over the whole session</span>
+      <div>${sparkline(c.rssiSeries)}</div>
+      <span style="font-size:11px;color:var(--faint);max-width:320px">
+        The product's expand is point-in-time. A downloaded bundle has a time axis,
+        so this is what the same row could show — shipped behaviour it is not.
+      </span>
+    </div>`;
+}
+
+/* ---------------- boot ---------------- */
+renderTable();
+$("capturedAt").textContent = DATA.capturedAt ? "scanned " + DATA.capturedAt : "";
+$("provenance").innerHTML =
+  `<b>Demo kit</b> — canned data, no DUT attached. The table is one real cycle `
+  + `(<b>${DATA.capturedAt}</b>) out of ${DATA.totalRows.toLocaleString()} client samples `
+  + `captured between ${DATA.spanFrom} and ${DATA.capturedAt}, from the session bundle `
+  + `<b>${DATA.generatedFrom || "—"}</b>. Nothing here is synthetic: fields the capture does `
+  + `not carry are shown empty, not filled in. Every MAC, SSID and IP was replaced before `
+  + `commit (see <b>demo/README_demo_kit.md</b>). Chips marked `
+  + `<span class="concept">◇ concept</span> are ideas for discussion, not shipped behaviour.`;
+
+/* ---------------- interactions ---------------- */
+$("tbody").addEventListener("click", (ev) => {
+  const twist = ev.target.closest("[data-mac]");
+  if (twist){
+    const mac = twist.dataset.mac;
+    if (expanded.has(mac)){ expanded.delete(mac); renderTable(); return; }
+    expanded.add(mac);
+    if (statsCache.has(mac)){ renderTable(); return; }   // cached: no refetch
+    statsCache.set(mac, "loading");
+    renderTable();
+    setTimeout(() => { statsCache.set(mac, "ready"); renderTable(); }, 450);
+    return;
+  }
+  const kick = ev.target.closest("[data-kick]");
+  if (kick){
+    const c = DATA.clients.find(x => x.mac === kick.dataset.kick);
+    $("kickText").textContent = `${c.mac} on ${c.ssid} (${c.band}) will be disassociated. `
+      + `It may reconnect immediately.`;
+    $("kickDlg").returnValue = c.mac;
+    $("kickDlg").showModal();
+  }
+});
+
+$("kickCancel").addEventListener("click", () => $("kickDlg").close());
+$("kickConfirm").addEventListener("click", () => {
+  const mac = $("kickDlg").returnValue;
+  $("kickDlg").close();
+  toast(`Kick is a real action in the product — this demo has no DUT to send it to (${mac}).`);
+});
+
+$("btnScan").addEventListener("click", (ev) => {
+  const b = ev.currentTarget;
+  b.innerHTML = `<span class="spin"></span> Scanning…`;
+  b.disabled = true;
+  setTimeout(() => {
+    b.textContent = "Scan clients"; b.disabled = false;
+    statsCache.clear();
+    renderTable();
+    toast(`Replayed the captured cycle — ${DATA.clients.length} clients. `
+        + `The kit ships one real scan, so the numbers are unchanged rather than invented.`);
+  }, 1200);
+});
+
+document.querySelectorAll("[data-screen]").forEach(el => {
+  el.addEventListener("click", () => {
+    const name = el.dataset.screen;
+    const files = { "Overview": "overview.html", "Site Survey": "site-survey.html" };
+    $("navNote").innerHTML = files[name]
+      ? `<b>${name}</b> is in this kit — open <b>${files[name]}</b> beside this file.`
+      : `<b>${name}</b> is not in the kit yet. Screens are added one file at a time; `
+        + `<b>overview.html</b>, <b>site-survey.html</b> and this page are the three shipped so far.`;
+    $("navNote").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  });
+});
+})();
+</script>
+</body>
+</html>

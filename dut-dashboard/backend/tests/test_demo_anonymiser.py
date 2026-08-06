@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import importlib.util
 import random
+import re
 from pathlib import Path
 
 import pytest
@@ -70,8 +71,10 @@ def test_distinct_values_never_share_an_alias(anon_module, index: int, kind: str
 
 def test_aliases_are_visibly_not_real_identifiers(anon_module) -> None:
     _, ips, macs = _mapping(anon_module, list)
-    # 02: is the locally-administered bit — never a vendor OUI.
-    assert all(v.startswith("02:") for v in macs.values())
+    # 02: is the locally-administered bit — never a vendor OUI. Checking only
+    # the prefix let a five-octet "MAC" ship once; the shape is asserted too.
+    assert all(re.fullmatch(r"02(:[0-9a-f]{2}){5}", v) for v in macs.values()), \
+        "aliases must be full 48-bit locally-administered addresses"
     # RFC 5737 documentation ranges only.
     assert all(v.split(".")[0:3] in ([  "192", "0", "2"], ["198", "51", "100"], ["203", "0", "113"])
                for v in ips.values())
