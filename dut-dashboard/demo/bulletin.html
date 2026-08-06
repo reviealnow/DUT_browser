@@ -237,7 +237,7 @@ function commentEditor(key, value){
   return `<div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
       <input class="field" data-editfield="${key}" maxlength="600" value="${esc(value)}" aria-label="Edit comment">
       <div style="display:flex;gap:6px">
-        <button class="btn btn-primary" data-editsave="${key}">Save</button>
+        <button class="btn btn-primary" data-editsave="${key}" ${value.trim() ? "" : "disabled"}>Save</button>
         <button class="btn" data-editcancel="${key}">Cancel</button>
       </div>
     </div>`;
@@ -249,7 +249,7 @@ function postEditor(key, post){
       <textarea class="field" data-editfield="${key}" rows="3" maxlength="1000" aria-label="Edit post content">${esc(post.body)}</textarea>
       <input class="field" data-edittags="${key}" maxlength="200" value="${esc((post.tags || []).join(", "))}" aria-label="Edit post tags">
       <div style="display:flex;gap:6px">
-        <button class="btn btn-primary" data-editsave="${key}">Save</button>
+        <button class="btn btn-primary" data-editsave="${key}" ${post.title.trim() && post.body.trim() ? "" : "disabled"}>Save</button>
         <button class="btn" data-editcancel="${key}">Cancel</button>
       </div>
     </div>`;
@@ -283,7 +283,7 @@ function commentHtml(c, postId){
 
 function replyBox(postId, parentId, placeholder){
   return `<div class="reply-row">
-      <input class="field" data-replyfield="${postId}:${parentId}" placeholder="${placeholder}" aria-label="Reply">
+      <input class="field" data-replyfield="${postId}:${parentId}" maxlength="600" placeholder="${placeholder}" aria-label="Reply">
       <button class="btn" data-replysend="${postId}:${parentId}">Reply</button>
     </div>`;
 }
@@ -362,6 +362,20 @@ $("btnPost").addEventListener("click", () => {
   toast("Posted to this page only — there is no workspace behind the demo.");
 });
 
+/* CommentEditor recomputes canSave on every keystroke; the post editor needs
+   both a title and a body. Mirroring that means the button state is the
+   validation, rather than a click that fails afterwards. */
+$("posts").addEventListener("input", (ev) => {
+  const field = ev.target.closest("[data-editfield], [data-edittitle]");
+  if (!field) return;
+  const key = field.dataset.editfield || field.dataset.edittitle;
+  const body = document.querySelector(`[data-editfield="${key}"]`);
+  const title = document.querySelector(`[data-edittitle="${key}"]`);
+  const save = document.querySelector(`[data-editsave="${key}"]`);
+  if (!save) return;
+  save.disabled = !(body?.value.trim()) || (title !== null && !title.value.trim());
+});
+
 $("posts").addEventListener("click", (ev) => {
   const reply = ev.target.closest("[data-reply]");
   if (reply){
@@ -403,15 +417,16 @@ $("posts").addEventListener("click", (ev) => {
   const copy = ev.target.closest("[data-copy]");
   if (copy){
     const post = posts.find(p => String(p.id) === copy.dataset.copy);
-    const text = `${post.title}\n\n${post.body}`;
-    void copyToClipboard(text).then(ok =>
+    // BulletinSection copies the body alone — adding the title would be an
+    // unmarked extra, which is the one thing this kit must not do.
+    void copyToClipboard(post.body).then(ok =>
       toast(ok ? "Note copied" : "Copy failed — select the text instead"));
     return;
   }
   const delPost = ev.target.closest("[data-delpost]");
   if (delPost){
     const post = posts.find(p => String(p.id) === delPost.dataset.delpost);
-    if (!confirm(`Delete "${post.title}"? This cannot be undone.`)) return;
+    if (!confirm(`Delete "${post.title}" and its replies? This cannot be undone.`)) return;
     posts = posts.filter(p => p.id !== post.id);
     renderPosts();
     toast("Removed from this page — nothing was deleted anywhere.");
@@ -423,19 +438,19 @@ $("posts").addEventListener("click", (ev) => {
   const cancel = ev.target.closest("[data-editcancel]");
   if (cancel){ editing.delete(cancel.dataset.editcancel); renderPosts(); return; }
   const save = ev.target.closest("[data-editsave]");
-  if (save){
+  if (save && !save.disabled){
     const key = save.dataset.editsave;
     const text = (document.querySelector(`[data-editfield="${key}"]`)?.value || "").trim();
     const target = findByKey(key);
     const titleField = document.querySelector(`[data-edittitle="${key}"]`);
     const tagsField = document.querySelector(`[data-edittags="${key}"]`);
-    if (!text){                      // Save is a no-op on an empty draft
-      toast("A note cannot be emptied."); return;
-    }
+    // Save is disabled while the draft is invalid, so reaching here means the
+    // body is non-empty; a post additionally needs a title.
+    if (titleField && !titleField.value.trim()) return;
     if (target){
       const before = JSON.stringify([target.title, target.body, target.tags]);
       target.body = text;
-      if (titleField) target.title = titleField.value.trim() || target.title;
+      if (titleField) target.title = titleField.value.trim();
       if (tagsField) target.tags = tagsField.value.split(",").map(t => t.trim()).filter(Boolean);
       if (JSON.stringify([target.title, target.body, target.tags]) !== before){
         target.edited = new Date().toISOString().slice(0, 16).replace("T", " ");

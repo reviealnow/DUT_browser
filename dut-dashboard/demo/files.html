@@ -266,7 +266,10 @@ function bytes(n){
 
 /* ---------------- state ---------------- */
 let files = DATA.files.slice();
-let sortCol = "name", sortAsc = true, search = "";
+// FilesSection: default is upload date, newest first, and a header click cycles
+// other-column -> asc -> desc -> back to the default. It does not toggle forever.
+const DEFAULT_SORT = "date", DEFAULT_ORDER = "desc";
+let sortCol = DEFAULT_SORT, sortAsc = false, search = "";
 // FilesSection keeps a single expandedId and a single tagEditId — opening one
 // row closes the other, rather than letting several stay open at once.
 let expandedId = null;
@@ -288,6 +291,7 @@ function visible(){
   return rows.sort((a, b) => {
     const dir = sortAsc ? 1 : -1;
     if (sortCol === "size") return (a.size - b.size) * dir;
+    if (sortCol === "date") return String(a.at).localeCompare(String(b.at)) * dir;
     return String(a[sortCol]).localeCompare(String(b[sortCol])) * dir;
   });
 }
@@ -384,7 +388,9 @@ $("provenance").innerHTML =
 document.querySelectorAll("[data-sort]").forEach(th => {
   th.addEventListener("click", () => {
     const col = th.dataset.sort;
-    if (sortCol === col) sortAsc = !sortAsc; else { sortCol = col; sortAsc = true; }
+    if (sortCol !== col){ sortCol = col; sortAsc = true; }
+    else if (sortAsc){ sortAsc = false; }
+    else { sortCol = DEFAULT_SORT; sortAsc = DEFAULT_ORDER === "asc"; }
     renderTable();
   });
 });
