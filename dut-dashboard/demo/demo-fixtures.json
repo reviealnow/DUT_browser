@@ -108,7 +108,6 @@
           "ap6-840e",
           "phase-75"
         ],
-        "kind": "log",
         "head": "# mode=serial source=/dev/cu.usbserial-XXXX\n=== CPU Utilization ===\nCPU0:   0.0% usr   2.0% sys  73.3% idle\nCPU1:   1.0% usr   6.1% sys  88.9% idle\n=== Memory Utilization (/proc/meminfo) ===\nMemTotal:   921552 kB\nMemAvailable:  581380 kB"
       },
       {
@@ -120,8 +119,7 @@
         "at": "2026-08-04 15:42",
         "tags": [
           "site-survey"
-        ],
-        "kind": "image"
+        ]
       },
       {
         "id": 3,
@@ -134,7 +132,6 @@
           "phase-75",
           "csv"
         ],
-        "kind": "text",
         "head": "ts,cycle,connected_clients,cpu_load_pct,mem_load_pct,cpu_temp_c,radio_temp_c\n2026-08-04 07:16:55,1,0,8,55,64,82\n2026-08-04 07:17:34,2,0,5,56,64,82\n2026-08-04 07:18:13,3,0,5,55,64,82"
       },
       {
@@ -147,8 +144,7 @@
         "tags": [
           "firmware",
           "1.10.339"
-        ],
-        "kind": "other"
+        ]
       },
       {
         "id": 5,
@@ -160,7 +156,6 @@
         "tags": [
           "crash"
         ],
-        "kind": "text",
         "head": "time,severity,line\n08-01 07:22:13,critical,wlan1: STA deauthenticated (reason 4)\n08-01 14:05:52,warning,ath_dfs: radar detected on channel 60"
       },
       {
@@ -172,8 +167,7 @@
         "at": "2026-07-28 11:04",
         "tags": [
           "bench"
-        ],
-        "kind": "image"
+        ]
       },
       {
         "id": 7,
@@ -184,8 +178,7 @@
         "at": "2026-07-12 09:15",
         "tags": [
           "tooling"
-        ],
-        "kind": "other"
+        ]
       },
       {
         "id": 8,
@@ -197,7 +190,6 @@
         "tags": [
           "ap6-420e"
         ],
-        "kind": "text",
         "head": "Two-core unit — cpu_usage.csv carries CPU0/CPU1 only.\nSerial adapter: USB-to-UART bridge, 115200 8N1.\nConsole needs a human login after any reboot."
       }
     ],
