@@ -202,14 +202,38 @@ const editedMark = (at) => at ? `<span class="edited" title="Edited ${at}"> · e
 let posts = DATA.posts.slice();
 let identity = DATA.identity || "";
 const replying = new Set();
+const editing = new Set();   // inline editors, as CommentEditor does
 let nextId = 1000;
+function findByKey(key){
+  const [kind, postId, a, b] = key.split(":");
+  const post = posts.find(p => String(p.id) === postId);
+  if (!post) return null;
+  if (kind === "p") return post;
+  const comment = post.comments.find(c => String(c.id) === a);
+  if (kind === "c") return comment;
+  return comment ? (comment.replies || []).find(r => String(r.id) === b) : null;
+}
+
 const countReplies = (list) => list.reduce((n, c) => n + 1 + countReplies(c.replies || []), 0);
 
-function replyHtml(r){
+function editorBox(key, value, rows){
+  return `<div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
+      <textarea class="field" data-editfield="${key}" rows="${rows}">${esc(value)}</textarea>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-primary" data-editsave="${key}">Save</button>
+        <button class="btn" data-editcancel="${key}">Cancel</button>
+      </div>
+    </div>`;
+}
+
+function replyHtml(r, postId, parentId){
+  const key = `r:${postId}:${parentId}:${r.id}`;
   return `<div class="comment">
       ${authorTag(r.author, r.verified)}
       <span class="post-meta"> ${r.at}${editedMark(r.edited)}</span>
-      <div class="comment-body">${esc(r.body)}</div>
+      ${editing.has(key) ? editorBox(key, r.body, 2)
+        : `<div class="comment-body">${esc(r.body)}</div>
+           <button class="linklike" data-editopen="${key}" style="margin-top:2px">Edit</button>`}
     </div>`;
 }
 
@@ -217,9 +241,13 @@ function commentHtml(c, postId){
   return `<div class="comment">
       ${authorTag(c.author, c.verified)}
       <span class="post-meta"> ${c.at}${editedMark(c.edited)}</span>
-      <div class="comment-body">${esc(c.body)}</div>
-      <button class="linklike" data-reply="${postId}:${c.id}" style="margin-top:4px">Reply</button>
-      ${(c.replies || []).length ? `<div class="replies">${c.replies.map(replyHtml).join("")}</div>` : ""}
+      ${editing.has(`c:${postId}:${c.id}`) ? editorBox(`c:${postId}:${c.id}`, c.body, 2)
+        : `<div class="comment-body">${esc(c.body)}</div>
+           <div style="display:flex;gap:var(--space-3);margin-top:4px">
+             <button class="linklike" data-reply="${postId}:${c.id}">Reply</button>
+             <button class="linklike" data-editopen="c:${postId}:${c.id}">Edit</button>
+           </div>`}
+      ${(c.replies || []).length ? `<div class="replies">${c.replies.map(r => replyHtml(r, postId, c.id)).join("")}</div>` : ""}
       ${replying.has(`${postId}:${c.id}`) ? replyBox(postId, c.id, "Reply…") : ""}
     </div>`;
 }
@@ -242,10 +270,11 @@ function renderPosts(){
             ${authorTag(p.author, p.verified)} <span>${p.at}${editedMark(p.edited)}</span>
           </div>
         </div>
-        <button class="btn" data-edit="${p.id}" title="Edit this note">✎</button>
+        <button class="btn" data-editopen="p:${p.id}" title="Edit this note">✎</button>
       </div>
       <div class="card-body">
-        <div class="post-body">${esc(p.body)}</div>
+        ${editing.has(`p:${p.id}`) ? editorBox(`p:${p.id}`, p.body, 4)
+          : `<div class="post-body">${esc(p.body)}</div>`}
         <div>${(p.tags || []).map(tagPill).join("")}</div>
         <div class="comments">
           <div class="post-meta">${n} repl${n === 1 ? "y" : "ies"}</div>
@@ -329,15 +358,24 @@ $("posts").addEventListener("click", (ev) => {
     renderPosts();
     return;
   }
-  const edit = ev.target.closest("[data-edit]");
-  if (edit){
-    const post = posts.find(p => String(p.id) === edit.dataset.edit);
-    const next = prompt("Edit the note", post.body);
-    if (next === null || next.trim() === post.body) return;
-    post.body = next.trim();
-    post.edited = new Date().toISOString().slice(0, 16).replace("T", " ");
-    renderPosts();
-    toast("Edited — the “· edited” marker keeps the change visible, as in the product.");
+  // Inline editors, as CommentEditor does for posts, comments and replies
+  // alike — the product never uses a browser prompt here.
+  const open = ev.target.closest("[data-editopen]");
+  if (open){ editing.add(open.dataset.editopen); renderPosts();
+             document.querySelector(`[data-editfield="${open.dataset.editopen}"]`)?.focus(); return; }
+  const cancel = ev.target.closest("[data-editcancel]");
+  if (cancel){ editing.delete(cancel.dataset.editcancel); renderPosts(); return; }
+  const save = ev.target.closest("[data-editsave]");
+  if (save){
+    const key = save.dataset.editsave;
+    const text = (document.querySelector(`[data-editfield="${key}"]`)?.value || "").trim();
+    const target = findByKey(key);
+    if (target && text && text !== target.body){
+      target.body = text;
+      target.edited = new Date().toISOString().slice(0, 16).replace("T", " ");
+      toast("Edited — the “· edited” marker keeps the change visible, as in the product.");
+    }
+    editing.delete(key); renderPosts();
   }
 });
 
