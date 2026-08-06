@@ -91,6 +91,11 @@ dut-dashboard/
                   tooling — interface, schemas and file ownership are fixed in
                   tools/CONTRACT_wifi_context.md; implemented in parallel PRs)
   scripts/        sysMon.sh (DUT-side telemetry)
+  demo/           self-contained HTML pages for showing the product without a
+                  DUT (one file per screen, opens by double-click) ·
+                  build_demo_data.py regenerates their baked-in data from a real
+                  bundle and anonymises every SSID/MAC/IP on the way in ·
+                  see README_demo_kit.md before adding a screen
 ```
 
 When adding a feature, follow the **existing Wi-Fi Clients data flow** as the
