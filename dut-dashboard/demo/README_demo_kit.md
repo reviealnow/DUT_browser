@@ -100,6 +100,24 @@ creates work for whoever has to make it true later.
   measured claim to keep faithful; and the real ones on this bench are test
   scaffolding carrying colleagues' names, which is not something to publish.
   Both pages say so in their own provenance line.
+* **Matched to an observable contract, not copied line by line.** Five review
+  rounds settled where the line sits. These must match the product exactly,
+  because a difference misrepresents what it can do: whether a control or
+  capability is present at all; what it changes; **which inputs it accepts or
+  refuses** (a demo that accepts what the product rejects has crossed the
+  line); the blast radius of anything outward-facing — delete, copy, upload;
+  whether a value is measured, synthetic or concept; and any ordering, limit or
+  persistence a viewer would read as a product capability. These may differ:
+  the shape of feedback (a toast where the product uses an icon), spinner
+  durations, focus placement, animation, keyboard shortcuts that change no
+  outcome, spacing and non-load-bearing microcopy.
+
+  The failure mode runs **both ways**, and only one of them has a chip. Across
+  those rounds the kit invented capability twice and under-showed it three
+  times — a cruder editor, a missing character cap, a two-state toggle where
+  the product cycles three. A `◇ concept` chip catches the first kind and is
+  blind to the second. **Open the component. Every finding came from a control
+  or state that was not read first.**
 * **Marked `◇ concept`** — an idea shown for discussion, not shipped
   behaviour. Everything without a chip mirrors what the product actually does.
   Fleet drag-to-reorder and drag-to-filter on a channel chart are concepts;
