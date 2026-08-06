@@ -185,8 +185,7 @@
         "tags": [
           "tooling"
         ],
-        "kind": "text",
-        "head": "#!/bin/sh\n# DUT-side telemetry: one snapshot per interval\ntimestamp() { date '+%Y-%m-%d %H:%M:%S'; }\ncurl_hooks() {\n  echo \"=== CURL Hooks ===\"\n  run_curl \"https://127.0.0.1:10443/ap/info/system/basic\""
+        "kind": "other"
       },
       {
         "id": 8,

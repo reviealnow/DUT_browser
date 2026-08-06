@@ -284,7 +284,7 @@ function commentHtml(c, postId){
 function replyBox(postId, parentId, placeholder){
   return `<div class="reply-row">
       <input class="field" data-replyfield="${postId}:${parentId}" maxlength="600" placeholder="${placeholder}" aria-label="Reply">
-      <button class="btn" data-replysend="${postId}:${parentId}">Reply</button>
+      <button class="btn" data-replysend="${postId}:${parentId}" disabled>Reply</button>
     </div>`;
 }
 
@@ -366,6 +366,13 @@ $("btnPost").addEventListener("click", () => {
    both a title and a body. Mirroring that means the button state is the
    validation, rather than a click that fails afterwards. */
 $("posts").addEventListener("input", (ev) => {
+  const replyField = ev.target.closest("[data-replyfield]");
+  if (replyField){
+    const key = replyField.dataset.replyfield;
+    const send = document.querySelector(`[data-replysend="${key}"]`);
+    if (send) send.disabled = !(replyField.value.trim() && identity.trim());
+    return;
+  }
   const field = ev.target.closest("[data-editfield], [data-edittitle]");
   if (!field) return;
   const key = field.dataset.editfield || field.dataset.edittitle;
@@ -374,6 +381,21 @@ $("posts").addEventListener("input", (ev) => {
   const save = document.querySelector(`[data-editsave="${key}"]`);
   if (!save) return;
   save.disabled = !(body?.value.trim()) || (title !== null && !title.value.trim());
+});
+
+$("posts").addEventListener("keydown", (ev) => {
+  if (ev.key !== "Enter") return;
+  const reply = ev.target.closest("[data-replyfield]");
+  if (reply){
+    ev.preventDefault();
+    document.querySelector(`[data-replysend="${reply.dataset.replyfield}"]`)?.click();
+    return;
+  }
+  const edit = ev.target.closest("input[data-editfield]");   // single-line comment editor only
+  if (edit){
+    ev.preventDefault();
+    document.querySelector(`[data-editsave="${edit.dataset.editfield}"]`)?.click();
+  }
 });
 
 $("posts").addEventListener("click", (ev) => {
@@ -433,7 +455,9 @@ $("posts").addEventListener("click", (ev) => {
     return;
   }
   const open = ev.target.closest("[data-editopen]");
-  if (open){ editing.add(open.dataset.editopen); renderPosts();
+  if (open){ const k = open.dataset.editopen;
+             if (editing.has(k)){ editing.delete(k); renderPosts(); return; }
+             editing.add(k); renderPosts();
              document.querySelector(`[data-editfield="${open.dataset.editopen}"]`)?.focus(); return; }
   const cancel = ev.target.closest("[data-editcancel]");
   if (cancel){ editing.delete(cancel.dataset.editcancel); renderPosts(); return; }
