@@ -408,6 +408,18 @@ def build_clients(bundle: Path, anon: Anonymiser, survey_bundle: Path | None = N
     }
 
 
+def build_static(bundle: Path | None, anon: Anonymiser,
+                 survey_bundle: Path | None = None) -> dict:
+    """A page whose content is synthetic in full — nothing to derive or replace.
+
+    The workspace screens are content, not measurement: there is no captured
+    file list or note board to stay faithful to, and the real ones on this bench
+    are test scaffolding carrying colleagues' names. Their fixtures are the
+    whole payload, and each page says so in its provenance line.
+    """
+    return {}
+
+
 def _newest_json(kind_dir: Path) -> dict | None:
     files = sorted(kind_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
     return json.loads(files[0].read_text()) if files else None
@@ -482,8 +494,9 @@ def inject(page: Path, payload: dict) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--bundle", required=True, type=Path,
-                    help="an extracted dut-session-<ts> directory")
+    ap.add_argument("--bundle", type=Path, default=None,
+                    help="an extracted dut-session-<ts> directory; not needed for "
+                         "pages whose content is synthetic in full")
     ap.add_argument("--survey-bundle", type=Path, default=None,
                     help="take the neighbour scan from a second bundle when --bundle "
                          "has no usable one (both sources are recorded on the page)")
@@ -493,9 +506,13 @@ def main() -> int:
     args = ap.parse_args()
 
     builders = {"overview.html": build, "site-survey.html": build_survey,
-                "wifi-clients.html": build_clients}
+                "wifi-clients.html": build_clients,
+                "files.html": build_static, "bulletin.html": build_static}
     if args.page not in builders:
         raise SystemExit(f"no builder for {args.page}; known: {', '.join(builders)}")
+
+    if args.bundle is None and builders[args.page] is not build_static:
+        raise SystemExit(f"{args.page} is built from a capture — pass --bundle")
 
     anon = Anonymiser()
     payload = builders[args.page](args.bundle, anon, args.survey_bundle)

@@ -16,6 +16,12 @@ double-click, works offline, and survives being forwarded.
 | `overview.html` | Fleet strip, KPI row, 40-hour CPU and client trends, the cached channel recommendation, crash feed |
 | `site-survey.html` | Per-band channel charts over a real 2,438-observation scan, band filter, SSID/BSSID search, the full neighbour table |
 | `wifi-clients.html` | The per-client table with row-expand deep stats, grouped by band, with Kick |
+| `files.html` | The workspace file table with drag-and-drop upload, sortable columns, tags, inline preview |
+| `bulletin.html` | Notes with nested replies, per-author colours, the edited marker and the unverified badge |
+
+Files and Bulletin are **two separate sections in the product**, so they are two
+separate files here. Folding them into one "Workspace" page would invent a
+screen the app does not have.
 
 More screens are added one file at a time; see *Adding a screen*.
 
@@ -45,6 +51,13 @@ name a second source — both end up printed on the page:
 
 ```bash
 python3 build_demo_data.py --bundle <long-session> --survey-bundle <session-with-a-survey>
+```
+
+Pages whose content is synthetic in full take no bundle at all:
+
+```bash
+python3 build_demo_data.py --page files.html
+python3 build_demo_data.py --page bulletin.html
 ```
 
 A bundle is any extracted `dut-session-<ts>` directory from the **Download DUT
@@ -80,8 +93,13 @@ creates work for whoever has to make it true later.
   the candidate set. The goal is that identifiers are never published — not that
   someone with the source bundle is defeated.
 * **Synthetic**, and kept in `demo-fixtures.json` away from anything measured —
-  the fleet list (a one-DUT bench cannot produce a fleet) and the crash lines
-  (the reference capture contained none).
+  the fleet list (a one-DUT bench cannot produce a fleet), the crash lines (the
+  reference capture contained none), the DUT-status tile (connection state is
+  live UI no capture records), and **all** of `files.html` and `bulletin.html`.
+  A file list and a note board are *content*, not measurement, so there is no
+  measured claim to keep faithful; and the real ones on this bench are test
+  scaffolding carrying colleagues' names, which is not something to publish.
+  Both pages say so in their own provenance line.
 * **Marked `◇ concept`** — an idea shown for discussion, not shipped
   behaviour. Everything without a chip mirrors what the product actually does.
   Fleet drag-to-reorder and drag-to-filter on a channel chart are concepts;

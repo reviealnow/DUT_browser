@@ -145,8 +145,9 @@ dialog::backdrop{background:rgba(20,30,55,.35)}
         <div class="card-body">
           <div class="tablewrap">
             <table>
+              <!-- WifiClientsCard's eleven columns. The expand button sits in
+                   the MAC cell there, so it does not get one of its own here. -->
               <thead><tr>
-                <th style="width:26px"></th>
                 <th>MAC</th><th>SSID / Band</th><th>Chan</th><th>Signal</th><th>SNR</th>
                 <th>TX / RX</th><th>Mode</th><th>NSS</th><th>Assoc</th><th>Vendor</th><th></th>
               </tr></thead>
@@ -163,11 +164,12 @@ dialog::backdrop{background:rgba(20,30,55,.35)}
 
       <div class="note">
         <b>Why some columns read “—”.</b> A downloaded session bundle carries the DUT's own
-        REST hooks; <span class="mono">Mode</span>, <span class="mono">NSS</span>,
-        <span class="mono">PER</span> and the instantaneous rates come from a live
-        <span class="mono">apstats</span> call and are simply not in the capture. They are shown
+        REST hooks. <span class="mono">Mode</span>, <span class="mono">NSS</span> and the rates
+        come from the live <span class="mono">wlanconfig</span> scan;
+        <span class="mono">PER</span> and the rest of the expanded deep stats come from
+        <span class="mono">apstats</span>. Neither is in an offline capture, so they are shown
         empty rather than filled in — the gap is real, and it is the honest thing for this screen
-        to say about an offline bundle.
+        to say about a downloaded bundle.
       </div>
 
       <div class="note" id="navNote">
@@ -254,26 +256,27 @@ function renderTable(){
 
   const html = [];
   order.forEach(band => {
-    const list = byBand.get(band).sort((a, b) => (b.rssi ?? -999) - (a.rssi ?? -999));
-    html.push(`<tr class="bandhead"><td colspan="12">${band} · ${list.length} client${list.length === 1 ? "" : "s"}</td></tr>`);
+    // WifiClientsCard sorts on signal_pct, not RSSI. Array.sort is stable, so
+    // clients tied at the same percentage keep the order the capture had.
+    const list = byBand.get(band).slice().sort((a, b) => (b.signalPct ?? -999) - (a.signalPct ?? -999));
+    html.push(`<tr class="bandhead"><td colspan="11">${band} · ${list.length} client${list.length === 1 ? "" : "s"}</td></tr>`);
     list.forEach(c => {
       const open = expanded.has(c.mac);
       html.push(`
         <tr class="client-row">
-          <td><button class="twist" data-mac="${c.mac}" aria-expanded="${open}">${open ? "▾" : "▸"}</button></td>
-          <td class="mono">${c.mac}</td>
+          <td class="mono"><button class="twist" data-mac="${c.mac}" aria-expanded="${open}" title="Show per-client stats">${open ? "▾" : "▸"}</button>${c.mac}</td>
           <td>${c.ssid} · ${c.band}</td>
           <td>${dash(c.chan)}</td>
           <td><span class="${sigClass(c.rssi)}">${dash(c.signalPct, "%")} (${dash(c.rssi)})</span></td>
           <td>${dash(c.snr)}</td>
-          <td>${dash(c.txRate)}</td>
+          <td>${dash(c.txRate)} / ${dash(c.rxRate)}</td>
           <td>${dash(c.mode)}</td>
           <td>${dash(c.nss)}</td>
           <td class="mono">${assoc(c.assocSecs)}</td>
           <td>${c.vendor || "—"}</td>
           <td><button class="btn btn-danger" data-kick="${c.mac}">Kick</button></td>
         </tr>`);
-      if (open) html.push(`<tr class="detail"><td colspan="12">${detailHtml(c)}</td></tr>`);
+      if (open) html.push(`<tr class="detail"><td colspan="11">${detailHtml(c)}</td></tr>`);
     });
   });
   $("tbody").innerHTML = html.join("");
@@ -357,7 +360,7 @@ $("btnScan").addEventListener("click", (ev) => {
   b.disabled = true;
   setTimeout(() => {
     b.textContent = "Scan clients"; b.disabled = false;
-    statsCache.clear();
+    // The product's statsByMac survives a re-scan; only new MACs cost a fetch.
     renderTable();
     toast(`Replayed the captured cycle — ${DATA.clients.length} clients. `
         + `The kit ships one real scan, so the numbers are unchanged rather than invented.`);
