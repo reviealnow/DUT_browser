@@ -92,10 +92,16 @@ dut-dashboard/
                   tools/CONTRACT_wifi_context.md; implemented in parallel PRs)
   scripts/        sysMon.sh (DUT-side telemetry)
   demo/           self-contained HTML pages for showing the product without a
-                  DUT (one file per screen, opens by double-click) ·
-                  build_demo_data.py regenerates their baked-in data from a real
-                  bundle and anonymises every SSID/MAC/IP on the way in ·
-                  see README_demo_kit.md before adding a screen
+                  DUT (one file per screen, opens by double-click; index.html
+                  is the front door) · build_demo_data.py regenerates their
+                  baked-in data from a real bundle and anonymises every
+                  SSID/MAC/IP on the way in · **read README_demo_kit.md before
+                  touching a screen**: it carries the parity bar these pages are
+                  held to (match the observable contract, not the component line
+                  by line) and the rule that earned it — open the real component
+                  and read its JSX first, because a demo can misrepresent the
+                  product by showing LESS as easily as more, and only one of
+                  those has a chip
 ```
 
 When adding a feature, follow the **existing Wi-Fi Clients data flow** as the
