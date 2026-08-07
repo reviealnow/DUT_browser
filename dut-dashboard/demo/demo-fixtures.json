@@ -436,6 +436,7 @@
         "size": 4118,
         "sha256": null
       }
-    ]
+    ],
+    "hasCredentials": true
   }
 }

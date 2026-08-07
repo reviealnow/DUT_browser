@@ -247,12 +247,13 @@ $("command").addEventListener("input", (ev) => {
 function send(text){
   const trimmed = text.trim();
   if (!trimmed) return;
-  // Echo the command and a refusal, which is what a console with no DUT behind
-  // it can honestly do. The product would write it to the serial port.
-  lines.push(`AP6_840E# ${trimmed}`,
-             `-sh: this demo has no DUT attached — the product sends this over the serial port`,
-             `AP6_840E# `);
+  // Only the echo a DUT would produce goes into the console. Inventing a shell
+  // response would put fabricated output inside a view whose provenance line
+  // calls it real console output; the explanation belongs outside it.
+  lines.push(`AP6_840E# ${trimmed}`);
   renderConsole(true);
+  toast("Sent nowhere — this demo has no DUT. The product writes the line to the serial port "
+      + "and the device's own output comes back on the stream.");
 }
 
 $("sendForm").addEventListener("submit", (ev) => {
