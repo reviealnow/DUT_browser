@@ -20,6 +20,7 @@ double-click, works offline, and survives being forwarded.
 | `bulletin.html` | Notes with nested replies, per-author colours, the edited marker and the unverified badge |
 | `downloads.html` | A real bundle's four cards — session log with its context, analyzer outputs with an inline plot, surveys, connect-time context |
 | `serial-console.html` | Monitor and Terminal, the popup command editor, and real console output |
+| `cpu-memory.html` | The three trend cards over 40 hours of analyzer CSV — no anonymising needed |
 
 Files and Bulletin are **two separate sections in the product**, so they are two
 separate files here. Folding them into one "Workspace" page would invent a

@@ -541,6 +541,55 @@ def build_console(bundle: Path, anon: Anonymiser,
     }
 
 
+def build_cpu(bundle: Path, anon: Anonymiser,
+              survey_bundle: Path | None = None) -> dict:
+    """CPU / Memory: the three cards, from the analyzer's own CSVs.
+
+    Nothing here needs anonymising — per-core busy percentages and
+    /proc/meminfo counters identify nobody — so this screen is measured
+    end to end. The memory card plots EffectiveAvailable_kB, which is what
+    the analyzer already computes (MemAvailable minus SUnreclaim); taking it
+    from the column rather than recomputing keeps one definition of the
+    number.
+    """
+    cpu_csv = next(bundle.glob("*_cpu_usage.csv"), None)
+    mem_csv = next(bundle.glob("*_memory.csv"), None)
+    if cpu_csv is None or mem_csv is None:
+        raise SystemExit(f"need both *_cpu_usage.csv and *_memory.csv in {bundle}")
+
+    cpu_rows = _downsample(list(csv.DictReader(cpu_csv.open())))
+    cores = sorted(c for c in cpu_rows[0] if c.startswith("CPU") and c.endswith("_UsagePct"))
+    series = {c[3:-len("_UsagePct")]: [round(float(r[c]), 1) for r in cpu_rows] for c in cores}
+    # useDutMonitor derives cpuBusyPct as 100 - mean(idle), which is the mean of
+    # the per-core busy figures. The CSV only carries those already rounded to
+    # one decimal, so averaging them differs from the product's single-rounding
+    # path by under 0.05 — the same quantity, not a different definition. Do not
+    # "correct" this to a max or a sum.
+    busy = [round(sum(series[c][i] for c in series) / len(series), 1)
+            for i in range(len(cpu_rows))]
+
+    mem_rows = _downsample(list(csv.DictReader(mem_csv.open())))
+    effective = [int(r["EffectiveAvailable_kB"]) for r in mem_rows]
+
+    return {
+        "generatedFrom": bundle.name,
+        "cores": series,
+        "busy": busy,
+        "cpuLabels": _labels([r["Timestamp"] for r in cpu_rows]),
+        "latestPerCore": {c: series[c][-1] for c in series},
+        "latestBusy": busy[-1],
+        "memory": {
+            "effectiveKb": effective,
+            "availableKb": [int(r["MemAvailable_kB"]) for r in mem_rows],
+            "slabKb": [int(r["Slab_kB"]) for r in mem_rows],
+            "labels": _labels([r["Timestamp"] for r in mem_rows]),
+        },
+        "spanFrom": cpu_rows[0]["Timestamp"],
+        "spanTo": cpu_rows[-1]["Timestamp"],
+        "samples": sum(1 for _ in csv.DictReader(cpu_csv.open())),
+    }
+
+
 def build_static(bundle: Path | None, anon: Anonymiser,
                  survey_bundle: Path | None = None) -> dict:
     """A page whose content is synthetic in full — nothing to derive or replace.
@@ -647,7 +696,8 @@ def main() -> int:
                 "wifi-clients.html": build_clients,
                 "files.html": build_static, "bulletin.html": build_static,
                 "downloads.html": build_downloads,
-                "serial-console.html": build_console}
+                "serial-console.html": build_console,
+                "cpu-memory.html": build_cpu}
     if args.page not in builders:
         raise SystemExit(f"no builder for {args.page}; known: {', '.join(builders)}")
 
