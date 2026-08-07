@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DUT_browser — Upgrade Firmware (demo)</title>
+<style>
+:root{
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:24px;
+  --bg:#f4f6fa; --panel:#fff; --ink:#1b2333; --muted:#687389; --faint:#9aa4b8;
+  --accent:#1565c0; --accent-weak:#e8f0fb;
+  --ok:#0c7a43; --ok-weak:#e4f4ea;
+  --warn:#9a6a00; --warn-weak:#fbf0d9;
+  --danger:#b3261e; --danger-weak:#fce8e6;
+  --border:#e3e8f0;
+  --shadow:0 1px 2px rgba(20,30,55,.04), 0 6px 20px rgba(20,30,55,.06);
+  --radius:14px; --sidebar-w:232px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg); color:var(--ink); font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"PingFang TC","Noto Sans TC",sans-serif; -webkit-font-smoothing:antialiased}
+button,input,select{font:inherit; color:inherit}
+button{cursor:pointer}
+
+.layout{display:grid; grid-template-columns:var(--sidebar-w) 1fr; min-height:100vh}
+.sidebar{background:var(--panel); border-right:1px solid var(--border); padding:var(--space-4) 0; position:sticky; top:0; height:100vh; overflow-y:auto}
+.brand{display:flex; align-items:center; gap:var(--space-2); padding:0 var(--space-4) var(--space-5)}
+.brand-mark{width:28px; height:28px; border-radius:8px; background:var(--accent); color:#fff; display:grid; place-items:center; font-weight:700; font-size:13px}
+.brand-name{font-weight:650; letter-spacing:-.01em}
+.nav-group{padding:var(--space-3) var(--space-4) var(--space-1); font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--faint); font-weight:650}
+.nav-item{display:flex; align-items:center; gap:var(--space-3); width:100%; border:0; background:none; text-align:left; padding:var(--space-2) var(--space-4); border-left:3px solid transparent; color:var(--muted)}
+.nav-item:hover{background:var(--bg); color:var(--ink)}
+.nav-item[aria-current="page"]{background:var(--accent-weak); border-left-color:var(--accent); color:var(--accent); font-weight:600}
+.nav-icon{width:18px; text-align:center; font-size:13px}
+
+.main{display:flex; flex-direction:column; min-width:0}
+.topbar{display:flex; align-items:center; gap:var(--space-3); padding:var(--space-4) var(--space-5); background:var(--panel); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:5}
+.topbar h1{font-size:17px; margin:0; letter-spacing:-.01em}
+.topbar .sub{color:var(--muted); font-size:12px}
+.spacer{flex:1}
+.pill{display:inline-flex; align-items:center; gap:5px; padding:3px 10px; border-radius:999px; font-size:12px; font-weight:600; border:1px solid transparent; white-space:nowrap}
+.pill-demo{background:var(--warn-weak); color:var(--warn); border-color:#f0dfb4}
+.pill-admin{background:#f3effb; color:#6b4fa8; border-color:#d9cef0}
+
+.content{padding:var(--space-5); display:flex; flex-direction:column; gap:var(--space-4); max-width:900px; width:100%}
+.card{background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow)}
+.card-head{padding:var(--space-4) var(--space-4) var(--space-2)}
+.card-head h2{font-size:14px; margin:0; letter-spacing:-.01em}
+.card-head .sub{color:var(--muted); font-size:12px; margin-top:2px}
+.card-body{padding:var(--space-3) var(--space-4) var(--space-4); display:flex; flex-direction:column; gap:var(--space-4)}
+
+.btn{border:1px solid var(--border); background:var(--panel); border-radius:9px; padding:6px 12px; font-size:12px; font-weight:600; color:var(--muted); transition:.12s}
+.btn:hover:not([disabled]){border-color:var(--accent); color:var(--accent); background:var(--accent-weak)}
+.btn[disabled]{opacity:.45; cursor:not-allowed}
+.btn.danger{border-color:#e2b4b0; color:var(--danger)}
+.btn.danger:hover:not([disabled]){background:var(--danger-weak); border-color:var(--danger); color:var(--danger)}
+
+label{display:flex; flex-direction:column; gap:5px; font-size:12px; color:var(--muted); font-weight:600}
+select,input[type=text]{border:1px solid var(--border); border-radius:9px; padding:7px 11px; font-size:13px; background:var(--panel); color:var(--ink); font-weight:400; width:100%}
+select:focus,input:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-weak)}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.sha{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px; word-break:break-all; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:6px 9px; display:block}
+.row{display:flex; gap:var(--space-3); flex-wrap:wrap}
+.row > *{flex:1; min-width:220px}
+.actions{display:flex; gap:var(--space-2); flex-wrap:wrap}
+.flash{border-radius:10px; padding:var(--space-3) var(--space-4); font-size:12px}
+.flash.warn{background:var(--warn-weak); color:var(--warn); border:1px solid #f0dfb4}
+.flash.ok{background:var(--ok-weak); color:var(--ok); border:1px solid #bfe3cd}
+.flash.danger{background:var(--danger-weak); color:var(--danger); border:1px solid #f0c5c1}
+
+.note{padding:var(--space-3) var(--space-4); border-radius:10px; background:var(--accent-weak); color:#12467f; font-size:12px; border:1px solid #cfe0f6}
+/* A "concept" chip marks an idea shown for discussion. Everything without one
+   mirrors behaviour the product actually ships — a demo must not quietly
+   promise features somebody then has to build. */
+.concept{display:inline-flex; align-items:center; gap:5px; padding:1px 8px; border-radius:999px; font-size:11px; font-weight:650; color:#6b4fa8; background:#f3effb; border:1px dashed #b9a5e0; white-space:nowrap}
+.provenance{color:var(--faint); font-size:11px; line-height:1.6; padding-top:var(--space-2); border-top:1px solid var(--border)}
+.provenance b{color:var(--muted); font-weight:650}
+.toast{position:fixed; left:50%; bottom:24px; transform:translate(-50%,20px); background:var(--ink); color:#fff; padding:9px 16px; border-radius:999px; font-size:13px; opacity:0; pointer-events:none; transition:.2s; z-index:60; max-width:min(720px,90vw); text-align:center}
+.toast.show{opacity:1; transform:translate(-50%,0)}
+dialog{border:1px solid var(--border); border-radius:var(--radius); box-shadow:0 20px 60px rgba(20,30,55,.25); padding:var(--space-5); width:min(520px,92vw)}
+dialog::backdrop{background:rgba(20,30,55,.4)}
+.modal-title{font-size:16px; font-weight:700; margin-bottom:var(--space-3)}
+@media (max-width:860px){ .layout{grid-template-columns:1fr} .sidebar{display:none} }
+</style>
+</head>
+<body>
+
+<!-- Workflow configuration, per the repo's inline-data convention. Synthetic —
+     but the transport contract is the product's real one. See the provenance. -->
+<script id="demo-data" type="application/json">{"dut":"AP6_840E","mgmtUrl":"https://198.51.100.20","dryRunForced":false,"transports":[{"id":"gui","label":"Web UI upload (signed image)","accepts":{"endsWith":".sig","describe":"a signed .sig image"},"path":"/submit.cgi","port":443},{"id":"api","label":"Management API (encrypted image)","accepts":{"contains":"-encrypt_","endsWith":".bin","describe":"an encrypted -encrypt_*.bin image"},"path":"/ap/systemctl/sysFwUpgrade","port":10443}],"files":[{"id":4,"name":"wifix.tar.gz.sig","size":35763146,"sha256":"0685884c872f4d1e9a3b77c2e0148fbb5c9d2a6e83f04b17ce55901d2a7bf6e3"},{"id":9,"name":"ubi_kernel_AP6_840E-encrypt_1.10.339.bin","size":34117220,"sha256":"c41f9ab0273e5d68118aa4f0b6e2cd7395481a6f0d2e77bb3c1904ae62d5f8a1"},{"id":10,"name":"release-notes-1.10.339.txt","size":4118,"sha256":null}]}</script>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand"><span class="brand-mark">D</span><span class="brand-name">DUT_browser</span></div>
+    <div class="nav-group">Monitoring</div>
+    <button class="nav-item" data-screen="Overview"><span class="nav-icon">▣</span>Overview</button>
+    <button class="nav-item" data-screen="CPU / Memory"><span class="nav-icon">📈</span>CPU / Memory</button>
+    <button class="nav-item" data-screen="Wi-Fi Clients"><span class="nav-icon">📶</span>Wi-Fi Clients</button>
+    <button class="nav-item" data-screen="SSID Capability"><span class="nav-icon">🔍</span>SSID Capability</button>
+    <button class="nav-item" data-screen="Site Survey"><span class="nav-icon">📡</span>Site Survey</button>
+    <button class="nav-item" data-screen="Logs / Crash Events"><span class="nav-icon">⚠</span>Logs / Crash Events</button>
+    <button class="nav-item" data-screen="Serial Console"><span class="nav-icon">⌨</span>Serial Console</button>
+    <button class="nav-item" data-screen="Downloads"><span class="nav-icon">⬇</span>Downloads</button>
+    <div class="nav-group">Workspace</div>
+    <button class="nav-item" data-screen="Files"><span class="nav-icon">🗂</span>Files</button>
+    <button class="nav-item" data-screen="Bulletin"><span class="nav-icon">📌</span>Bulletin</button>
+    <div class="nav-group">System</div>
+    <button class="nav-item" data-screen="Settings"><span class="nav-icon">⚙</span>Settings</button>
+    <button class="nav-item" aria-current="page"><span class="nav-icon">⚡</span>Upgrade Firmware</button>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div>
+        <h1>Upgrade Firmware</h1>
+        <div class="sub">Flash a DUT from the Files workspace</div>
+      </div>
+      <span class="spacer"></span>
+      <span class="pill pill-demo">● DEMO — no DUT reachable, nothing can be flashed</span>
+      <span class="pill pill-admin">admin only</span>
+    </header>
+
+    <div class="content">
+      <section class="card">
+        <div class="card-head">
+          <h2>Upgrade Firmware</h2>
+          <div class="sub" id="cardSub"></div>
+        </div>
+        <div class="card-body">
+
+          <div class="row">
+            <label>Upload path
+              <select id="transport"></select>
+            </label>
+            <label>Target
+              <input type="text" id="target" readonly>
+            </label>
+          </div>
+
+          <label>Image
+            <select id="image"><option value="">Select an uploaded file…</option></select>
+          </label>
+          <div style="font-size:12px;color:var(--muted)">
+            Images already in the shared Files workspace can be picked directly — the same
+            endpoint, so they stay listed, checksummed and attributable.
+          </div>
+
+          <div id="shaBlock" hidden>
+            <label>Recorded SHA-256
+              <code class="sha" id="shaValue"></code>
+            </label>
+          </div>
+
+          <label>Expected SHA-256 (optional — from the customer; mismatch blocks the upload)
+            <input type="text" id="expected" placeholder="paste the published checksum to verify against">
+          </label>
+
+          <div id="mismatch"></div>
+
+          <div class="actions">
+            <!-- Rehearsing needs no confirmation: it cannot reach the DUT. -->
+            <button class="btn" id="btnRehearse" disabled>Rehearse (dry run)</button>
+            <button class="btn danger" id="btnUpgrade" disabled>Upgrade firmware…</button>
+          </div>
+
+          <div id="outcome"></div>
+        </div>
+      </section>
+
+      <div class="note">
+        <b>The two paths are not interchangeable.</b> The management API takes the
+        <b>encrypted</b> image; the web-UI upload takes the <b>signed</b> <span class="mono">.sig</span>.
+        Feeding one the other's image is what produced
+        <span class="mono">Can't open FW.signauture.st1</span> on a real unit — the transport was
+        fine, the image was wrong. This screen keeps that rule because a demo of a flasher that
+        blurred it would be teaching the one mistake worth avoiding.
+      </div>
+
+      <div class="note" id="navNote">
+        This is the <b>Upgrade Firmware</b> screen of the demo kit.
+      </div>
+
+      <div class="provenance" id="provenance"></div>
+    </div>
+  </div>
+</div>
+
+<dialog id="confirm">
+  <div class="modal-title">Flash firmware to this DUT?</div>
+  <p style="margin:0 0 var(--space-3);font-size:13px">
+    <strong>Losing power during a flash bricks the DUT.</strong> Do not unplug it or cut the
+    bench supply until the device has rebooted on its own.
+  </p>
+  <p style="margin:0 0 var(--space-3);font-size:13px;color:var(--muted)" id="confirmDetail"></p>
+  <label>Type the DUT's name to confirm
+    <input type="text" id="typed" autocomplete="off">
+  </label>
+  <div class="actions" style="justify-content:flex-end;margin-top:var(--space-4)">
+    <button class="btn" id="confirmCancel">Cancel</button>
+    <button class="btn danger" id="confirmGo" disabled>Flash it</button>
+  </div>
+</dialog>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+"use strict";
+const DATA = JSON.parse(document.getElementById("demo-data").textContent);
+const $ = (id) => document.getElementById(id);
+
+let toastTimer;
+function toast(msg){
+  const el = $("toast");
+  el.textContent = msg; el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 4200);
+}
+const esc = (s) => String(s).replace(/[<&]/g, c => c === "<" ? "&lt;" : "&amp;");
+function bytes(n){
+  const u = ["B", "KB", "MB", "GB"];
+  let i = 0, v = n;
+  while (v >= 1024 && i < u.length - 1){ v /= 1024; i++; }
+  return `${v.toFixed(v < 10 && i > 0 ? 1 : 0)} ${u[i]}`;
+}
+
+/* ---------------- state ---------------- */
+let transportId = DATA.transports[0].id;
+let selectedId = null;
+const transport = () => DATA.transports.find(t => t.id === transportId);
+const chosen = () => DATA.files.find(f => f.id === selectedId) || null;
+
+/* The DUT accepts one image type per path, so a mismatch is worth naming before
+   the confirm dialog rather than at it. */
+/* The vendor's rule is a pattern, not a suffix: the API takes
+   ubi_kernel_AP6_*-encrypt_*.bin. Encoding it as "ends with -encrypt_.bin"
+   matches no real filename, which would quietly make that path undemonstrable. */
+function accepts(name, rule){
+  if (rule.contains && !name.includes(rule.contains)) return false;
+  return name.endsWith(rule.endsWith);
+}
+function mismatchReason(){
+  const file = chosen();
+  if (!file) return null;
+  const t = transport();
+  if (!accepts(file.name, t.accepts)){
+    return `${file.name} is not ${t.accepts.describe}. The ${t.label.toLowerCase()} needs one; `
+         + `sending the other type is refused by the device, not by this page.`;
+  }
+  return null;
+}
+function expectedMismatch(){
+  const file = chosen();
+  const want = $("expected").value.trim().toLowerCase();
+  if (!file || !want) return null;
+  if (!file.sha256) return "No checksum was recorded for this file, so it cannot be verified.";
+  if (want !== file.sha256.toLowerCase()){
+    return "Expected checksum does not match the recorded one — the upload is blocked.";
+  }
+  return null;
+}
+
+function render(){
+  $("cardSub").textContent = `Admin only · ${transport() ? transport().label : "select an upload path"}`;
+  $("target").value = `${DATA.dut} — ${DATA.mgmtUrl}:${transport().port}${transport().path}`;
+
+  const file = chosen();
+  $("shaBlock").hidden = !file;
+  if (file){
+    $("shaValue").textContent = file.sha256 ?? "not recorded (uploaded before checksums)";
+  }
+
+  const problem = mismatchReason() || expectedMismatch();
+  $("mismatch").innerHTML = problem ? `<div class="flash danger">${esc(problem)}</div>` : "";
+
+  const ready = Boolean(file) && !problem;
+  $("btnRehearse").disabled = !file;      // rehearsing cannot reach the DUT
+  $("btnUpgrade").disabled = !ready;
+}
+
+/* ---------------- boot ---------------- */
+$("transport").innerHTML = DATA.transports.map(t =>
+  `<option value="${esc(t.id)}">${esc(t.label)}</option>`).join("");
+$("image").innerHTML = `<option value="">Select an uploaded file…</option>`
+  + DATA.files.map(f => `<option value="${f.id}">${esc(f.name)} · ${bytes(f.size)}</option>`).join("");
+render();
+
+$("provenance").innerHTML =
+  `<b>Demo kit</b> — no DUT is reachable from this file and nothing here can flash anything. `
+  + `Image names, checksums and the device address are <b>synthetic</b>. The transport contract `
+  + `is <b>not</b>: the management API takes the encrypted image and the web-UI path takes the `
+  + `signed <span class="mono">.sig</span>, exactly as <b>firmware_service.py</b> has it, because `
+  + `that is the rule a demo of a flasher must not blur. The checksum gate, the dry run, the `
+  + `power-loss warning and the type-the-name confirm are all the product's. Chips marked `
+  + `<span class="concept">◇ concept</span> are ideas for discussion; this page has none.`;
+
+/* ---------------- interactions ---------------- */
+$("transport").addEventListener("change", (ev) => { transportId = ev.target.value; render(); });
+$("image").addEventListener("change", (ev) => {
+  selectedId = ev.target.value ? Number(ev.target.value) : null;
+  $("outcome").innerHTML = "";
+  render();
+});
+$("expected").addEventListener("input", render);
+
+$("btnRehearse").addEventListener("click", () => {
+  const file = chosen(), t = transport();
+  $("outcome").innerHTML = `<div class="flash ok">Dry run complete — nothing was sent. `
+    + `Would upload ${file.size.toLocaleString()} bytes to `
+    + `${esc(DATA.mgmtUrl)}:${t.port}${esc(t.path)} via the ${esc(t.id)} transport `
+    + `(sha256 ${esc((file.sha256 || "—").slice(0, 16))}…).</div>`;
+});
+
+$("btnUpgrade").addEventListener("click", () => {
+  const file = chosen(), t = transport();
+  $("confirmDetail").textContent =
+    `${file.name} (${bytes(file.size)}) to ${DATA.dut} via the ${t.label.toLowerCase()}.`;
+  $("typed").value = "";
+  $("confirmGo").disabled = true;
+  $("confirm").showModal();
+  $("typed").focus();
+});
+$("typed").addEventListener("input", (ev) => {
+  $("confirmGo").disabled = ev.target.value.trim() !== DATA.dut;
+});
+$("confirmCancel").addEventListener("click", () => $("confirm").close());
+$("confirmGo").addEventListener("click", () => {
+  $("confirm").close();
+  $("outcome").innerHTML = `<div class="flash warn">No DUT is attached to this page, so nothing `
+    + `was sent. Against a real device the product uploads the image, watches the serial console `
+    + `for the downloader to start, and reports whether the flash actually began — a missing `
+    + `observation is reported as unknown, never as success.</div>`;
+  toast("Nothing was flashed — this demo has no device to reach.");
+});
+
+document.querySelectorAll("[data-screen]").forEach(el => {
+  el.addEventListener("click", () => {
+    const name = el.dataset.screen;
+    const map = { "Overview": "overview.html", "Site Survey": "site-survey.html",
+                  "Wi-Fi Clients": "wifi-clients.html", "Files": "files.html",
+                  "Bulletin": "bulletin.html", "Downloads": "downloads.html",
+                  "Serial Console": "serial-console.html", "CPU / Memory": "cpu-memory.html",
+                  "SSID Capability": "ssid-capability.html" };
+    $("navNote").innerHTML = map[name]
+      ? `<b>${name}</b> is in this kit — open <b>${map[name]}</b> beside this file.`
+      : `<b>${name}</b> is not in the kit yet. Screens are added one file at a time.`;
+    $("navNote").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  });
+});
+})();
+</script>
+</body>
+</html>

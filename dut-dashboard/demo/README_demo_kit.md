@@ -21,6 +21,9 @@ double-click, works offline, and survives being forwarded.
 | `downloads.html` | A real bundle's four cards — session log with its context, analyzer outputs with an inline plot, surveys, connect-time context |
 | `serial-console.html` | Monitor and Terminal, the popup command editor, and real console output |
 | `cpu-memory.html` | The three trend cards over 40 hours of analyzer CSV — no anonymising needed |
+| `ssid-capability.html` | 28 VAPs of hostapd config, and the all-miss state a capture with no host-side scan really has |
+| `firmware.html` | The admin flash flow: transport, checksum gate, dry run, type-the-name confirm |
+| `index.html` | The kit's front door — every screen, and which are measured versus synthetic |
 
 Files and Bulletin are **two separate sections in the product**, so they are two
 separate files here. Folding them into one "Workspace" page would invent a
@@ -165,6 +168,9 @@ interference score and travels as a number beside the chart, never as a bar.
 
 ## Adding a screen
 
+**Start at `index.html`.** It links every screen and states, per tile, whether
+that page is measured or synthetic.
+
 1. Copy `overview.html`, keep the `<style>` block and the chart helpers
    (`lineChart` / `barChart`) — pages duplicate them on purpose, because
    "one file you can email" is the whole point and a shared asset breaks it.
@@ -191,3 +197,8 @@ interference score and travels as a number beside the chart, never as a bar.
   *What is real and what is not*.
 * No build, no dependencies, and none should be added: the value of a demo file
   is that it opens anywhere.
+* `firmware.html` cannot reach anything, and says so — but it keeps one rule
+  exactly: the management API takes the **encrypted** image and the web-UI path
+  takes the **signed** `.sig`. That rule is a filename *pattern*
+  (`ubi_kernel_AP6_*-encrypt_*.bin`), not a suffix; encoding it as a suffix
+  matches no real filename and silently makes that path undemonstrable.

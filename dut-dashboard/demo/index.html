@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DUT_browser — demo kit</title>
+<style>
+:root{
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:24px; --space-6:32px;
+  --bg:#f4f6fa; --panel:#fff; --ink:#1b2333; --muted:#687389; --faint:#9aa4b8;
+  --accent:#1565c0; --accent-weak:#e8f0fb;
+  --ok:#0c7a43; --ok-weak:#e4f4ea;
+  --warn:#9a6a00; --warn-weak:#fbf0d9;
+  --border:#e3e8f0;
+  --shadow:0 1px 2px rgba(20,30,55,.04), 0 6px 20px rgba(20,30,55,.06);
+  --radius:14px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg); color:var(--ink); font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"PingFang TC","Noto Sans TC",sans-serif; -webkit-font-smoothing:antialiased}
+a{color:inherit; text-decoration:none}
+
+.wrap{max-width:1080px; margin:0 auto; padding:var(--space-6) var(--space-5) var(--space-6)}
+.head{display:flex; align-items:flex-start; gap:var(--space-4); flex-wrap:wrap; margin-bottom:var(--space-5)}
+.mark{width:44px; height:44px; border-radius:12px; background:var(--accent); color:#fff; display:grid; place-items:center; font-weight:700; font-size:19px; flex:none}
+h1{font-size:23px; margin:0; letter-spacing:-.02em}
+.lede{color:var(--muted); margin-top:var(--space-2); max-width:64ch}
+.pill{display:inline-flex; align-items:center; gap:5px; padding:3px 10px; border-radius:999px; font-size:12px; font-weight:600; border:1px solid transparent}
+.pill-demo{background:var(--warn-weak); color:var(--warn); border-color:#f0dfb4}
+
+.grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:var(--space-4)}
+.tile{background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow);
+  padding:var(--space-4); display:flex; flex-direction:column; gap:6px; transition:.14s; height:100%}
+.tile:hover{border-color:var(--accent); transform:translateY(-2px); box-shadow:0 10px 28px rgba(20,30,55,.10)}
+.tile-icon{font-size:19px}
+.tile-name{font-weight:650; letter-spacing:-.01em}
+.tile-sub{color:var(--muted); font-size:12px; line-height:1.5}
+.tile-tag{margin-top:auto; padding-top:var(--space-2); font-size:11px; font-weight:650; letter-spacing:.02em}
+.tag-measured{color:var(--ok)}
+.tag-synthetic{color:var(--muted)}
+.group{margin:var(--space-6) 0 var(--space-3); font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--faint); font-weight:650}
+
+.panel{background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow);
+  padding:var(--space-4) var(--space-5); margin-top:var(--space-6)}
+.panel h2{font-size:14px; margin:0 0 var(--space-2)}
+.panel p{margin:0 0 var(--space-3); color:var(--muted); font-size:13px}
+.panel p:last-child{margin-bottom:0}
+.panel b{color:var(--ink)}
+.chip{display:inline-flex; align-items:center; gap:5px; padding:1px 8px; border-radius:999px; font-size:11px; font-weight:650; color:#6b4fa8; background:#f3effb; border:1px dashed #b9a5e0}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px}
+.foot{color:var(--faint); font-size:11px; line-height:1.7; margin-top:var(--space-5); padding-top:var(--space-3); border-top:1px solid var(--border)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="head">
+    <span class="mark">D</span>
+    <div style="flex:1;min-width:280px">
+      <h1>DUT_browser — demo kit</h1>
+      <div class="lede">
+        The dashboard, without a device. Every page below is one self-contained file: open it by
+        double-click, offline, and forward it to anyone. No server, no build, no dependencies.
+      </div>
+    </div>
+    <span class="pill pill-demo">● DEMO — canned data, no DUT attached</span>
+  </div>
+
+  <div class="group">Monitoring</div>
+  <div class="grid">
+    <a class="tile" href="overview.html">
+      <span class="tile-icon">▣</span>
+      <span class="tile-name">Overview</span>
+      <span class="tile-sub">Fleet strip, KPIs, 40-hour CPU and client trends, the cached channel recommendation, crash feed.</span>
+      <span class="tile-tag tag-measured">measured · partly synthetic</span>
+    </a>
+    <a class="tile" href="cpu-memory.html">
+      <span class="tile-icon">📈</span>
+      <span class="tile-name">CPU / Memory</span>
+      <span class="tile-sub">Per-core trend, current busy by core, effective available memory — 40 hours of analyzer CSV.</span>
+      <span class="tile-tag tag-measured">measured</span>
+    </a>
+    <a class="tile" href="wifi-clients.html">
+      <span class="tile-icon">📶</span>
+      <span class="tile-name">Wi-Fi Clients</span>
+      <span class="tile-sub">Per-client table grouped by band, row-expand deep stats, Kick. Fields an offline bundle lacks stay empty.</span>
+      <span class="tile-tag tag-measured">measured</span>
+    </a>
+    <a class="tile" href="ssid-capability.html">
+      <span class="tile-icon">🔍</span>
+      <span class="tile-name">SSID Capability</span>
+      <span class="tile-sub">28 VAPs of hostapd config, reconciled against a host-side scan — which this capture does not have.</span>
+      <span class="tile-tag tag-measured">measured</span>
+    </a>
+    <a class="tile" href="site-survey.html">
+      <span class="tile-icon">📡</span>
+      <span class="tile-name">Site Survey</span>
+      <span class="tile-sub">2,438 neighbour observations across two bands, per-channel charts, search, the full table.</span>
+      <span class="tile-tag tag-measured">measured</span>
+    </a>
+    <a class="tile" href="serial-console.html">
+      <span class="tile-icon">⌨</span>
+      <span class="tile-name">Serial Console</span>
+      <span class="tile-sub">Monitor and Terminal, the popup command editor, real console output.</span>
+      <span class="tile-tag tag-measured">measured · replayed terminal</span>
+    </a>
+    <a class="tile" href="downloads.html">
+      <span class="tile-icon">⬇</span>
+      <span class="tile-name">Downloads</span>
+      <span class="tile-sub">A real bundle's four cards — what Download DUT Log actually produces, listed as it came off disk.</span>
+      <span class="tile-tag tag-measured">measured</span>
+    </a>
+  </div>
+
+  <div class="group">Workspace</div>
+  <div class="grid">
+    <a class="tile" href="files.html">
+      <span class="tile-icon">🗂</span>
+      <span class="tile-name">Files</span>
+      <span class="tile-sub">Drag-and-drop upload, sortable columns, tags, inline preview. Drop a real file on it and a row appears.</span>
+      <span class="tile-tag tag-synthetic">synthetic content</span>
+    </a>
+    <a class="tile" href="bulletin.html">
+      <span class="tile-icon">📌</span>
+      <span class="tile-name">Bulletin</span>
+      <span class="tile-sub">Notes with nested replies, per-author colours, the edited marker and the unverified badge.</span>
+      <span class="tile-tag tag-synthetic">synthetic content</span>
+    </a>
+  </div>
+
+  <div class="group">System</div>
+  <div class="grid">
+    <a class="tile" href="firmware.html">
+      <span class="tile-icon">⚡</span>
+      <span class="tile-name">Upgrade Firmware</span>
+      <span class="tile-sub">Admin-only flash flow: transport, checksum gate, dry run, and the type-the-name confirm. Nothing reachable.</span>
+      <span class="tile-tag tag-synthetic">synthetic content</span>
+    </a>
+  </div>
+
+  <div class="panel">
+    <h2>What is real here, and what is not</h2>
+    <p>
+      Tiles marked <b class="tag-measured" style="font-weight:650">measured</b> carry numbers from
+      real DUT sessions — CPU and memory counters, associated-client counts, per-channel neighbour
+      counts, the channel recommendation, the file listing of an actual downloaded bundle.
+      Every SSID, BSSID, MAC and IP in them was replaced before commit: a neighbour scan sweeps up
+      the networks of everyone in radio range, not just ours. The replacement is deterministic and
+      one-to-one, so counts and shapes are untouched and only labels change.
+    </p>
+    <p>
+      Tiles marked <b>synthetic content</b> are invented end to end. A file list, a note board and a
+      firmware picker are <i>content</i>, not measurements — there is no reading to stay faithful
+      to, and the real ones on this bench are test scaffolding carrying colleagues' names.
+    </p>
+    <p>
+      A <span class="chip">◇ concept</span> chip marks an idea shown for discussion. Anything
+      without one mirrors what the product actually does — which cuts both ways: the demo must not
+      invent a capability, and it must not quietly show a cruder one either. Each page ends with a
+      line saying where its own numbers came from.
+    </p>
+  </div>
+
+  <div class="panel">
+    <h2>Showing this to someone</h2>
+    <p>
+      Open <b>Site Survey</b> first — 2,438 real networks across two bands is the fastest way to
+      make the point that this is a measurement tool. Then <b>Overview</b> for the fleet and the
+      40-hour trends, and <b>Downloads</b> to show what an operator actually walks away with.
+      <b>Files</b> is the one to hand over: drag a file from the desktop onto it.
+    </p>
+    <p>
+      Every file works on its own, so you can send just the one that answers the question you were
+      asked. They only need each other for the sidebar links, which expect them in the same folder.
+    </p>
+  </div>
+
+  <div class="foot">
+    Generated from <span class="mono">dut-dashboard/demo/</span> — see
+    <span class="mono">README_demo_kit.md</span> for how the data is rebuilt from a session bundle,
+    what the anonymisation guarantees, and where the line sits between matching the product and
+    copying it. Nothing on these pages talks to a network.
+  </div>
+
+</div>
+</body>
+</html>

@@ -590,6 +590,51 @@ def build_cpu(bundle: Path, anon: Anonymiser,
     }
 
 
+def build_ssid(bundle: Path, anon: Anonymiser,
+               survey_bundle: Path | None = None) -> dict:
+    """SSID Capability: the DUT's own VAPs, reconciled against a host-side scan.
+
+    The capture holds Source A only — hostapd config read over serial. Source B
+    is a scan run on the host, which needs SURVEY_WIFI_IFACE set; without it the
+    product shows every row as a miss and says "Source B unavailable". That is
+    exactly the state of this bundle, so it is the state shown: inventing a
+    Source B would mean inventing the reconciliation this card exists to do.
+    """
+    source = survey_bundle or bundle
+    payload = _newest_json(source / "context" / "ssid-capability")
+    if payload is None:
+        raise SystemExit(f"no context/ssid-capability/*.json under {source}")
+
+    ssids = payload.get("ssids", [])
+    anon.prepare(own_ssids={s["ssid"] for s in ssids if s.get("ssid")},
+                 macs={s["bssid"] for s in ssids if s.get("bssid")})
+
+    rows = [{
+        "iface": s.get("iface"),
+        "ssid": anon.ssid(s.get("ssid"), own=True),
+        "bssid": anon.mac(s.get("bssid")),
+        "band": s.get("band"),
+        "channel": s.get("channel"),
+        "width": s.get("channel_width"),
+        "security": s.get("security"),
+        "pmf": s.get("pmf"),
+        "generation": s.get("generation"),
+        "dot11k": s.get("dot11k"),
+        "dot11v": s.get("dot11v"),
+        "dot11r": s.get("dot11r"),
+        "akm": s.get("akm") or [],
+        "pairwise": s.get("pairwise_cipher") or [],
+        "freqMhz": s.get("freq_mhz"),
+    } for s in sorted(ssids, key=lambda s: (s.get("band") or "", s.get("iface") or ""))]
+
+    return {
+        "generatedFrom": source.name,
+        "capturedAt": (payload.get("captured_at") or "")[:16].replace("T", " "),
+        "rows": rows,
+        "sourceBAvailable": False,
+    }
+
+
 def build_static(bundle: Path | None, anon: Anonymiser,
                  survey_bundle: Path | None = None) -> dict:
     """A page whose content is synthetic in full — nothing to derive or replace.
@@ -697,7 +742,9 @@ def main() -> int:
                 "files.html": build_static, "bulletin.html": build_static,
                 "downloads.html": build_downloads,
                 "serial-console.html": build_console,
-                "cpu-memory.html": build_cpu}
+                "cpu-memory.html": build_cpu,
+                "ssid-capability.html": build_ssid,
+                "firmware.html": build_static, "index.html": build_static}
     if args.page not in builders:
         raise SystemExit(f"no builder for {args.page}; known: {', '.join(builders)}")
 
