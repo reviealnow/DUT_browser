@@ -18,6 +18,7 @@ double-click, works offline, and survives being forwarded.
 | `wifi-clients.html` | The per-client table with row-expand deep stats, grouped by band, with Kick |
 | `files.html` | The workspace file table with drag-and-drop upload, sortable columns, tags, inline preview |
 | `bulletin.html` | Notes with nested replies, per-author colours, the edited marker and the unverified badge |
+| `downloads.html` | A real bundle's four cards — session log with its context, analyzer outputs with an inline plot, surveys, connect-time context |
 
 Files and Bulletin are **two separate sections in the product**, so they are two
 separate files here. Folding them into one "Workspace" page would invent a
@@ -59,6 +60,18 @@ Pages whose content is synthetic in full take no bundle at all:
 python3 build_demo_data.py --page files.html
 python3 build_demo_data.py --page bulletin.html
 ```
+
+Downloads lists a bundle rather than parsing one, and embeds its smallest plot
+so the inline preview is genuine:
+
+```bash
+python3 build_demo_data.py --page downloads.html --bundle <session-dir>
+```
+
+Its "peek" shows the log's real last lines. A serial log is free text and
+cannot be aliased field by field, so the generator **refuses** a tail carrying
+an SSID, MAC or IP rather than shipping it — pick a bundle whose final lines
+are clean, or widen the scrub.
 
 A bundle is any extracted `dut-session-<ts>` directory from the **Download DUT
 Log** flow: `build_demo_data.py` reads `*_cpu_usage.csv` (analyzer3),

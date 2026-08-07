@@ -408,6 +408,78 @@ def build_clients(bundle: Path, anon: Anonymiser, survey_bundle: Path | None = N
     }
 
 
+def build_downloads(bundle: Path, anon: Anonymiser,
+                    survey_bundle: Path | None = None) -> dict:
+    """Downloads page: what a real Download DUT Log actually produced.
+
+    This is the one screen whose subject IS the bundle, so it is listed from a
+    real one — names, sizes and grouping exactly as they came off disk. The
+    only judgement is which of the four cards a file belongs to, and that
+    follows the split the API reports: the session log, the analyzer's
+    published outputs, the persisted surveys, and the connect-time context.
+
+    One plot is embedded as a data URI so the inline preview is real rather
+    than mimed; the rest are listed, because a page that inlined a megabyte of
+    PNGs would stop being something you can email.
+    """
+    import base64
+
+    log = next((p for p in bundle.iterdir() if p.suffix == ".log"), None)
+    if log is None:
+        raise SystemExit(f"no session log in {bundle}")
+
+    def entry(path: Path, **extra) -> dict:
+        stat = path.stat()
+        return {"name": path.name, "size": stat.st_size,
+                "modified": _stamp(stat.st_mtime), **extra}
+
+    outputs, surveys, context = [], [], []
+    for path in sorted(bundle.iterdir()):
+        if path.is_file() and path != log and path.suffix in (".csv", ".png", ".txt"):
+            outputs.append(entry(path, plot=path.suffix == ".png"))
+
+    context_dir = bundle / "context"
+    report = context_dir / "capture-report.txt"
+    for kind_dir in sorted(p for p in context_dir.iterdir() if p.is_dir()):
+        for path in sorted(kind_dir.iterdir()):
+            (surveys if kind_dir.name == "site-survey" else context).append(
+                entry(path, kind=kind_dir.name))
+
+    # The peek shows the log's last lines, as the product's does. A serial log
+    # is free text, so it cannot be aliased field by field: instead the tail is
+    # refused outright if it carries anything identifying. A loud stop beats a
+    # silent leak, and the operator can pick another bundle or widen the scrub.
+    tail_lines = log.read_text(encoding="utf-8", errors="ignore").splitlines()[-14:]
+    tail = "\n".join(tail_lines)
+    for pattern, what in (
+        (r"(?i)\bssid\b", "an SSID field"),
+        (r"\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b", "a MAC address"),
+        (r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "an IP address"),
+    ):
+        if re.search(pattern, tail):
+            raise SystemExit(
+                f"log tail carries {what} and would ship as-is; pick a bundle whose "
+                f"final lines are identifier-free, or extend the scrub in build_downloads()"
+            )
+
+    plots = sorted(bundle.glob("*.png"), key=lambda p: p.stat().st_size)
+    preview = plots[0] if plots else None
+
+    return {
+        "generatedFrom": bundle.name,
+        "sessionLog": entry(log),
+        "outputs": outputs,
+        "surveys": surveys,
+        "context": context,
+        "logTail": tail,
+        "captureReport": (report.read_text(encoding="utf-8").strip().splitlines()
+                          if report.is_file() else []),
+        "previewName": preview.name if preview else None,
+        "previewData": ("data:image/png;base64,"
+                        + base64.b64encode(preview.read_bytes()).decode()) if preview else None,
+    }
+
+
 def build_static(bundle: Path | None, anon: Anonymiser,
                  survey_bundle: Path | None = None) -> dict:
     """A page whose content is synthetic in full — nothing to derive or replace.
@@ -418,6 +490,11 @@ def build_static(bundle: Path | None, anon: Anonymiser,
     whole payload, and each page says so in its provenance line.
     """
     return {}
+
+
+def _stamp(epoch: float) -> str:
+    from datetime import datetime
+    return datetime.fromtimestamp(epoch).strftime("%Y-%m-%d %H:%M")
 
 
 def _newest_json(kind_dir: Path) -> dict | None:
@@ -507,7 +584,8 @@ def main() -> int:
 
     builders = {"overview.html": build, "site-survey.html": build_survey,
                 "wifi-clients.html": build_clients,
-                "files.html": build_static, "bulletin.html": build_static}
+                "files.html": build_static, "bulletin.html": build_static,
+                "downloads.html": build_downloads}
     if args.page not in builders:
         raise SystemExit(f"no builder for {args.page}; known: {', '.join(builders)}")
 
