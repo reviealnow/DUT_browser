@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DUT_browser — Serial Console (demo)</title>
+<style>
+:root{
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:24px;
+  --bg:#f4f6fa; --panel:#fff; --ink:#1b2333; --muted:#687389; --faint:#9aa4b8;
+  --accent:#1565c0; --accent-weak:#e8f0fb;
+  --ok:#0c7a43; --ok-weak:#e4f4ea;
+  --warn:#9a6a00; --warn-weak:#fbf0d9;
+  --danger:#b3261e; --danger-weak:#fce8e6;
+  --border:#e3e8f0;
+  --shadow:0 1px 2px rgba(20,30,55,.04), 0 6px 20px rgba(20,30,55,.06);
+  --radius:14px; --sidebar-w:232px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg); color:var(--ink); font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"PingFang TC","Noto Sans TC",sans-serif; -webkit-font-smoothing:antialiased}
+button,input,textarea{font:inherit; color:inherit}
+button{cursor:pointer}
+
+.layout{display:grid; grid-template-columns:var(--sidebar-w) 1fr; min-height:100vh}
+.sidebar{background:var(--panel); border-right:1px solid var(--border); padding:var(--space-4) 0; position:sticky; top:0; height:100vh; overflow-y:auto}
+.brand{display:flex; align-items:center; gap:var(--space-2); padding:0 var(--space-4) var(--space-5)}
+.brand-mark{width:28px; height:28px; border-radius:8px; background:var(--accent); color:#fff; display:grid; place-items:center; font-weight:700; font-size:13px}
+.brand-name{font-weight:650; letter-spacing:-.01em}
+.nav-group{padding:var(--space-3) var(--space-4) var(--space-1); font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--faint); font-weight:650}
+.nav-item{display:flex; align-items:center; gap:var(--space-3); width:100%; border:0; background:none; text-align:left; padding:var(--space-2) var(--space-4); border-left:3px solid transparent; color:var(--muted)}
+.nav-item:hover{background:var(--bg); color:var(--ink)}
+.nav-item[aria-current="page"]{background:var(--accent-weak); border-left-color:var(--accent); color:var(--accent); font-weight:600}
+.nav-icon{width:18px; text-align:center; font-size:13px}
+
+.main{display:flex; flex-direction:column; min-width:0}
+.topbar{display:flex; align-items:center; gap:var(--space-3); padding:var(--space-4) var(--space-5); background:var(--panel); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:5}
+.topbar h1{font-size:17px; margin:0; letter-spacing:-.01em}
+.topbar .sub{color:var(--muted); font-size:12px}
+.spacer{flex:1}
+.pill{display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:999px; font-size:12px; font-weight:600; border:1px solid transparent; white-space:nowrap}
+.pill-demo{background:var(--warn-weak); color:var(--warn); border-color:#f0dfb4}
+.pill-muted{background:var(--bg); color:var(--muted); border-color:var(--border)}
+.pill-ok{background:var(--ok-weak); color:var(--ok)}
+.dot{width:7px; height:7px; border-radius:50%; background:currentColor; flex:none}
+
+.content{padding:var(--space-5); display:flex; flex-direction:column; gap:var(--space-4); max-width:1100px; width:100%}
+.card{background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow); padding:var(--space-4)}
+
+.btn{border:1px solid var(--border); background:var(--panel); border-radius:9px; padding:5px 11px; font-size:12px; font-weight:600; color:var(--muted); transition:.12s}
+.btn:hover{border-color:var(--accent); color:var(--accent); background:var(--accent-weak)}
+.btn:active{transform:translateY(1px)}
+.btn[disabled]{opacity:.45; cursor:not-allowed}
+.btn-primary{background:var(--accent); border-color:var(--accent); color:#fff}
+.btn-primary:hover{background:#0f4f9c; border-color:#0f4f9c; color:#fff}
+
+.viewbar{display:flex; gap:var(--space-2); align-items:center; flex-wrap:wrap}
+.console-head{display:flex; justify-content:space-between; align-items:center; margin-bottom:var(--space-2); gap:var(--space-3); flex-wrap:wrap}
+.console-head h3{margin:0; font-size:15px}
+/* ConsolePanel's own surface: a dark scrolling text view, not a terminal. */
+.console{height:320px; overflow-y:auto; background:#121212; color:#f5f5f5;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; line-height:1.45;
+  padding:8px; white-space:pre-wrap; border-radius:10px}
+.sendrow{margin-top:var(--space-2); display:flex; gap:var(--space-2)}
+.sendrow input{flex:1; border:1px solid var(--border); border-radius:9px; padding:6px 11px; font-size:13px}
+.sendrow input:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-weak)}
+.hint{margin-top:6px; font-size:12px; color:var(--muted)}
+.hint.warn{color:#8a4b00}
+
+/* The Terminal half is a replay, styled as a terminal but not one. */
+.term{height:340px; overflow-y:auto; background:#0d0d0d; color:#e6e6e6;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; line-height:1.45;
+  padding:10px; white-space:pre-wrap; border-radius:10px}
+.term .cursor{display:inline-block; width:7px; height:14px; background:#e6e6e6; vertical-align:-2px; animation:blink 1.05s step-end infinite}
+@keyframes blink{50%{opacity:0}}
+
+.note{padding:var(--space-3) var(--space-4); border-radius:10px; background:var(--accent-weak); color:#12467f; font-size:12px; border:1px solid #cfe0f6}
+/* A "concept" chip marks an idea shown for discussion. Everything without one
+   mirrors behaviour the product actually ships — a demo must not quietly
+   promise features somebody then has to build. */
+.concept{display:inline-flex; align-items:center; gap:5px; padding:1px 8px; border-radius:999px; font-size:11px; font-weight:650; color:#6b4fa8; background:#f3effb; border:1px dashed #b9a5e0; white-space:nowrap}
+.provenance{color:var(--faint); font-size:11px; line-height:1.6; padding-top:var(--space-2); border-top:1px solid var(--border)}
+.provenance b{color:var(--muted); font-weight:650}
+.toast{position:fixed; left:50%; bottom:24px; transform:translate(-50%,20px); background:var(--ink); color:#fff; padding:9px 16px; border-radius:999px; font-size:13px; opacity:0; pointer-events:none; transition:.2s; z-index:60; max-width:min(720px,90vw); text-align:center}
+.toast.show{opacity:1; transform:translate(-50%,0)}
+dialog{border:1px solid var(--border); border-radius:var(--radius); box-shadow:0 20px 60px rgba(20,30,55,.25); padding:0; width:min(760px,92vw)}
+dialog::backdrop{background:rgba(20,30,55,.35)}
+.dlg-head{display:flex; justify-content:space-between; align-items:flex-start; gap:var(--space-3); padding:var(--space-4) var(--space-4) var(--space-2)}
+.dlg-body{padding:0 var(--space-4) var(--space-4)}
+.dlg-body textarea{width:100%; min-height:220px; border:1px solid var(--border); border-radius:9px; padding:var(--space-3);
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; line-height:1.5; resize:vertical}
+@media (max-width:860px){ .layout{grid-template-columns:1fr} .sidebar{display:none} }
+</style>
+</head>
+<body>
+
+<!-- Real console lines plus the scripted terminal replay, per the repo's
+     inline-data convention. See the provenance line for which is which. -->
+<script id="demo-data" type="application/json">{"generatedFrom":"dut-session-20260804-154148","logName":"dut-session-20260804-110255.log","lines":["=== CPU Utilization =================================================================","CPU0:   0.0% usr   0.0% sys   0.0% nic  86.7% idle   0.0% io   0.0% irq  13.3%% sirq","CPU1:   1.0% usr   0.0% sys   0.0% nic  98.0% idle   0.0% io   1.0% irq   0.0%% sirq","CPU2:   0.0% usr   0.0% sys   0.0% nic 100.0% idle   0.0% io   0.0% irq   0.0%% sirq","CPU3:   0.0% usr   1.0% sys   0.0% nic  99.0% idle   0.0% io   0.0% irq   0.0%% sirq","","=== CPU Hotspot (top threads by %CPU) ===============================================","","=== Interrupt / SoftIRQ Hotspot (\u0394=1s) =============================================","--- /proc/interrupts (Top 10 by delta, auto classify WIFI/ETH/OTHER) ---------------","36:       1037 OTHER nss_queue0","46:       1006 OTHER nss_queue0","18:        402 OTHER arch_timer","96:        271 OTHER ce1","97:        104 OTHER ce2","123:         88 OTHER ppdu-end-interrupts-mac3","125:         31 OTHER ppdu-end-interrupts-mac1","33:         17 OTHER nss_empty_buf_sos","22:         12 OTHER bam_dma","43:         10 OTHER nss_empty_buf_sos","","--- /proc/softirqs (delta per class, sum all CPUs) ---------------------------------","NET_RX           2098","RCU               561","TASKLET           400","TIMER             381","SCHED             380","BLOCK               0","BLOCK_IOPOLL            0","HI                  0","HRTIMER             0","NET_TX              0","","=== Memory Utilization (/proc/meminfo) ==============================================","----- cat /proc/meminfo -----","MemTotal:         843132 kB","MemFree:          371328 kB","MemAvailable:     454580 kB","Buffers:           15420 kB","Cached:           108036 kB","SwapCached:            0 kB","Active:            80752 kB","Inactive:          55432 kB","Active(anon):      41660 kB","Inactive(anon):     3968 kB","Active(file):      39092 kB","Inactive(file):    51464 kB","Unevictable:           0 kB","Mlocked:               0 kB","HighTotal:             0 kB","HighFree:              0 kB","LowTotal:         843132 kB","LowFree:          371328 kB","SwapTotal:             0 kB","SwapFree:              0 kB","Dirty:                 0 kB","Writeback:             0 kB","AnonPages:         12740 kB","Mapped:            17228 kB","Shmem:             32900 kB","Slab:             175164 kB","SReclaimable:       6896 kB","SUnreclaim:       168268 kB","KernelStack:        5360 kB","PageTables:          852 kB","NFS_Unstable:          0 kB","Bounce:                0 kB","WritebackTmp:          0 kB","CommitLimit:      421564 kB","Committed_AS:      79696 kB","VmallocTotal:    1048576 kB","VmallocUsed:           0 kB","VmallocChunk:          0 kB","","=== Disk Utilization (df) ===========================================================","----- df -----","Filesystem           1024-blocks    Used Available Use% Mounted on","/dev/shm/tmp/            98304     11344     86960  12% /mnt/tmpfs","/dev/shm/tmpfw/          81920         0     81920   0% /mnt/tmpfw","ubi20:storage            32644       384     30548   1% /storage"],"totalLines":149891,"viReplay":[{"t":0,"out":"vi /etc/hostapd1.conf\r\n"},{"t":500,"out":"\u001b[2J\u001b[Hinterface=ath1\nctrl_interface=/var/run/hostapd\nssid=DemoAP-Corp\nhw_mode=g\nchannel=11\nieee80211n=1\nwpa=2\nwpa_key_mgmt=WPA-PSK\nrsn_pairwise=CCMP\n~\n~\n~\n\"/etc/hostapd1.conf\" 9L, 198C"},{"t":1600,"out":":"},{"t":1700,"out":"s"},{"t":1790,"out":"e"},{"t":1880,"out":"t"},{"t":1960,"out":" "},{"t":2050,"out":"n"},{"t":2140,"out":"u"},{"t":2260,"out":"\r\n"},{"t":2400,"out":"\u001b[2J\u001b[H  1 interface=ath1\n  2 ctrl_interface=/var/run/hostapd\n  3 ssid=DemoAP-Corp\n  4 hw_mode=g\n  5 channel=11\n  6 ieee80211n=1\n  7 wpa=2\n  8 wpa_key_mgmt=WPA-PSK\n  9 rsn_pairwise=CCMP\n~\n~\n~\n"},{"t":3400,"out":":q!"},{"t":3700,"out":"\r\nAP6_840E# "}]}</script>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand"><span class="brand-mark">D</span><span class="brand-name">DUT_browser</span></div>
+    <div class="nav-group">Monitoring</div>
+    <button class="nav-item" data-screen="Overview"><span class="nav-icon">▣</span>Overview</button>
+    <button class="nav-item" data-screen="CPU / Memory"><span class="nav-icon">📈</span>CPU / Memory</button>
+    <button class="nav-item" data-screen="Wi-Fi Clients"><span class="nav-icon">📶</span>Wi-Fi Clients</button>
+    <button class="nav-item" data-screen="SSID Capability"><span class="nav-icon">🔍</span>SSID Capability</button>
+    <button class="nav-item" data-screen="Site Survey"><span class="nav-icon">📡</span>Site Survey</button>
+    <button class="nav-item" data-screen="Logs / Crash Events"><span class="nav-icon">⚠</span>Logs / Crash Events</button>
+    <button class="nav-item" aria-current="page"><span class="nav-icon">⌨</span>Serial Console</button>
+    <button class="nav-item" data-screen="Downloads"><span class="nav-icon">⬇</span>Downloads</button>
+    <div class="nav-group">Workspace</div>
+    <button class="nav-item" data-screen="Files"><span class="nav-icon">🗂</span>Files</button>
+    <button class="nav-item" data-screen="Bulletin"><span class="nav-icon">📌</span>Bulletin</button>
+    <div class="nav-group">System</div>
+    <button class="nav-item" data-screen="Settings"><span class="nav-icon">⚙</span>Settings</button>
+    <button class="nav-item" data-screen="Upgrade Firmware"><span class="nav-icon">⚡</span>Upgrade Firmware</button>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div>
+        <h1>Serial Console</h1>
+        <div class="sub">DUT serial / replay console</div>
+      </div>
+      <span class="spacer"></span>
+      <span class="pill pill-demo">● DEMO — canned data, no DUT attached</span>
+      <span class="pill pill-ok"><span class="dot"></span>serial open</span>
+    </header>
+
+    <div class="content">
+
+      <!-- Dashboard's two mutually exclusive views. -->
+      <div class="viewbar">
+        <button class="btn" id="btnMonitor" disabled>Monitor</button>
+        <button class="btn" id="btnTerminal">Terminal (vi / nano)</button>
+        <span class="hint warn" id="pausedNote" hidden>Monitoring paused while in terminal mode.</span>
+      </div>
+
+      <!-- ============ Monitor: ConsolePanel ============ -->
+      <section class="card" id="monitorView">
+        <div class="console-head">
+          <h3>Serial Console</h3>
+          <button class="btn" id="btnDownload">Download DUT Log</button>
+        </div>
+        <div class="console" id="console"></div>
+        <form class="sendrow" id="sendForm">
+          <input id="command" placeholder="Type command" aria-label="Command">
+          <button type="button" class="btn" id="btnPopup">Edit in Popup</button>
+          <button type="submit" class="btn btn-primary">Send</button>
+        </form>
+        <div class="hint" id="sendHint">Use the popup editor for scripts, multiline commands, or large pasted content.</div>
+      </section>
+
+      <!-- ============ Terminal: a replay, and it says so ============ -->
+      <section class="card" id="terminalView" hidden>
+        <div class="console-head">
+          <h3>Terminal</h3>
+          <div style="display:flex;gap:var(--space-2);align-items:center">
+            <span class="concept">◇ replay, not a live pty</span>
+            <button class="btn" id="btnReplay">Play the vi session</button>
+          </div>
+        </div>
+        <div class="term" id="term"></div>
+        <div class="hint">
+          In the product this is <b>xterm.js</b> over <span style="font-family:ui-monospace">/ws/term</span>,
+          attached to a real pty: vi and nano run on the DUT and keystrokes go to it. A single offline
+          file cannot hold a terminal emulator or a device, so this half replays a recorded session
+          instead of pretending. Everything else on this screen is the real interaction.
+        </div>
+      </section>
+
+      <div class="note" id="navNote">
+        This is the <b>Serial Console</b> screen of the demo kit.
+      </div>
+
+      <div class="provenance" id="provenance"></div>
+    </div>
+  </div>
+</div>
+
+<dialog id="popup">
+  <div class="dlg-head">
+    <div>
+      <h3 style="margin:0;font-size:15px" id="command-editor-title">Command editor</h3>
+      <div style="color:var(--muted);font-size:12px;margin-top:2px">
+        Paste or edit longer scripts here. <code>Ctrl+Enter</code> sends.
+      </div>
+    </div>
+    <button class="btn" id="popupClose" aria-label="Close command editor">✕</button>
+  </div>
+  <div class="dlg-body">
+    <textarea id="popupText" placeholder="Paste commands or script text" aria-label="Command editor"></textarea>
+    <div class="hint" style="display:flex;justify-content:space-between;gap:var(--space-3);flex-wrap:wrap">
+      <span><span class="concept">◇ plain textarea</span>
+        the product's editor is CodeMirror with <b>Vim mode enabled</b>; this file has no editor library.</span>
+      <span style="display:flex;gap:var(--space-2)">
+        <button class="btn" id="popupCancel">Cancel</button>
+        <button class="btn btn-primary" id="popupSend">Send</button>
+      </span>
+    </div>
+  </div>
+</dialog>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+"use strict";
+const DATA = JSON.parse(document.getElementById("demo-data").textContent);
+const $ = (id) => document.getElementById(id);
+
+let toastTimer;
+function toast(msg){
+  const el = $("toast");
+  el.textContent = msg; el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 3400);
+}
+const esc = (s) => String(s).replace(/[<&]/g, c => c === "<" ? "&lt;" : "&amp;");
+
+/* ---------------- Monitor ---------------- */
+let lines = DATA.lines.slice();
+function renderConsole(atBottom){
+  const box = $("console");
+  const stick = atBottom ?? (box.scrollHeight - box.scrollTop - box.clientHeight < 24);
+  box.textContent = lines.join("\n");
+  if (stick) box.scrollTop = box.scrollHeight;
+}
+
+/* ConsolePanel nudges toward the popup once the input stops being a command.
+   Word count is the product's trigger, so the hint flips at the same point. */
+const LONG_WORDS = 8;
+$("command").addEventListener("input", (ev) => {
+  const words = ev.target.value.trim().split(/\s+/).filter(Boolean).length;
+  const hint = $("sendHint");
+  if (words >= LONG_WORDS){
+    hint.className = "hint warn";
+    hint.textContent = `Long input detected (${words} words). The popup editor is better for scripts and multiline text.`;
+  } else {
+    hint.className = "hint";
+    hint.textContent = "Use the popup editor for scripts, multiline commands, or large pasted content.";
+  }
+});
+
+function send(text){
+  const trimmed = text.trim();
+  if (!trimmed) return;
+  // Echo the command and a refusal, which is what a console with no DUT behind
+  // it can honestly do. The product would write it to the serial port.
+  lines.push(`AP6_840E# ${trimmed}`,
+             `-sh: this demo has no DUT attached — the product sends this over the serial port`,
+             `AP6_840E# `);
+  renderConsole(true);
+}
+
+$("sendForm").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  send($("command").value);
+  $("command").value = "";
+  $("command").dispatchEvent(new Event("input"));
+});
+
+$("btnDownload").addEventListener("click", () => {
+  toast("Download DUT Log runs the offline tools and zips the session — open downloads.html "
+      + "for what it produces.");
+});
+
+/* ---------------- popup editor ---------------- */
+$("btnPopup").addEventListener("click", () => {
+  $("popupText").value = $("command").value;
+  $("popup").showModal();
+  $("popupText").focus();
+});
+const closePopup = () => $("popup").close();
+$("popupClose").addEventListener("click", closePopup);
+$("popupCancel").addEventListener("click", closePopup);
+$("popupSend").addEventListener("click", () => {
+  const text = $("popupText").value;
+  closePopup();
+  $("command").value = "";
+  $("command").dispatchEvent(new Event("input"));
+  text.split("\n").forEach(line => send(line));
+});
+$("popupText").addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)){
+    ev.preventDefault();
+    $("popupSend").click();
+  }
+});
+
+/* ---------------- view toggle ---------------- */
+function setView(view){
+  const terminal = view === "terminal";
+  $("monitorView").hidden = terminal;
+  $("terminalView").hidden = !terminal;
+  $("pausedNote").hidden = !terminal;
+  $("btnMonitor").disabled = !terminal;
+  $("btnTerminal").disabled = terminal;
+  if (terminal && !$("term").textContent) playReplay();
+}
+$("btnMonitor").addEventListener("click", () => setView("monitor"));
+$("btnTerminal").addEventListener("click", () => setView("terminal"));
+
+/* ---------------- terminal replay ---------------- */
+let replayTimers = [];
+function playReplay(){
+  replayTimers.forEach(clearTimeout);
+  replayTimers = [];
+  const term = $("term");
+  let buffer = "";
+  const paint = () => {
+    term.innerHTML = esc(buffer) + `<span class="cursor"></span>`;
+    term.scrollTop = term.scrollHeight;
+  };
+  buffer = "AP6_840E# ";
+  paint();
+  DATA.viReplay.forEach(step => {
+    replayTimers.push(setTimeout(() => {
+      // The recording carries the screen clears vi issued; honouring them
+      // is what makes the replay read like the session it was. The ESC byte
+      // is spelled \u001b so this file stays free of control characters.
+      const parts = step.out.split(/\u001b\[2J\u001b\[H/);
+      if (parts.length > 1) buffer = parts[parts.length - 1];
+      else buffer += step.out;
+      paint();
+    }, step.t));
+  });
+  replayTimers.push(setTimeout(() => toast("Replay finished — the product would have run vi on the DUT."),
+    DATA.viReplay[DATA.viReplay.length - 1].t + 400));
+}
+$("btnReplay").addEventListener("click", playReplay);
+
+/* ---------------- boot ---------------- */
+renderConsole(true);
+$("provenance").innerHTML =
+  `<b>Demo kit</b> — canned data, no DUT attached. The Monitor view holds <b>real</b> console `
+  + `output: ${DATA.lines.length} consecutive lines from <b>${esc(DATA.logName)}</b> `
+  + `(${DATA.totalLines.toLocaleString()} lines in the session) in bundle <b>${esc(DATA.generatedFrom)}</b>. `
+  + `The excerpt is chosen by a guard that refuses any run containing an SSID, MAC or IP — a serial `
+  + `log is free text and cannot be aliased field by field, so it is skipped rather than scrubbed. `
+  + `The vi session under Terminal is a scripted recording, and the two <span class="concept">◇</span> `
+  + `chips mark where this file cannot be what the product is: a real pty, and a Vim-mode editor.`;
+
+document.querySelectorAll("[data-screen]").forEach(el => {
+  el.addEventListener("click", () => {
+    const name = el.dataset.screen;
+    const map = { "Overview": "overview.html", "Site Survey": "site-survey.html",
+                  "Wi-Fi Clients": "wifi-clients.html", "Files": "files.html",
+                  "Bulletin": "bulletin.html", "Downloads": "downloads.html" };
+    $("navNote").innerHTML = map[name]
+      ? `<b>${name}</b> is in this kit — open <b>${map[name]}</b> beside this file.`
+      : `<b>${name}</b> is not in the kit yet. Screens are added one file at a time.`;
+    $("navNote").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  });
+});
+})();
+</script>
+</body>
+</html>

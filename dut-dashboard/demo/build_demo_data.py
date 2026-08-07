@@ -451,16 +451,7 @@ def build_downloads(bundle: Path, anon: Anonymiser,
     # silent leak, and the operator can pick another bundle or widen the scrub.
     tail_lines = log.read_text(encoding="utf-8", errors="ignore").splitlines()[-14:]
     tail = "\n".join(tail_lines)
-    for pattern, what in (
-        (r"(?i)\bssid\b", "an SSID field"),
-        (r"\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b", "a MAC address"),
-        (r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "an IP address"),
-    ):
-        if re.search(pattern, tail):
-            raise SystemExit(
-                f"log tail carries {what} and would ship as-is; pick a bundle whose "
-                f"final lines are identifier-free, or extend the scrub in build_downloads()"
-            )
+    refuse_if_identifying(tail, "the log tail")
 
     plots = sorted(bundle.glob("*.png"), key=lambda p: p.stat().st_size)
     preview = plots[0] if plots else None
@@ -477,6 +468,76 @@ def build_downloads(bundle: Path, anon: Anonymiser,
         "previewName": preview.name if preview else None,
         "previewData": ("data:image/png;base64,"
                         + base64.b64encode(preview.read_bytes()).decode()) if preview else None,
+    }
+
+
+IDENTIFIER_PATTERNS = (
+    (r"(?i)\bssid\b", "an SSID field"),
+    (r"\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b", "a MAC address"),
+    (r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "an IP address"),
+)
+
+
+def refuse_if_identifying(text: str, what: str) -> str:
+    """Free text cannot be aliased field by field, so it is refused instead.
+
+    A serial log is prose plus whatever the DUT printed. There is no schema to
+    walk, so the only safe rule is: if it carries an identifier, do not ship it.
+    A loud stop beats a silent leak — the operator picks a cleaner excerpt.
+    """
+    for pattern, found in IDENTIFIER_PATTERNS:
+        if re.search(pattern, text):
+            raise SystemExit(
+                f"{what} carries {found} and would ship as-is; choose a cleaner "
+                f"excerpt or widen the scrub in build_demo_data.py"
+            )
+    return text
+
+
+def build_console(bundle: Path, anon: Anonymiser,
+                  survey_bundle: Path | None = None) -> dict:
+    """Serial Console: real monitor output, and an honest note about the terminal.
+
+    The Monitor half is what ConsolePanel shows — a scrolling text view — so it
+    is real log lines, taken from the largest identifier-free run in the
+    session. The Terminal half is xterm.js over a pty in the product, which a
+    single HTML file cannot be; that half replays a recording and says so.
+    """
+    log = next((p for p in bundle.iterdir() if p.suffix == ".log"), None)
+    if log is None:
+        raise SystemExit(f"no session log in {bundle}")
+
+    lines = log.read_text(encoding="utf-8", errors="ignore").splitlines()
+    # The excerpt is chosen by the guard, not by hoping a fixed offset stays
+    # clean: take runs of consecutive identifier-free lines. Among those, prefer
+    # one containing a sysMon section header, so the Monitor view reads like the
+    # monitoring it is rather than starting mid-command.
+    runs, run = [], []
+    for line in lines:
+        if any(re.search(pattern, line) for pattern, _ in IDENTIFIER_PATTERNS):
+            if run:
+                runs.append(run)
+            run = []
+            continue
+        run.append(line)
+    if run:
+        runs.append(run)
+    if not runs:
+        raise SystemExit(f"{log.name} has no identifier-free run to excerpt")
+
+    def score(candidate: list[str]) -> tuple[int, int]:
+        headed = any(line.startswith("=== ") for line in candidate)
+        return (1 if headed else 0, len(candidate))
+
+    best = max(runs, key=score)
+    start = next((i for i, line in enumerate(best) if line.startswith("=== ")), 0)
+    excerpt = refuse_if_identifying("\n".join(best[start:start + 80]), "the console excerpt")
+
+    return {
+        "generatedFrom": bundle.name,
+        "logName": log.name,
+        "lines": excerpt.splitlines(),
+        "totalLines": len(lines),
     }
 
 
@@ -585,7 +646,8 @@ def main() -> int:
     builders = {"overview.html": build, "site-survey.html": build_survey,
                 "wifi-clients.html": build_clients,
                 "files.html": build_static, "bulletin.html": build_static,
-                "downloads.html": build_downloads}
+                "downloads.html": build_downloads,
+                "serial-console.html": build_console}
     if args.page not in builders:
         raise SystemExit(f"no builder for {args.page}; known: {', '.join(builders)}")
 

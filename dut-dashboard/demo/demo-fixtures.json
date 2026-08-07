@@ -8,7 +8,8 @@
     "reference capture contained no crash lines, and connection state is live UI",
     "that no capture records. Each page prints which of its content is synthetic.",
     "MACs use the 02: locally-administered prefix so they are visibly not real.",
-    "files.html and bulletin.html are synthetic in full. A workspace file list and a note board are CONTENT, not measurements, so there is no measured claim to preserve. Names here are deliberate placeholders (Doe/Roe/Coe) and the note bodies are generic: an earlier revision reused real colleagues' names straight from the bench database, which is exactly what 'synthetic' was meant to prevent. Both pages say so in their provenance line."
+    "files.html and bulletin.html are synthetic in full. A workspace file list and a note board are CONTENT, not measurements, so there is no measured claim to preserve. Names here are deliberate placeholders (Doe/Roe/Coe) and the note bodies are generic: an earlier revision reused real colleagues' names straight from the bench database, which is exactly what 'synthetic' was meant to prevent. Both pages say so in their provenance line.",
+    "serial-console.html: the Monitor half is real log lines chosen by the identifier guard. The vi session under Terminal is a scripted recording -- the product runs xterm.js over a pty on /ws/term, which a single offline file cannot be, so the page replays and says so rather than pretending. The config shown is invented; its ssid is a DemoAP-* placeholder like everywhere else."
   ],
   "overview.html": {
     "statusKpi": {
@@ -329,6 +330,62 @@
         ],
         "body": "Upload took about 24 s, the downloader ran, and the unit came back healthy. The device logged the reboot as a local-UI firmware upgrade.",
         "comments": []
+      }
+    ]
+  },
+  "serial-console.html": {
+    "viReplay": [
+      {
+        "t": 0,
+        "out": "vi /etc/hostapd1.conf\r\n"
+      },
+      {
+        "t": 500,
+        "out": "\u001b[2J\u001b[Hinterface=ath1\nctrl_interface=/var/run/hostapd\nssid=DemoAP-Corp\nhw_mode=g\nchannel=11\nieee80211n=1\nwpa=2\nwpa_key_mgmt=WPA-PSK\nrsn_pairwise=CCMP\n~\n~\n~\n\"/etc/hostapd1.conf\" 9L, 198C"
+      },
+      {
+        "t": 1600,
+        "out": ":"
+      },
+      {
+        "t": 1700,
+        "out": "s"
+      },
+      {
+        "t": 1790,
+        "out": "e"
+      },
+      {
+        "t": 1880,
+        "out": "t"
+      },
+      {
+        "t": 1960,
+        "out": " "
+      },
+      {
+        "t": 2050,
+        "out": "n"
+      },
+      {
+        "t": 2140,
+        "out": "u"
+      },
+      {
+        "t": 2260,
+        "out": "\r\n"
+      },
+      {
+        "t": 2400,
+        "out": "\u001b[2J\u001b[H  1 interface=ath1\n  2 ctrl_interface=/var/run/hostapd\n  3 ssid=DemoAP-Corp\n  4 hw_mode=g\n  5 channel=11\n  6 ieee80211n=1\n  7 wpa=2\n  8 wpa_key_mgmt=WPA-PSK\n  9 rsn_pairwise=CCMP\n~\n~\n~\n"
+      },
+      {
+        "t": 3400,
+        "out": ":q!"
+      },
+      {
+        "t": 3700,
+        "out": "\r\nAP6_840E# "
       }
     ]
   }

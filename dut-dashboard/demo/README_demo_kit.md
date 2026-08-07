@@ -19,6 +19,7 @@ double-click, works offline, and survives being forwarded.
 | `files.html` | The workspace file table with drag-and-drop upload, sortable columns, tags, inline preview |
 | `bulletin.html` | Notes with nested replies, per-author colours, the edited marker and the unverified badge |
 | `downloads.html` | A real bundle's four cards — session log with its context, analyzer outputs with an inline plot, surveys, connect-time context |
+| `serial-console.html` | Monitor and Terminal, the popup command editor, and real console output |
 
 Files and Bulletin are **two separate sections in the product**, so they are two
 separate files here. Folding them into one "Workspace" page would invent a
@@ -68,10 +69,23 @@ so the inline preview is genuine:
 python3 build_demo_data.py --page downloads.html --bundle <session-dir>
 ```
 
-Its "peek" shows the log's real last lines. A serial log is free text and
-cannot be aliased field by field, so the generator **refuses** a tail carrying
-an SSID, MAC or IP rather than shipping it — pick a bundle whose final lines
-are clean, or widen the scrub.
+Its "peek" shows the log's real last lines, and Serial Console shows a real
+run of them. A serial log is free text and cannot be aliased field by field, so
+the generator **refuses** any excerpt carrying an SSID, MAC or IP rather than
+shipping it (`refuse_if_identifying`). Serial Console goes further and lets the
+guard *choose*: it takes the longest identifier-free run in the log, preferring
+one that starts at a sysMon section header, so the excerpt is safe by
+construction rather than by a lucky offset.
+
+```bash
+python3 build_demo_data.py --page serial-console.html --bundle <session-dir>
+```
+
+Two things on that screen this file cannot be, both chipped: the product's
+Terminal is **xterm.js over a pty on `/ws/term`** — vi and nano really run on
+the DUT — so the demo replays a recorded session instead; and the popup command
+editor is **CodeMirror with Vim mode**, where the demo has a plain textarea.
+Everything else there is the real interaction.
 
 A bundle is any extracted `dut-session-<ts>` directory from the **Download DUT
 Log** flow: `build_demo_data.py` reads `*_cpu_usage.csv` (analyzer3),
