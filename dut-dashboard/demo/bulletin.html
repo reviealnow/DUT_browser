@@ -217,6 +217,27 @@ let posts = DATA.posts.slice();
 let identity = DATA.identity || "";
 const replying = new Set();
 const editing = new Set();   // inline editors, as CommentEditor does
+/* Every ReplyBox and CommentEditor in the product owns its own React state, so
+   opening a second one cannot touch the first. This page re-renders the whole
+   list instead, which would wipe an unsent draft — unsaved input surviving is
+   persistence a viewer reads as product behaviour. Drafts are therefore kept
+   outside the DOM, keyed by field, and restored after every render. */
+const drafts = new Map();
+const draftKey = (el) =>
+  ["replyfield", "editfield", "edittitle", "edittags"]
+    .filter(a => el.dataset[a] !== undefined)
+    .map(a => `${a}:${el.dataset[a]}`)[0];
+
+function restoreDrafts(){
+  document.querySelectorAll("[data-replyfield],[data-editfield],[data-edittitle],[data-edittags]")
+    .forEach(el => {
+      const key = draftKey(el);
+      if (key && drafts.has(key)) el.value = drafts.get(key);
+    });
+}
+const clearDrafts = (prefix) => {
+  [...drafts.keys()].filter(k => k.endsWith(`:${prefix}`)).forEach(k => drafts.delete(k));
+};
 const opened = new Set();    // BulletinSection collapses a post's comments behind Open/Hide
 let nextId = 1000;
 function findByKey(key){
@@ -319,6 +340,7 @@ function renderPosts(){
       </div>
     </section>`;
   }).join("");
+  restoreDrafts();
 }
 
 function renderIdentity(){
@@ -367,6 +389,11 @@ $("btnPost").addEventListener("click", () => {
    both a title and a body. Mirroring that means the button state is the
    validation, rather than a click that fails afterwards. */
 $("posts").addEventListener("input", (ev) => {
+  const tracked = ev.target.closest("[data-replyfield],[data-editfield],[data-edittitle],[data-edittags]");
+  if (tracked){
+    const key = draftKey(tracked);
+    if (key) drafts.set(key, tracked.value);
+  }
   if (ev.target.closest("[data-replyfield]")){ updateReplyButtons(); return; }
   const field = ev.target.closest("[data-editfield], [data-edittitle]");
   if (!field) return;
@@ -407,7 +434,8 @@ $("posts").addEventListener("click", (ev) => {
   const reply = ev.target.closest("[data-reply]");
   if (reply){
     const key = reply.dataset.reply;
-    replying.has(key) ? replying.delete(key) : replying.add(key);
+    if (replying.has(key)){ replying.delete(key); clearDrafts(key); }
+    else replying.add(key);
     renderPosts();
     const field = document.querySelector(`[data-replyfield="${key}"]`);
     if (field) field.focus();
@@ -431,6 +459,7 @@ $("posts").addEventListener("click", (ev) => {
     if (parentId === "root") post.comments.push(entry);
     else post.comments.find(c => String(c.id) === parentId).replies.push(entry);
     replying.delete(key);
+    clearDrafts(key);
     renderPosts();
     return;
   }
@@ -462,11 +491,11 @@ $("posts").addEventListener("click", (ev) => {
   }
   const open = ev.target.closest("[data-editopen]");
   if (open){ const k = open.dataset.editopen;
-             if (editing.has(k)){ editing.delete(k); renderPosts(); return; }
+             if (editing.has(k)){ editing.delete(k); clearDrafts(k); renderPosts(); return; }
              editing.add(k); renderPosts();
              document.querySelector(`[data-editfield="${open.dataset.editopen}"]`)?.focus(); return; }
   const cancel = ev.target.closest("[data-editcancel]");
-  if (cancel){ editing.delete(cancel.dataset.editcancel); renderPosts(); return; }
+  if (cancel){ editing.delete(cancel.dataset.editcancel); clearDrafts(cancel.dataset.editcancel); renderPosts(); return; }
   const save = ev.target.closest("[data-editsave]");
   if (save && !save.disabled){
     const key = save.dataset.editsave;
@@ -487,7 +516,7 @@ $("posts").addEventListener("click", (ev) => {
         toast("Edited — the “· edited” marker keeps the change visible, as in the product.");
       }
     }
-    editing.delete(key); renderPosts();
+    editing.delete(key); clearDrafts(key); renderPosts();
   }
 });
 
