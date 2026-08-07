@@ -346,6 +346,7 @@ $("identity").addEventListener("input", (ev) => {
   identity = ev.target.value;
   $("identityTag").innerHTML = identity ? authorTag(identity, true) : "";
   updatePostButton();
+  updateReplyButtons();      // an open reply box may now be sendable, or not
 });
 ["title", "body"].forEach(id => $(id).addEventListener("input", updatePostButton));
 
@@ -366,13 +367,7 @@ $("btnPost").addEventListener("click", () => {
    both a title and a body. Mirroring that means the button state is the
    validation, rather than a click that fails afterwards. */
 $("posts").addEventListener("input", (ev) => {
-  const replyField = ev.target.closest("[data-replyfield]");
-  if (replyField){
-    const key = replyField.dataset.replyfield;
-    const send = document.querySelector(`[data-replysend="${key}"]`);
-    if (send) send.disabled = !(replyField.value.trim() && identity.trim());
-    return;
-  }
+  if (ev.target.closest("[data-replyfield]")){ updateReplyButtons(); return; }
   const field = ev.target.closest("[data-editfield], [data-edittitle]");
   if (!field) return;
   const key = field.dataset.editfield || field.dataset.edittitle;
@@ -382,6 +377,16 @@ $("posts").addEventListener("input", (ev) => {
   if (!save) return;
   save.disabled = !(body?.value.trim()) || (title !== null && !title.value.trim());
 });
+
+/* canReply = draft AND identity. Either can change last, so both inputs feed
+   the same recompute; tracking only the draft left a valid pair unsendable
+   until the draft was touched again. */
+function updateReplyButtons(){
+  document.querySelectorAll("[data-replyfield]").forEach(field => {
+    const send = document.querySelector(`[data-replysend="${field.dataset.replyfield}"]`);
+    if (send) send.disabled = !(field.value.trim() && identity.trim());
+  });
+}
 
 $("posts").addEventListener("keydown", (ev) => {
   if (ev.key !== "Enter") return;
@@ -406,6 +411,7 @@ $("posts").addEventListener("click", (ev) => {
     renderPosts();
     const field = document.querySelector(`[data-replyfield="${key}"]`);
     if (field) field.focus();
+    updateReplyButtons();
     return;
   }
   const send = ev.target.closest("[data-replysend]");

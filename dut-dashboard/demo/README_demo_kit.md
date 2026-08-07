@@ -112,10 +112,12 @@ creates work for whoever has to make it true later.
   durations, focus placement, animation, keyboard shortcuts that change no
   outcome, spacing and non-load-bearing microcopy.
 
-  The failure mode runs **both ways**, and only one of them has a chip. Across
-  those rounds the kit invented capability twice and under-showed it three
-  times — a cruder editor, a missing character cap, a two-state toggle where
-  the product cycles three. A `◇ concept` chip catches the first kind and is
+  The failure mode runs **both ways**, and only one of them has a chip.
+  Over-showing: a preview offered for a type the product will not render, a
+  field accepting more characters than the product allows — by the test above,
+  anything the demo accepts and the product refuses lands here. Under-showing:
+  a cruder editor, a two-state toggle where the product cycles three, controls
+  left off a card entirely. A `◇ concept` chip catches the first kind and is
   blind to the second. **Open the component. Every finding came from a control
   or state that was not read first.**
 * **Marked `◇ concept`** — an idea shown for discussion, not shipped
