@@ -27,7 +27,7 @@ button{font:inherit; color:inherit; cursor:pointer}
 .brand-mark{width:28px; height:28px; border-radius:8px; background:var(--accent); color:#fff; display:grid; place-items:center; font-weight:700; font-size:13px}
 .brand-name{font-weight:650; letter-spacing:-.01em}
 .nav-group{padding:var(--space-3) var(--space-4) var(--space-1); font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--faint); font-weight:650}
-.nav-item{display:flex; align-items:center; gap:var(--space-3); width:100%; border:0; background:none; text-align:left; padding:var(--space-2) var(--space-4); border-left:3px solid transparent; color:var(--muted)}
+.nav-item{text-decoration:none; display:flex; align-items:center; gap:var(--space-3); width:100%; border:0; background:none; text-align:left; padding:var(--space-2) var(--space-4); border-left:3px solid transparent; color:var(--muted)}
 .nav-item:hover{background:var(--bg); color:var(--ink)}
 .nav-item[aria-current="page"]{background:var(--accent-weak); border-left-color:var(--accent); color:var(--accent); font-weight:600}
 .nav-icon{width:18px; text-align:center; font-size:13px}
@@ -91,20 +91,20 @@ button{font:inherit; color:inherit; cursor:pointer}
   <aside class="sidebar">
     <div class="brand"><span class="brand-mark">D</span><span class="brand-name">DUT_browser</span></div>
     <div class="nav-group">Monitoring</div>
-    <button class="nav-item" data-screen="Overview"><span class="nav-icon">▣</span>Overview</button>
+    <a class="nav-item" href="overview.html" data-screen="Overview"><span class="nav-icon">▣</span>Overview</a>
     <button class="nav-item" aria-current="page"><span class="nav-icon">📈</span>CPU / Memory</button>
-    <button class="nav-item" data-screen="Wi-Fi Clients"><span class="nav-icon">📶</span>Wi-Fi Clients</button>
-    <button class="nav-item" data-screen="SSID Capability"><span class="nav-icon">🔍</span>SSID Capability</button>
-    <button class="nav-item" data-screen="Site Survey"><span class="nav-icon">📡</span>Site Survey</button>
+    <a class="nav-item" href="wifi-clients.html" data-screen="Wi-Fi Clients"><span class="nav-icon">📶</span>Wi-Fi Clients</a>
+    <a class="nav-item" href="ssid-capability.html" data-screen="SSID Capability"><span class="nav-icon">🔍</span>SSID Capability</a>
+    <a class="nav-item" href="site-survey.html" data-screen="Site Survey"><span class="nav-icon">📡</span>Site Survey</a>
     <button class="nav-item" data-screen="Logs / Crash Events"><span class="nav-icon">⚠</span>Logs / Crash Events</button>
-    <button class="nav-item" data-screen="Serial Console"><span class="nav-icon">⌨</span>Serial Console</button>
-    <button class="nav-item" data-screen="Downloads"><span class="nav-icon">⬇</span>Downloads</button>
+    <a class="nav-item" href="serial-console.html" data-screen="Serial Console"><span class="nav-icon">⌨</span>Serial Console</a>
+    <a class="nav-item" href="downloads.html" data-screen="Downloads"><span class="nav-icon">⬇</span>Downloads</a>
     <div class="nav-group">Workspace</div>
-    <button class="nav-item" data-screen="Files"><span class="nav-icon">🗂</span>Files</button>
-    <button class="nav-item" data-screen="Bulletin"><span class="nav-icon">📌</span>Bulletin</button>
+    <a class="nav-item" href="files.html" data-screen="Files"><span class="nav-icon">🗂</span>Files</a>
+    <a class="nav-item" href="bulletin.html" data-screen="Bulletin"><span class="nav-icon">📌</span>Bulletin</a>
     <div class="nav-group">System</div>
     <button class="nav-item" data-screen="Settings"><span class="nav-icon">⚙</span>Settings</button>
-    <button class="nav-item" data-screen="Upgrade Firmware"><span class="nav-icon">⚡</span>Upgrade Firmware</button>
+    <a class="nav-item" href="firmware.html" data-screen="Upgrade Firmware"><span class="nav-icon">⚡</span>Upgrade Firmware</a>
   </aside>
 
   <div class="main">
@@ -269,7 +269,7 @@ $("btnReplay").addEventListener("click", (ev) => {
   }, 100);
 });
 
-document.querySelectorAll("[data-screen]").forEach(el => {
+document.querySelectorAll("[data-screen]:not([href])").forEach(el => {
   el.addEventListener("click", () => {
     const name = el.dataset.screen;
     /* Every screen in the kit, in sidebar order. This map used to be frozen at
