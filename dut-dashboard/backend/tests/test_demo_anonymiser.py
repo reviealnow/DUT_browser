@@ -242,10 +242,19 @@ def test_an_unterminated_quote_stops_the_build(anon_module, bundle: Path) -> Non
      "ssid_name,ssid_name\nOlderSecret,NewPublic\n", "appears twice"),
     ("no header at all",
      "", "no header row"),
-    # Not in the review's list: one column named `ssid;bssid` holding
-    # `OlderSecret;aa:bb:…`, so every value merges and none is collected.
+    # One column named `ssid;bssid` holding `OlderSecret;aa:bb:…`, so every
+    # value merges and none is collected.
     ("a file that is not comma-separated",
-     "ssid;bssid\nOlderSecret;aa:bb:cc:dd:ee:ff\n", "not comma-separated"),
+     "ssid;bssid\nOlderSecret;aa:bb:cc:dd:ee:ff\n", "not a bare ASCII column name"),
+    # The three cases a punctuation blacklist could never have covered, which
+    # is why the rule is a grammar: a delimiter nobody listed, a padded name
+    # that passed validation and then missed the identifier lookup, and a BOM.
+    ("a delimiter nobody listed",
+     "ssid:bssid\nOlderSecret:aa:bb:cc:dd:ee:ff\n", "not a bare ASCII column name"),
+    ("a padded column name",
+     " ssid ,bssid\nOlderSecret,aa:bb:cc:dd:ee:ff\n", "not a bare ASCII column name"),
+    ("a byte-order mark",
+     "﻿ssid,bssid\nOlderSecret,aa:bb:cc:dd:ee:ff\n", "not a bare ASCII column name"),
 ])
 def test_a_damaged_header_stops_the_build(
     anon_module, bundle: Path, label: str, text: str, reason: str,
@@ -258,6 +267,31 @@ def test_a_damaged_header_stops_the_build(
         anon_module.captured_identifiers(bundle)
     with pytest.raises(SystemExit, match=broken.name):
         anon_module.captured_identifiers(bundle)
+
+
+def test_the_header_check_and_the_lookup_agree_on_what_a_column_is_called(
+    anon_module, bundle: Path,
+) -> None:
+    """Two spellings of "the same column" is a fail-open all by itself.
+
+    Validation canonicalised with `name.strip().lower()` and collection looked
+    up `name.lower()`, so `" ssid "` was accepted as the column `ssid` and then
+    never matched `IDENTIFIER_KEYS`. Neither function was wrong on its own.
+    One `_field_key` now serves both, and the grammar means it never has to
+    strip anything.
+    """
+    assert anon_module._field_key(" SSID ") != "ssid", "no strip: the grammar rejects padding"
+    assert anon_module._field_key("SSID") == "ssid"
+    # Every key the collector looks for must itself be a legal column name, or
+    # a capture could never declare one.
+    for key in anon_module.IDENTIFIER_KEYS:
+        assert anon_module.COLUMN_NAME_RE.fullmatch(key), key
+        assert anon_module._field_key(key) == key
+
+    # And a header the check accepts is one the collector then reads.
+    fine = bundle / "context" / "site-survey" / "site-survey-default-20260808-170000.csv"
+    fine.write_text("SSID,BSSID\nUpperCaseHeader,aa:bb:cc:dd:ee:05\n", encoding="utf-8")
+    assert "uppercaseheader" in anon_module.captured_identifiers(bundle)
 
 
 def test_a_legitimately_empty_value_is_not_a_damaged_row(anon_module, bundle: Path) -> None:

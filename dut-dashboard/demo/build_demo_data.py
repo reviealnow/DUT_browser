@@ -509,6 +509,28 @@ def _unreadable_capture(path: Path, why: Exception) -> SystemExit:
     )
 
 
+#: What a column name written by our own tools looks like: an ASCII word.
+#: A *grammar*, not a blacklist of punctuation — see `_check_capture_header`.
+COLUMN_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _field_key(name: str) -> str:
+    """The one canonical form of a field name — a CSV column or a JSON key.
+
+    Every place that decides "is this an identifier field?" goes through here.
+
+    The header check and the identifier lookup have to agree on what a column
+    is called, and they did not: validation canonicalised with
+    ``name.strip().lower()`` while collection looked up ``name.lower()``. A
+    header of ``" ssid "`` therefore passed validation and then missed
+    ``IDENTIFIER_KEYS``, so the SSID under it was never learned — the same
+    fail-open, produced by two functions disagreeing rather than by either being
+    wrong on its own. There is no ``strip()`` here because a name needing one
+    does not survive :data:`COLUMN_NAME_RE`.
+    """
+    return name.lower()
+
+
 def _check_capture_header(path: Path, fieldnames: list[str] | None) -> None:
     """A header that cannot address every column loses values without raising.
 
@@ -520,13 +542,18 @@ def _check_capture_header(path: Path, fieldnames: list[str] | None) -> None:
       key, so it is dropped;
     * **a repeated column** — the later value overwrites the earlier one, and
       an SSID vanishes with the row looking well formed;
-    * **another delimiter** — `ssid;bssid` is one column named `ssid;bssid`
-      holding `OlderSecret;aa:bb:…`, so every value merges and none is
-      collected. Our writers emit comma-separated ASCII column names, so a
-      delimiter inside a name means the file is not what it claims to be.
+    * **a file that is not comma-separated** — `ssid;bssid` is one column named
+      `ssid;bssid` holding `OlderSecret;aa:bb:…`, so every value merges and
+      none is collected.
 
-    Each of these keeps the inventory looking complete while it is not, which is
-    the failure this whole function exists to avoid.
+    Each keeps the inventory looking complete while it is not, which is the
+    failure this whole function exists to avoid.
+
+    The rule is a **grammar, not a blacklist**. Listing `;`, `|` and tab left
+    `ssid:bssid` — and every other separator — passing as one valid column, and
+    a blacklist can only ever be extended one delimiter at a time. Our writers
+    emit ASCII words, so anything else is not a header we wrote: colons,
+    padding, a BOM and every unlisted delimiter are refused by the same rule.
     """
     if not fieldnames:
         raise _unreadable_capture(path, ValueError("it has no header row"))
@@ -534,11 +561,12 @@ def _check_capture_header(path: Path, fieldnames: list[str] | None) -> None:
     for name in fieldnames:
         if name is None or not name.strip():
             raise _unreadable_capture(path, ValueError("a column has no name"))
-        found = next((d for d in (";", "|", "\t") if d in name), None)
-        if found is not None:
+        if not COLUMN_NAME_RE.fullmatch(name):
             raise _unreadable_capture(path, ValueError(
-                f"column name {name!r} contains {found!r}, so the file is not comma-separated"))
-        key = name.strip().lower()
+                f"column name {name!r} is not a bare ASCII column name; capture columns "
+                f"look like 'ssid_name'. Padding or punctuation here usually means the "
+                f"file is not comma-separated"))
+        key = _field_key(name)
         if key in seen:
             raise _unreadable_capture(path, ValueError(f"column {name!r} appears twice"))
         seen.add(key)
@@ -548,7 +576,7 @@ def _collect_identifiers(node, into: set[str]) -> None:
     """Depth-first over parsed JSON, gathering values under identifier keys."""
     if isinstance(node, dict):
         for key, value in node.items():
-            if isinstance(value, (str, int, float)) and str(key).lower() in IDENTIFIER_KEYS:
+            if isinstance(value, (str, int, float)) and _field_key(str(key)) in IDENTIFIER_KEYS:
                 into.add(str(value))
             else:
                 _collect_identifiers(value, into)
@@ -641,7 +669,10 @@ def captured_identifiers(bundle: Path | None,
                     raise _unreadable_capture(
                         path, ValueError("a row does not match the header's field count"))
                 for key, value in row.items():
-                    if key and key.lower() in IDENTIFIER_KEYS and value:
+                    # `_field_key`, the same canonicalisation the header check
+                    # used to accept this name by. Two spellings of "the same
+                    # column" is how a validated header stopped matching here.
+                    if key and _field_key(key) in IDENTIFIER_KEYS and value:
                         values.add(value)
     return frozenset(value.strip().lower() for value in values if value and value.strip())
 
