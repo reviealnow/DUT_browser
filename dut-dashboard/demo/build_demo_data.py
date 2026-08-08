@@ -571,16 +571,33 @@ def captured_identifiers(bundle: Path | None,
                 raise _unreadable_capture(path, unreadable) from unreadable
             _collect_identifiers(parsed, values)
         for path in sorted(source.rglob("*.csv")):
-            # Strict decoding, no `errors="ignore"`: replacing an undecodable
-            # byte silently rewrites the value, so an SSID would enter the
-            # inventory in a form the log's own bytes can never match — the same
-            # fail-open as skipping the file, only harder to notice.
+            # Three ways a CSV can hand back a value that is not what was
+            # captured, all of them silent by default, all of them fail-open:
+            #
+            #   decoding    `errors="ignore"` drops an undecodable byte, so the
+            #               SSID enters the inventory in a shape the log's own
+            #               bytes can never match. Hence strict decoding.
+            #   quoting     the default dialect is `strict=False`, so an
+            #               unterminated quote swallows the rest of the file into
+            #               one field — `"OlderSecret,aa:bb:…` becomes a single
+            #               value and the bare SSID is no longer in the
+            #               inventory at all. Hence `strict=True`.
+            #   alignment   neither of the above catches a row with the wrong
+            #               number of fields, and a row that lost its first
+            #               field shifts every value one column left: an SSID
+            #               lands under `ts`, which is not an identifier key, so
+            #               it is never collected. Hence the field-count check.
             try:
                 with path.open(newline="", encoding="utf-8") as handle:
-                    rows = list(csv.DictReader(handle))
+                    rows = list(csv.DictReader(handle, strict=True))
             except (UnicodeDecodeError, csv.Error) as unreadable:
                 raise _unreadable_capture(path, unreadable) from unreadable
             for row in rows:
+                # DictReader pads a short row with None and files a long one
+                # under the None restkey; our own writers do neither.
+                if None in row or None in row.values():
+                    raise _unreadable_capture(
+                        path, ValueError("a row does not match the header's field count"))
                 for key, value in row.items():
                     if key and key.lower() in IDENTIFIER_KEYS and value:
                         values.add(value)

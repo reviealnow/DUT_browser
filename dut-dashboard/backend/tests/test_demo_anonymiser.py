@@ -217,6 +217,36 @@ def test_a_csv_that_cannot_be_decoded_stops_the_build(anon_module, bundle: Path)
         anon_module.captured_identifiers(bundle)
 
 
+def test_an_unterminated_quote_stops_the_build(anon_module, bundle: Path) -> None:
+    """The default CSV dialect is `strict=False`, which merges fields silently.
+
+    An unterminated quote swallows the rest of the line, so `"OlderSecret` plus
+    its BSSID arrive as one value: the bare SSID is then not in the inventory at
+    all and passes straight through from a log line. Catching `csv.Error`
+    without `strict=True` catches nothing here.
+    """
+    broken = bundle / "context" / "site-survey" / "site-survey-default-20260808-130000.csv"
+    broken.write_text('ssid,bssid\n"QuotedSecret,aa:bb:cc:dd:ee:02\n', encoding="utf-8")
+    with pytest.raises(SystemExit, match="could not be read"):
+        anon_module.captured_identifiers(bundle)
+    with pytest.raises(SystemExit, match=broken.name):
+        anon_module.captured_identifiers(bundle)
+
+
+def test_a_row_that_does_not_match_the_header_stops_the_build(anon_module, bundle: Path) -> None:
+    """Strict quoting still does not catch a row with the wrong field count.
+
+    A row that lost its first field shifts every value one column left, so an
+    SSID lands under `ts` — not an identifier key — and is never collected,
+    while the row still parses without complaint.
+    """
+    broken = bundle / "context" / "wifi-clients" / "wifi-clients-default-20260808-140000.csv"
+    broken.write_text("ts,ssid_name,mac_address\nShiftedSecret,de:ad:be:ef:00:03\n",
+                      encoding="utf-8")
+    with pytest.raises(SystemExit, match="field count"):
+        anon_module.captured_identifiers(bundle)
+
+
 @pytest.mark.parametrize("text", [
     "peer AA:BB:CC:DD:EE:FF connected",              # the review's own repro
     "peer aa:BB:cc:DD:ee:FF connected",              # mixed case
