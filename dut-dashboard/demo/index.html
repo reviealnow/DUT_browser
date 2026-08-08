@@ -134,7 +134,7 @@ h1{font-size:23px; margin:0; letter-spacing:-.02em}
       <span class="tile-icon">⚡</span>
       <span class="tile-name">Upgrade Firmware</span>
       <span class="tile-sub">Admin-only flash flow: transport, checksum gate, dry run, and the type-the-name confirm. Nothing reachable.</span>
-      <span class="tile-tag tag-synthetic">synthetic content</span>
+      <span class="tile-tag tag-synthetic">synthetic flow · real transport rule</span>
     </a>
   </div>
 
@@ -149,9 +149,18 @@ h1{font-size:23px; margin:0; letter-spacing:-.02em}
       one-to-one, so counts and shapes are untouched and only labels change.
     </p>
     <p>
-      Tiles marked <b>synthetic content</b> are invented end to end. A file list, a note board and a
-      firmware picker are <i>content</i>, not measurements — there is no reading to stay faithful
-      to, and the real ones on this bench are test scaffolding carrying colleagues' names.
+      Tiles marked <b>synthetic content</b> are invented end to end. A file list and a note board
+      are <i>content</i>, not measurements — there is no reading to stay faithful to, and the real
+      ones on this bench are test scaffolding carrying colleagues' names.
+    </p>
+    <p>
+      <b>Upgrade Firmware</b> is labelled apart from those two, because only its content is
+      invented. Image names, checksums and the device address are made up, and no upload, no
+      backend validation and no DUT are behind the buttons — but the rule the screen exists to
+      teach is the product's, taken from <span class="mono">firmware_service.py</span>: the
+      management API takes the <b>encrypted</b> image and the web-UI path takes the <b>signed</b>
+      <span class="mono">.sig</span>, refused in that order, with an unrecognised filename
+      deliberately let through. Getting that pairing wrong is what cost a real bench session.
     </p>
     <p>
       A <span class="chip">◇ concept</span> chip marks an idea shown for discussion. Anything

@@ -65,7 +65,10 @@ tbody td{padding:var(--space-2) var(--space-3); border-bottom:1px solid #f1f4f9;
 .cap-row:hover{background:var(--bg)}
 .cap-row--miss td:first-child{box-shadow:inset 3px 0 0 var(--danger)}
 .cap-row--ok td:first-child{box-shadow:inset 3px 0 0 var(--ok)}
-.twist{border:0; background:none; color:var(--muted); padding:0 5px}
+/* The product puts this control inside the Iface cell (CapabilityRowView), not
+   in a column of its own — an extra column would be a twelfth the product does
+   not have. */
+.twist{border:0; background:none; color:var(--muted); padding:0 5px; margin-right:6px}
 .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 .cap-expand td{background:#f7f8fa; white-space:normal}
 .kv{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:var(--space-3); padding:var(--space-3) 0}
@@ -139,7 +142,7 @@ tbody td{padding:var(--space-2) var(--space-3); border-bottom:1px solid #f1f4f9;
             <table>
               <!-- SsidCapabilityCard's eleven columns, in its order. -->
               <thead><tr>
-                <th></th><th>Iface</th><th>SSID</th><th>Band</th><th>Ch</th>
+                <th>Iface</th><th>SSID</th><th>Band</th><th>Ch</th>
                 <th>Security</th><th>PMF</th><th>Gen</th><th>k</th><th>v</th><th>r</th><th>Status</th>
               </tr></thead>
               <tbody id="tbody"></tbody>
@@ -208,8 +211,8 @@ function renderRows(){
     const open = expanded.has(r.iface);
     return `
       <tr class="cap-row cap-row--miss" aria-expanded="${open}">
-        <td><button class="twist" data-iface="${esc(r.iface)}">${open ? "▾" : "▸"}</button></td>
-        <td class="mono">${esc(r.iface)}</td>
+        <td class="cap-iface mono"><button class="twist" data-iface="${esc(r.iface)}"
+            title="Show config vs observed detail">${open ? "▾" : "▸"}</button>${esc(r.iface)}</td>
         <td>${esc(r.ssid)}</td>
         <td>${dash(r.band)}</td>
         <td>${dash(r.channel)}</td>
@@ -221,7 +224,7 @@ function renderRows(){
         <td>${flag(r.dot11r)}</td>
         <td><span class="pill danger">✗ miss</span></td>
       </tr>
-      ${open ? `<tr class="cap-expand"><td colspan="12">${detail(r)}</td></tr>` : ""}`;
+      ${open ? `<tr class="cap-expand"><td colspan="11">${detail(r)}</td></tr>` : ""}`;
   }).join("");
 }
 
