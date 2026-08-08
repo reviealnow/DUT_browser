@@ -63,6 +63,9 @@ tbody tr:hover{background:var(--bg)}
 .nowrap{white-space:nowrap}
 .right{text-align:right}
 .name{font-weight:600; word-break:break-all}
+/* The expand control sits inside the name cell, as DownloadsSection puts it —
+   not in the actions column, where it would read as a second action. */
+.twist{padding:0 6px; margin-right:6px}
 
 .plot-preview{max-width:100%; border:1px solid var(--border); border-radius:8px; background:var(--panel); display:block; margin-top:var(--space-2)}
 .peek{margin:0; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px; line-height:1.5; white-space:pre-wrap; word-break:break-word; max-height:220px; overflow:auto; background:#f7f8fa; border-radius:8px; padding:var(--space-3)}
@@ -223,9 +226,12 @@ function bytes(n){
 const esc = (s) => String(s).replace(/[<&]/g, c => c === "<" ? "&lt;" : "&amp;");
 
 /* ---------------- state ---------------- */
-let peekOpen = false;            // the session log's ▾ peek
-let plotOpen = null;             // one plot preview at a time
-let contextOpen = false;         // the session's context, expanded under the log row
+/* One control per row, as the product has: DownloadsSection gives the session
+   row a single ▸ that reveals the session's context *and* the log tail
+   together, and keeps its open plots in a Set so several can be open at once.
+   Two controls here would read as two product capabilities. */
+let peekOpen = false;            // the session log's ▸ expand: context + tail
+const plotOpen = new Set();      // several plot previews may be open at once
 
 /* ---------------- session logs ---------------- */
 function renderLogs(){
@@ -234,7 +240,8 @@ function renderLogs(){
   $("logs").innerHTML = `
     <tr>
       <td>
-        <div class="name">${esc(f.name)}</div>
+        <div class="name"><button class="btn twist" data-peek
+            title="Peek the last lines of this log">${peekOpen ? "▾" : "▸"}</button>${esc(f.name)}</div>
         <span class="context-note">${n
           ? `${n} context file(s) from this session — expand to open`
           : "no context captured during this session"}</span>
@@ -242,38 +249,47 @@ function renderLogs(){
       <td class="nowrap">${bytes(f.size)}</td>
       <td class="nowrap">${f.modified}</td>
       <td class="nowrap right">
-        <button class="btn" data-peek title="Peek the last lines of this log">${peekOpen ? "▴" : "👁"}</button>
-        ${n ? `<button class="btn" data-context>${contextOpen ? "Hide context" : "Show context"}</button>` : ""}
         <button class="btn" data-analyze title="Run the analyzer on this log → CSV/PNG outputs appear below">Analyze</button>
         <button class="btn" data-dl="${esc(f.name)}">⬇</button>
       </td>
     </tr>
-    ${peekOpen ? `<tr class="expandrow"><td colspan="4"><pre class="peek">${esc(DATA.logTail || "")}</pre></td></tr>` : ""}
-    ${contextOpen ? `<tr class="expandrow"><td colspan="4">${contextHtml()}</td></tr>` : ""}`;
+    ${peekOpen ? `<tr class="expandrow"><td colspan="4">${contextHtml()}
+      <pre class="peek">${esc(DATA.logTail || "")}</pre></td></tr>` : ""}`;
 }
 
 /* The captures taken while this session was recording, grouped back into the
-   session they belong to — the flat tables below mix every session together. */
+   json+csv pairs they are written as — the flat tables below mix every session
+   together. Pairing is on the stem (`<kind>-<dut>-<ts>` minus the extension),
+   which is what SessionContext does; grouping by kind instead would merge two
+   captures of the same kind into one entry. */
 function contextHtml(){
-  const groups = {};
-  [...DATA.surveys, ...DATA.context].forEach(f => {
-    (groups[f.kind] = groups[f.kind] || []).push(f);
+  const files = [...DATA.surveys, ...DATA.context];
+  if (!files.length) return "";
+  const pairs = new Map();
+  files.forEach(f => {
+    const stem = f.name.replace(/\.(json|csv)$/i, "");
+    const found = pairs.get(stem);
+    if (found) found.files.push(f);
+    else pairs.set(stem, { kind: f.kind, stem, files: [f] });
   });
   const label = { "site-survey": "Site Survey", "ssid-capability": "SSID Capability",
                   "wifi-clients": "Wi-Fi Clients" };
   return `<div class="session-context">
       <div style="color:var(--muted)">Captured while this session was recording — the site as it looked on arrival.</div>
-      ${Object.entries(groups).map(([kind, files]) => `
-        <div style="margin-top:var(--space-2)">
-          <span class="kindtag">${label[kind] || kind}</span>
-          <ul class="session-context-list">
-            ${files.map(f => `<li title="${esc(f.name)} · ${bytes(f.size)}">
-                <button class="btn" data-dl="${esc(f.name)}" style="padding:0 6px">⬇</button>
-                <span class="mono">${esc(f.name)}</span> · ${bytes(f.size)}</li>`).join("")}
-          </ul>
-        </div>`).join("")}
+      <ul class="session-context-list">
+        ${[...pairs.values()].map(({ kind, stem, files: pair }) => `
+          <li>
+            <span class="kindtag">${label[kind] || kind}</span>
+            <span class="mono">${esc(stem)}</span>
+            ${pair.slice().sort((a, b) => a.name.localeCompare(b.name)).map(p => `
+              <button class="btn" data-dl="${esc(p.name)}" style="padding:0 6px"
+                  title="${esc(p.name)} · ${bytes(p.size)}">${
+                p.name.toLowerCase().endsWith(".csv") ? "CSV" : "JSON"}</button>`).join("")}
+          </li>`).join("")}
+      </ul>
       ${DATA.captureReport.length ? `<div style="margin-top:var(--space-3)">
         <span class="kindtag">capture-report.txt</span>
+        <span class="concept" title="The file is written into every bundle, but no screen in the product renders it">◇ concept</span>
         <pre class="report">${esc(DATA.captureReport.join("\n"))}</pre></div>` : ""}
     </div>`;
 }
@@ -282,15 +298,16 @@ function contextHtml(){
 function renderOutputs(){
   $("outputs").innerHTML = DATA.outputs.map(f => `
     <tr>
-      <td class="name">${esc(f.name)}</td>
+      <td class="name">${f.plot
+        ? `<button class="btn twist" data-plot="${esc(f.name)}" title="Preview plot">${
+            plotOpen.has(f.name) ? "▾" : "▸"}</button>` : ""}${esc(f.name)}</td>
       <td class="nowrap">${bytes(f.size)}</td>
       <td class="nowrap">${f.modified}</td>
       <td class="nowrap right">
-        ${f.plot ? `<button class="btn" data-plot="${esc(f.name)}" title="Preview plot">${plotOpen === f.name ? "▴" : "👁"}</button>` : ""}
         <button class="btn" data-dl="${esc(f.name)}">⬇</button>
       </td>
     </tr>
-    ${plotOpen === f.name ? `<tr class="expandrow"><td colspan="4">${plotHtml(f)}</td></tr>` : ""}`).join("");
+    ${f.plot && plotOpen.has(f.name) ? `<tr class="expandrow"><td colspan="4">${plotHtml(f)}</td></tr>` : ""}`).join("");
 }
 
 function plotHtml(f){
@@ -338,20 +355,18 @@ $("provenance").innerHTML =
   + `files, ${bytes(totalBytes)}, with the names, sizes and grouping they came off disk with. `
   + `One plot is embedded so the preview is genuine; the others are listed. Downloading does `
   + `nothing here — there is no file store behind the page. Chips marked `
-  + `<span class="concept">◇ concept</span> are ideas for discussion; this page has none.`;
+  + `<span class="concept">◇ concept</span> are ideas for discussion: the one on this page is `
+  + `<b>capture-report.txt</b>, which every bundle carries but no screen in the product renders.`;
 
 /* ---------------- interactions ---------------- */
 document.body.addEventListener("click", (ev) => {
   const peek = ev.target.closest("[data-peek]");
   if (peek){ peekOpen = !peekOpen; renderLogs(); return; }
 
-  const ctx = ev.target.closest("[data-context]");
-  if (ctx){ contextOpen = !contextOpen; renderLogs(); return; }
-
   const plot = ev.target.closest("[data-plot]");
   if (plot){
     const name = plot.dataset.plot;
-    plotOpen = plotOpen === name ? null : name;
+    plotOpen.has(name) ? plotOpen.delete(name) : plotOpen.add(name);
     renderOutputs(); return;
   }
 
