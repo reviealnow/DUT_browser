@@ -96,7 +96,7 @@ dialog::backdrop{background:rgba(20,30,55,.35)}
 
 <!-- Real console lines plus the scripted terminal replay, per the repo's
      inline-data convention. See the provenance line for which is which. -->
-<script id="demo-data" type="application/json">{"generatedFrom":"dut-session-20260804-154148","logName":"dut-session-20260804-110255.log","lines":["=== CPU Utilization =================================================================","CPU0:   0.0% usr   0.0% sys   0.0% nic  86.7% idle   0.0% io   0.0% irq  13.3%% sirq","CPU1:   1.0% usr   0.0% sys   0.0% nic  98.0% idle   0.0% io   1.0% irq   0.0%% sirq","CPU2:   0.0% usr   0.0% sys   0.0% nic 100.0% idle   0.0% io   0.0% irq   0.0%% sirq","CPU3:   0.0% usr   1.0% sys   0.0% nic  99.0% idle   0.0% io   0.0% irq   0.0%% sirq","","=== CPU Hotspot (top threads by %CPU) ===============================================","","=== Interrupt / SoftIRQ Hotspot (\u0394=1s) =============================================","--- /proc/interrupts (Top 10 by delta, auto classify WIFI/ETH/OTHER) ---------------","36:       1037 OTHER nss_queue0","46:       1006 OTHER nss_queue0","18:        402 OTHER arch_timer","96:        271 OTHER ce1","97:        104 OTHER ce2","123:         88 OTHER ppdu-end-interrupts-mac3","125:         31 OTHER ppdu-end-interrupts-mac1","33:         17 OTHER nss_empty_buf_sos","22:         12 OTHER bam_dma","43:         10 OTHER nss_empty_buf_sos","","--- /proc/softirqs (delta per class, sum all CPUs) ---------------------------------","NET_RX           2098","RCU               561","TASKLET           400","TIMER             381","SCHED             380","BLOCK               0","BLOCK_IOPOLL            0","HI                  0","HRTIMER             0","NET_TX              0","","=== Memory Utilization (/proc/meminfo) ==============================================","----- cat /proc/meminfo -----","MemTotal:         843132 kB","MemFree:          371328 kB","MemAvailable:     454580 kB","Buffers:           15420 kB","Cached:           108036 kB","SwapCached:            0 kB","Active:            80752 kB","Inactive:          55432 kB","Active(anon):      41660 kB","Inactive(anon):     3968 kB","Active(file):      39092 kB","Inactive(file):    51464 kB","Unevictable:           0 kB","Mlocked:               0 kB","HighTotal:             0 kB","HighFree:              0 kB","LowTotal:         843132 kB","LowFree:          371328 kB","SwapTotal:             0 kB","SwapFree:              0 kB","Dirty:                 0 kB","Writeback:             0 kB","AnonPages:         12740 kB","Mapped:            17228 kB","Shmem:             32900 kB","Slab:             175164 kB","SReclaimable:       6896 kB","SUnreclaim:       168268 kB","KernelStack:        5360 kB","PageTables:          852 kB","NFS_Unstable:          0 kB","Bounce:                0 kB","WritebackTmp:          0 kB","CommitLimit:      421564 kB","Committed_AS:      79696 kB","VmallocTotal:    1048576 kB","VmallocUsed:           0 kB","VmallocChunk:          0 kB","","=== Disk Utilization (df) ===========================================================","----- df -----","Filesystem           1024-blocks    Used Available Use% Mounted on","/dev/shm/tmp/            98304     11344     86960  12% /mnt/tmpfs","/dev/shm/tmpfw/          81920         0     81920   0% /mnt/tmpfw","ubi20:storage            32644       384     30548   1% /storage"],"totalLines":149891,"viReplay":[{"t":0,"out":"vi /etc/hostapd1.conf\r\n"},{"t":500,"out":"\u001b[2J\u001b[Hinterface=ath1\nctrl_interface=/var/run/hostapd\nssid=DemoAP-Corp\nhw_mode=g\nchannel=11\nieee80211n=1\nwpa=2\nwpa_key_mgmt=WPA-PSK\nrsn_pairwise=CCMP\n~\n~\n~\n\"/etc/hostapd1.conf\" 9L, 198C"},{"t":1600,"out":":"},{"t":1700,"out":"s"},{"t":1790,"out":"e"},{"t":1880,"out":"t"},{"t":1960,"out":" "},{"t":2050,"out":"n"},{"t":2140,"out":"u"},{"t":2260,"out":"\r\n"},{"t":2400,"out":"\u001b[2J\u001b[H  1 interface=ath1\n  2 ctrl_interface=/var/run/hostapd\n  3 ssid=DemoAP-Corp\n  4 hw_mode=g\n  5 channel=11\n  6 ieee80211n=1\n  7 wpa=2\n  8 wpa_key_mgmt=WPA-PSK\n  9 rsn_pairwise=CCMP\n~\n~\n~\n"},{"t":3400,"out":":q!"},{"t":3700,"out":"\r\nAP6_840E# "}]}</script>
+<script id="demo-data" type="application/json">{"generatedFrom":"dut-session-20260804-154148","logName":"dut-session-20260804-110255.log","lines":["=== Memory Utilization (/proc/meminfo) ==============================================","----- cat /proc/meminfo -----","MemTotal:         843132 kB","MemFree:          371328 kB","MemAvailable:     454580 kB","Buffers:           15420 kB","Cached:           108036 kB","SwapCached:            0 kB","Active:            80752 kB","Inactive:          55432 kB","Active(anon):      41660 kB","Inactive(anon):     3968 kB","Active(file):      39092 kB","Inactive(file):    51464 kB","Unevictable:           0 kB","Mlocked:               0 kB","HighTotal:             0 kB","HighFree:              0 kB","LowTotal:         843132 kB","LowFree:          371328 kB","SwapTotal:             0 kB","SwapFree:              0 kB","Dirty:                 0 kB","Writeback:             0 kB","AnonPages:         12740 kB","Mapped:            17228 kB","Shmem:             32900 kB","Slab:             175164 kB","SReclaimable:       6896 kB","SUnreclaim:       168268 kB","KernelStack:        5360 kB","PageTables:          852 kB","NFS_Unstable:          0 kB","Bounce:                0 kB","WritebackTmp:          0 kB","CommitLimit:      421564 kB","Committed_AS:      79696 kB","VmallocTotal:    1048576 kB","VmallocUsed:           0 kB","VmallocChunk:          0 kB","","=== Disk Utilization (df) ===========================================================","----- df -----","Filesystem           1024-blocks    Used Available Use% Mounted on","/dev/shm/tmp/            98304     11344     86960  12% /mnt/tmpfs","/dev/shm/tmpfw/          81920         0     81920   0% /mnt/tmpfw","ubi20:storage            32644       384     30548   1% /storage","/dev/mtdblock35          21248     21248         0 100% /apps","/dev/mtdblock36           4608      4608         0 100% /lib/firmware/IPQ8074/WIFI_FW","ubi24:syslog             32644        36     30896   0% /mnt/syslog","ubi28:Reserved           51300       780     47872   2% /mnt/reserved","ubi25:core_dump           9324        24      8764   0% /mnt/core_dump","ubi27:Agent              45704      6356     36980  15% /mnt/data","shmData                  20480     17152      3328  84% /mnt/usageInsight","","=== Interface Status ================================================================","----- ethtool eth1 ----------------------------------------------------------"],"totalLines":149891,"viReplay":[{"t":0,"out":"vi /etc/hostapd1.conf\r\n"},{"t":500,"out":"\u001b[2J\u001b[Hinterface=ath1\nctrl_interface=/var/run/hostapd\nssid=DemoAP-Corp\nhw_mode=g\nchannel=11\nieee80211n=1\nwpa=2\nwpa_key_mgmt=WPA-PSK\nrsn_pairwise=CCMP\n~\n~\n~\n\"/etc/hostapd1.conf\" 9L, 198C"},{"t":1600,"out":":"},{"t":1700,"out":"s"},{"t":1790,"out":"e"},{"t":1880,"out":"t"},{"t":1960,"out":" "},{"t":2050,"out":"n"},{"t":2140,"out":"u"},{"t":2260,"out":"\r\n"},{"t":2400,"out":"\u001b[2J\u001b[H  1 interface=ath1\n  2 ctrl_interface=/var/run/hostapd\n  3 ssid=DemoAP-Corp\n  4 hw_mode=g\n  5 channel=11\n  6 ieee80211n=1\n  7 wpa=2\n  8 wpa_key_mgmt=WPA-PSK\n  9 rsn_pairwise=CCMP\n~\n~\n~\n"},{"t":3400,"out":":q!"},{"t":3700,"out":"\r\nAP6_840E# "}]}</script>
 
 <div class="layout">
   <aside class="sidebar">
@@ -147,6 +147,7 @@ dialog::backdrop{background:rgba(20,30,55,.35)}
         <div class="console" id="console"></div>
         <form class="sendrow" id="sendForm">
           <input id="command" placeholder="Type command" aria-label="Command">
+          <span class="concept" title="Every line in the box above came off a real DUT; nothing typed here is added to it">◇ no DUT: nothing is sent</span>
           <button type="button" class="btn" id="btnPopup">Edit in Popup</button>
           <button type="submit" class="btn btn-primary">Send</button>
         </form>
@@ -221,7 +222,9 @@ function toast(msg){
 const esc = (s) => String(s).replace(/[<&]/g, c => c === "<" ? "&lt;" : "&amp;");
 
 /* ---------------- Monitor ---------------- */
-let lines = DATA.lines.slice();
+/* const, and it stays const: the captured lines are the whole of this view.
+   Nothing in this file appends to them — see send(). */
+const lines = DATA.lines.slice();
 function renderConsole(atBottom){
   const box = $("console");
   const stick = atBottom ?? (box.scrollHeight - box.scrollTop - box.clientHeight < 24);
@@ -247,13 +250,15 @@ $("command").addEventListener("input", (ev) => {
 function send(text){
   const trimmed = text.trim();
   if (!trimmed) return;
-  // Only the echo a DUT would produce goes into the console. Inventing a shell
-  // response would put fabricated output inside a view whose provenance line
-  // calls it real console output; the explanation belongs outside it.
-  lines.push(`AP6_840E# ${trimmed}`);
-  renderConsole(true);
-  toast("Sent nowhere — this demo has no DUT. The product writes the line to the serial port "
-      + "and the device's own output comes back on the stream.");
+  // Nothing typed here reaches the console box, not even the prompt line.
+  // Every line in that box came off a real DUT, and the provenance line says
+  // so; an echo composed here would be synthetic text sitting inside a view
+  // claimed as measured output. In the product the line reaching the console
+  // is the *device's* echo arriving on the stream — offline there is no device
+  // to produce it, so the explanation goes to a toast and the box is left
+  // exactly as the capture left it.
+  toast(`Sent nowhere — this demo has no DUT. The product writes “${trimmed}” to the serial `
+      + "port, and what appears above is the device's own echo coming back on the stream.");
 }
 
 $("sendForm").addEventListener("submit", (ev) => {
@@ -341,8 +346,11 @@ $("provenance").innerHTML =
   + `(${DATA.totalLines.toLocaleString()} lines in the session) in bundle <b>${esc(DATA.generatedFrom)}</b>. `
   + `The excerpt is chosen by a guard that refuses any run containing an SSID, MAC or IP — a serial `
   + `log is free text and cannot be aliased field by field, so it is skipped rather than scrubbed. `
-  + `The vi session under Terminal is a scripted recording, and the two <span class="concept">◇</span> `
-  + `chips mark where this file cannot be what the product is: a real pty, and a Vim-mode editor.`;
+  + `Nothing typed into Send is added to that box: the line a real console shows is the device's own `
+  + `echo arriving on the stream, and there is no device here to produce it. `
+  + `The vi session under Terminal is a scripted recording, and the three <span class="concept">◇</span> `
+  + `chips mark where this file cannot be what the product is: a real pty, a Vim-mode editor, and a `
+  + `serial port with a DUT on the far end.`;
 
 document.querySelectorAll("[data-screen]").forEach(el => {
   el.addEventListener("click", () => {
