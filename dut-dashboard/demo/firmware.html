@@ -69,6 +69,10 @@ select:focus,input:focus{outline:none; border-color:var(--accent); box-shadow:0 
 .flash.danger{background:var(--danger-weak); color:var(--danger); border:1px solid #f0c5c1}
 
 .note{padding:var(--space-3) var(--space-4); border-radius:10px; background:var(--accent-weak); color:#12467f; font-size:12px; border:1px solid #cfe0f6}
+/* The capability boundary, stated where the actions are rather than only in the
+   provenance line at the foot of the page. */
+.bounds{padding:var(--space-3) var(--space-4); border-radius:10px; background:var(--bg); color:var(--muted); font-size:12px; border:1px dashed var(--border)}
+.bounds b{color:var(--ink)}
 /* A "concept" chip marks an idea shown for discussion. Everything without one
    mirrors behaviour the product actually ships — a demo must not quietly
    promise features somebody then has to build. */
@@ -87,7 +91,7 @@ dialog::backdrop{background:rgba(20,30,55,.4)}
 
 <!-- Workflow configuration, per the repo's inline-data convention. Synthetic —
      but the transport contract is the product's real one. See the provenance. -->
-<script id="demo-data" type="application/json">{"dut":"AP6_840E","mgmtUrl":"https://198.51.100.20","dryRunForced":false,"transports":[{"id":"gui","label":"Web UI upload (signed image)","accepts":{"endsWith":".sig","describe":"a signed .sig image"},"path":"/submit.cgi","port":443},{"id":"api","label":"Management API (encrypted image)","accepts":{"contains":"-encrypt_","endsWith":".bin","describe":"an encrypted -encrypt_*.bin image"},"path":"/ap/systemctl/sysFwUpgrade","port":10443}],"files":[{"id":4,"name":"wifix.tar.gz.sig","size":35763146,"sha256":"0685884c872f4d1e9a3b77c2e0148fbb5c9d2a6e83f04b17ce55901d2a7bf6e3"},{"id":9,"name":"ubi_kernel_AP6_840E-encrypt_1.10.339.bin","size":34117220,"sha256":"c41f9ab0273e5d68118aa4f0b6e2cd7395481a6f0d2e77bb3c1904ae62d5f8a1"},{"id":10,"name":"release-notes-1.10.339.txt","size":4118,"sha256":null}],"hasCredentials":true}</script>
+<script id="demo-data" type="application/json">{"dut":"AP6_840E","mgmtUrl":"https://198.51.100.20","dryRunForced":false,"transports":[{"id":"gui","label":"Web UI upload (signed image)","path":"/submit.cgi","port":443},{"id":"api","label":"Management API (encrypted image)","path":"/ap/systemctl/sysFwUpgrade","port":10443}],"files":[{"id":4,"name":"wifix.tar.gz.sig","size":35763146,"sha256":"0685884c872f4d1e9a3b77c2e0148fbb5c9d2a6e83f04b17ce55901d2a7bf6e3"},{"id":9,"name":"ubi_kernel_AP6_840E-encrypt_1.10.339.bin","size":34117220,"sha256":"c41f9ab0273e5d68118aa4f0b6e2cd7395481a6f0d2e77bb3c1904ae62d5f8a1"},{"id":10,"name":"release-notes-1.10.339.txt","size":4118,"sha256":null}],"hasCredentials":true}</script>
 
 <div class="layout">
   <aside class="sidebar">
@@ -166,6 +170,15 @@ dialog::backdrop{background:rgba(20,30,55,.4)}
             <button class="btn danger" id="btnUpgrade" disabled>Upgrade firmware…</button>
           </div>
 
+          <!-- Where this page stops. The rules above are the product's; the
+               machinery behind them is not here, and a viewer should not have to
+               infer that from a toast. -->
+          <div class="bounds">
+            <b>Flow demonstration only.</b> This standalone page does not upload a file, run the
+            backend's validation, contact a DUT, or persist the management address. What it does
+            reproduce is which pairings the service refuses, in the order it checks them.
+          </div>
+
           <div id="outcome"></div>
         </div>
       </section>
@@ -231,25 +244,49 @@ function bytes(n){
 let transportId = DATA.transports[0].id;
 let selectedId = null;
 const transport = () => DATA.transports.find(t => t.id === transportId);
-const normalise = (addr) => /^https?:\/\//.test(addr) ? addr : `https://${addr}`;
 const chosen = () => DATA.files.find(f => f.id === selectedId) || null;
 
-/* The DUT accepts one image type per path, so a mismatch is worth naming before
-   the confirm dialog rather than at it. */
-/* The vendor's rule is a pattern, not a suffix: the API takes
-   ubi_kernel_AP6_*-encrypt_*.bin. Encoding it as "ends with -encrypt_.bin"
-   matches no real filename, which would quietly make that path undemonstrable. */
-function accepts(name, rule){
-  if (rule.contains && !name.includes(rule.contains)) return false;
-  return name.endsWith(rule.endsWith);
+/* firmware_service.normalise_mgmt_url, field for field: the scheme is filled in
+   when missing, and the transport's default port is added only when the address
+   carries none — "an explicit port is always kept". Appending the port
+   unconditionally produced https://198.51.100.20:9443:10443/… */
+function mgmtUrl(addr, t){
+  const withScheme = /^https?:\/\//.test(addr) ? addr : `https://${addr}`;
+  try {
+    const url = new URL(withScheme);
+    if (!url.port) url.port = String(t.port);
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return withScheme;                       // unparseable: show it back as typed
+  }
+}
+
+/* firmware_service.image_kind + check_image_for_transport, field for field.
+   Two things this must not get wrong:
+   - the vendor's rule is a *pattern*, not a suffix: the API takes
+     ubi_kernel_AP6_*-encrypt_*.bin, so "-encrypt_" has to be looked for inside
+     the name. Encoding it as an ending matches no real filename and would
+     quietly make that path undemonstrable.
+   - an unrecognised name is *allowed through*, deliberately: the heuristic must
+     not block an image the vendor names differently. A demo that refused it
+     would teach a stricter rule than the product enforces. */
+function imageKind(name){
+  const lowered = String(name || "").toLowerCase();
+  if (lowered.endsWith(".sig")) return "signed";
+  if (lowered.includes("-encrypt_") && lowered.endsWith(".bin")) return "encrypted";
+  return "unknown";
 }
 function mismatchReason(){
   const file = chosen();
   if (!file) return null;
-  const t = transport();
-  if (!accepts(file.name, t.accepts)){
-    return `${file.name} is not ${t.accepts.describe}. The ${t.label.toLowerCase()} needs one; `
-         + `sending the other type is refused by the device, not by this page.`;
+  const kind = imageKind(file.name);
+  if (transportId === "gui" && kind === "encrypted"){
+    return `'${file.name}' looks like an encrypted image, which only the management API `
+         + `accepts. The web-UI transport needs the signed .sig image.`;
+  }
+  if (transportId === "api" && kind === "signed"){
+    return `'${file.name}' is a signed image, which only the web UI accepts. The management `
+         + `API needs the encrypted '-encrypt_*.bin' image.`;
   }
   return null;
 }
@@ -271,8 +308,9 @@ function render(){
   const addr = $("mgmt").value.trim();
   $("addrNote").innerHTML = addr
     ? `<div style="font-size:12px;color:var(--muted)">Uploads to `
-      + `<span class="mono">${esc(normalise(addr))}:${transport().port}${esc(transport().path)}</span> `
-      + `for <b>${esc(DATA.dut)}</b>. A bare IP becomes https://; empty clears it.</div>`
+      + `<span class="mono">${esc(mgmtUrl(addr, transport()))}${esc(transport().path)}</span> `
+      + `for <b>${esc(DATA.dut)}</b>. A bare IP becomes https://; a port you type is kept, `
+      + `otherwise the transport's own is used; empty clears it.</div>`
     : `<div class="flash warn">No management address set for this DUT — set it above before upgrading.</div>`;
 
   const file = chosen();
@@ -316,18 +354,36 @@ $("image").addEventListener("change", (ev) => {
 $("expected").addEventListener("input", render);
 $("mgmt").addEventListener("input", render);
 
+/* The button stays enabled whenever a file is chosen, because FirmwareSection's
+   is: `disabled={!chosen || busy}`. There, the click reaches the backend and the
+   backend refuses the pairing — the operator sees the refusal, not a dry run.
+   This page has no backend, but it can already see the same problem on screen,
+   so it reports the stop. Claiming "Dry run complete" over a visible failure
+   would be the demo succeeding where the product fails. */
 $("btnRehearse").addEventListener("click", () => {
   const file = chosen(), t = transport();
+  // Same order the service checks in: image/transport pairing, then the
+  // checksum, then the address. Credentials are deliberately absent — the
+  // product requires them only when `not dry`, so a rehearsal without them is
+  // allowed there and must be allowed here.
+  const problem = mismatchReason() || expectedMismatch()
+    || ($("mgmt").value.trim() ? null
+        : "No management address configured for this DUT. Set it before upgrading.");
+  if (problem){
+    $("outcome").innerHTML = `<div class="flash danger">Flow stopped by the validation `
+      + `already shown above — nothing was sent, and no dry run was performed.</div>`;
+    return;
+  }
   $("outcome").innerHTML = `<div class="flash ok">Dry run complete — nothing was sent. `
     + `Would upload ${file.size.toLocaleString()} bytes to `
-    + `${esc(normalise($("mgmt").value.trim()))}:${t.port}${esc(t.path)} via the ${esc(t.id)} transport `
+    + `${esc(mgmtUrl($("mgmt").value.trim(), t))}${esc(t.path)} via the ${esc(t.id)} transport `
     + `(sha256 ${esc((file.sha256 || "—").slice(0, 16))}…).</div>`;
 });
 
 $("btnUpgrade").addEventListener("click", () => {
   const file = chosen(), t = transport();
   $("confirmDetail").textContent =
-    `${file.name} (${bytes(file.size)}) to ${DATA.dut} at ${normalise($("mgmt").value.trim())} `
+    `${file.name} (${bytes(file.size)}) to ${DATA.dut} at ${mgmtUrl($("mgmt").value.trim(), t)} `
     + `via the ${t.label.toLowerCase()}.`;
   $("typed").value = "";
   $("confirmGo").disabled = true;

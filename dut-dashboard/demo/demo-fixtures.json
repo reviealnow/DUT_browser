@@ -398,21 +398,12 @@
       {
         "id": "gui",
         "label": "Web UI upload (signed image)",
-        "accepts": {
-          "endsWith": ".sig",
-          "describe": "a signed .sig image"
-        },
         "path": "/submit.cgi",
         "port": 443
       },
       {
         "id": "api",
         "label": "Management API (encrypted image)",
-        "accepts": {
-          "contains": "-encrypt_",
-          "endsWith": ".bin",
-          "describe": "an encrypted -encrypt_*.bin image"
-        },
         "path": "/ap/systemctl/sysFwUpgrade",
         "port": 10443
       }
