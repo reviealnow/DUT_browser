@@ -491,6 +491,24 @@ IDENTIFIER_KEYS = frozenset({
 })
 
 
+def _unreadable_capture(path: Path, why: Exception) -> SystemExit:
+    """A capture that cannot be read is not a capture that holds nothing.
+
+    Skipping a truncated snapshot is fail-open, and silently so: if that file
+    was the only structured record of a bare SSID, the name never enters the
+    inventory and the guard then waves it through in a log line. The whole
+    design here is that refusing too much costs another excerpt while refusing
+    too little publishes somebody's network name — a parse error has to land on
+    the expensive side of that trade too.
+    """
+    return SystemExit(
+        f"{path} is in the bundle but could not be read ({why}). A damaged "
+        f"capture is not an empty one: the identifiers it holds would go "
+        f"unlearned and could then be published from a log line. Repair or "
+        f"remove it, or regenerate from a complete bundle."
+    )
+
+
 def _collect_identifiers(node, into: set[str]) -> None:
     """Depth-first over parsed JSON, gathering values under identifier keys."""
     if isinstance(node, dict):
@@ -536,6 +554,11 @@ def captured_identifiers(bundle: Path | None,
     identifier, at any depth, in any JSON or CSV the bundle contains. A context
     kind added later is covered without anyone remembering to come back here,
     which is the property that was actually missing.
+
+    A file that cannot be parsed stops the build — see
+    :func:`_unreadable_capture`. Every other failure mode in this function is
+    designed to over-refuse; an unreadable capture must not be the one that
+    quietly under-refuses.
     """
     values: set[str] = set()
     for source in (bundle, survey_bundle):
@@ -543,15 +566,24 @@ def captured_identifiers(bundle: Path | None,
             continue
         for path in sorted(source.rglob("*.json")):
             try:
-                _collect_identifiers(json.loads(path.read_text(encoding="utf-8")), values)
-            except (json.JSONDecodeError, UnicodeDecodeError):
-                continue                     # not a capture; nothing to learn
+                parsed = json.loads(path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError) as unreadable:
+                raise _unreadable_capture(path, unreadable) from unreadable
+            _collect_identifiers(parsed, values)
         for path in sorted(source.rglob("*.csv")):
-            with path.open(newline="", encoding="utf-8", errors="ignore") as handle:
-                for row in csv.DictReader(handle):
-                    for key, value in row.items():
-                        if key and key.lower() in IDENTIFIER_KEYS and value:
-                            values.add(value)
+            # Strict decoding, no `errors="ignore"`: replacing an undecodable
+            # byte silently rewrites the value, so an SSID would enter the
+            # inventory in a form the log's own bytes can never match — the same
+            # fail-open as skipping the file, only harder to notice.
+            try:
+                with path.open(newline="", encoding="utf-8") as handle:
+                    rows = list(csv.DictReader(handle))
+            except (UnicodeDecodeError, csv.Error) as unreadable:
+                raise _unreadable_capture(path, unreadable) from unreadable
+            for row in rows:
+                for key, value in row.items():
+                    if key and key.lower() in IDENTIFIER_KEYS and value:
+                        values.add(value)
     return frozenset(value.strip().lower() for value in values if value and value.strip())
 
 

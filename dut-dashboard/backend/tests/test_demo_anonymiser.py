@@ -188,6 +188,35 @@ def test_a_capture_free_directory_yields_nothing_rather_than_failing(anon_module
     assert anon_module.captured_identifiers(None) == frozenset()
 
 
+def test_a_capture_that_cannot_be_read_stops_the_build(anon_module, bundle: Path) -> None:
+    """Skipping a damaged snapshot is fail-open, and silently so.
+
+    If the truncated file was the only structured record of a bare SSID, the
+    name never enters the inventory and the guard then waves it through in a
+    log line — the exact failure the inventory exists to prevent.
+    """
+    broken = bundle / "context" / "site-survey" / "site-survey-default-20260808-120000.json"
+    broken.write_text('{"neighbors": [{"ssid": "TruncatedSecret"', encoding="utf-8")
+    with pytest.raises(SystemExit, match="could not be read"):
+        anon_module.captured_identifiers(bundle)
+    # The operator has to be told which file, or they cannot act on it.
+    with pytest.raises(SystemExit, match=broken.name):
+        anon_module.captured_identifiers(bundle)
+
+
+def test_a_csv_that_cannot_be_decoded_stops_the_build(anon_module, bundle: Path) -> None:
+    """Same rule for the other half — and `errors="ignore"` was worse than a skip.
+
+    Replacing an undecodable byte rewrites the value, so the SSID would enter
+    the inventory in a form the log's own bytes can never match: fail-open, with
+    a full inventory to look at.
+    """
+    broken = bundle / "context" / "site-survey" / "site-survey-default-20260808-120000.csv"
+    broken.write_bytes(b"ssid,bssid\n\xff\xfeCaf\xe9Secret,aa:bb:cc:dd:ee:01\n")
+    with pytest.raises(SystemExit, match="could not be read"):
+        anon_module.captured_identifiers(bundle)
+
+
 @pytest.mark.parametrize("text", [
     "peer AA:BB:CC:DD:EE:FF connected",              # the review's own repro
     "peer aa:BB:cc:DD:ee:FF connected",              # mixed case
