@@ -18,6 +18,12 @@ double-click, works offline, and survives being forwarded.
 | `wifi-clients.html` | The per-client table with row-expand deep stats, grouped by band, with Kick |
 | `files.html` | The workspace file table with drag-and-drop upload, sortable columns, tags, inline preview |
 | `bulletin.html` | Notes with nested replies, per-author colours, the edited marker and the unverified badge |
+| `downloads.html` | A real bundle's four cards — session log with its context, analyzer outputs with an inline plot, surveys, connect-time context |
+| `serial-console.html` | Monitor and Terminal, the popup command editor, and real console output |
+| `cpu-memory.html` | The three trend cards over 40 hours of analyzer CSV — no anonymising needed |
+| `ssid-capability.html` | 28 VAPs of hostapd config, and the all-miss state a capture with no host-side scan really has |
+| `firmware.html` | The admin flash flow: transport, checksum gate, dry run, type-the-name confirm |
+| `index.html` | The kit's front door — every screen, and which are measured versus synthetic |
 
 Files and Bulletin are **two separate sections in the product**, so they are two
 separate files here. Folding them into one "Workspace" page would invent a
@@ -59,6 +65,36 @@ Pages whose content is synthetic in full take no bundle at all:
 python3 build_demo_data.py --page files.html
 python3 build_demo_data.py --page bulletin.html
 ```
+
+**Ten of the eleven pages are generated. `index.html` is not** — it is the front
+door, linking the screens and saying which are measured, with no capture behind
+it and no `demo-data` block to fill. Edit it by hand; the generator refuses it by
+name rather than failing on the missing block.
+
+Downloads lists a bundle rather than parsing one, and embeds its smallest plot
+so the inline preview is genuine:
+
+```bash
+python3 build_demo_data.py --page downloads.html --bundle <session-dir>
+```
+
+Its "peek" shows the log's real last lines, and Serial Console shows a real
+run of them. A serial log is free text and cannot be aliased field by field, so
+the generator **refuses** any excerpt carrying an SSID, MAC or IP rather than
+shipping it (`refuse_if_identifying`). Serial Console goes further and lets the
+guard *choose*: it takes the longest identifier-free run in the log, preferring
+one that starts at a sysMon section header, so the excerpt is safe by
+construction rather than by a lucky offset.
+
+```bash
+python3 build_demo_data.py --page serial-console.html --bundle <session-dir>
+```
+
+Two things on that screen this file cannot be, both chipped: the product's
+Terminal is **xterm.js over a pty on `/ws/term`** — vi and nano really run on
+the DUT — so the demo replays a recorded session instead; and the popup command
+editor is **CodeMirror with Vim mode**, where the demo has a plain textarea.
+Everything else there is the real interaction.
 
 A bundle is any extracted `dut-session-<ts>` directory from the **Download DUT
 Log** flow: `build_demo_data.py` reads `*_cpu_usage.csv` (analyzer3),
@@ -137,6 +173,9 @@ interference score and travels as a number beside the chart, never as a bar.
 
 ## Adding a screen
 
+**Start at `index.html`.** It links every screen and states, per tile, whether
+that page is measured or synthetic.
+
 1. Copy `overview.html`, keep the `<style>` block and the chart helpers
    (`lineChart` / `barChart`) — pages duplicate them on purpose, because
    "one file you can email" is the whole point and a shared asset breaks it.
@@ -163,3 +202,8 @@ interference score and travels as a number beside the chart, never as a bar.
   *What is real and what is not*.
 * No build, no dependencies, and none should be added: the value of a demo file
   is that it opens anywhere.
+* `firmware.html` cannot reach anything, and says so — but it keeps one rule
+  exactly: the management API takes the **encrypted** image and the web-UI path
+  takes the **signed** `.sig`. That rule is a filename *pattern*
+  (`ubi_kernel_AP6_*-encrypt_*.bin`), not a suffix; encoding it as a suffix
+  matches no real filename and silently makes that path undemonstrable.

@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DUT_browser — CPU / Memory (demo)</title>
+<style>
+:root{
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:24px;
+  --bg:#f4f6fa; --panel:#fff; --ink:#1b2333; --muted:#687389; --faint:#9aa4b8;
+  --accent:#1565c0; --accent-weak:#e8f0fb;
+  --ok:#0c7a43; --ok-weak:#e4f4ea;
+  --warn:#9a6a00; --warn-weak:#fbf0d9;
+  --danger:#b3261e; --danger-weak:#fce8e6;
+  --border:#e3e8f0;
+  --shadow:0 1px 2px rgba(20,30,55,.04), 0 6px 20px rgba(20,30,55,.06);
+  --radius:14px; --sidebar-w:232px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg); color:var(--ink); font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"PingFang TC","Noto Sans TC",sans-serif; -webkit-font-smoothing:antialiased}
+button{font:inherit; color:inherit; cursor:pointer}
+
+.layout{display:grid; grid-template-columns:var(--sidebar-w) 1fr; min-height:100vh}
+.sidebar{background:var(--panel); border-right:1px solid var(--border); padding:var(--space-4) 0; position:sticky; top:0; height:100vh; overflow-y:auto}
+.brand{display:flex; align-items:center; gap:var(--space-2); padding:0 var(--space-4) var(--space-5)}
+.brand-mark{width:28px; height:28px; border-radius:8px; background:var(--accent); color:#fff; display:grid; place-items:center; font-weight:700; font-size:13px}
+.brand-name{font-weight:650; letter-spacing:-.01em}
+.nav-group{padding:var(--space-3) var(--space-4) var(--space-1); font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--faint); font-weight:650}
+.nav-item{display:flex; align-items:center; gap:var(--space-3); width:100%; border:0; background:none; text-align:left; padding:var(--space-2) var(--space-4); border-left:3px solid transparent; color:var(--muted)}
+.nav-item:hover{background:var(--bg); color:var(--ink)}
+.nav-item[aria-current="page"]{background:var(--accent-weak); border-left-color:var(--accent); color:var(--accent); font-weight:600}
+.nav-icon{width:18px; text-align:center; font-size:13px}
+
+.main{display:flex; flex-direction:column; min-width:0}
+.topbar{display:flex; align-items:center; gap:var(--space-3); padding:var(--space-4) var(--space-5); background:var(--panel); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:5}
+.topbar h1{font-size:17px; margin:0; letter-spacing:-.01em}
+.topbar .sub{color:var(--muted); font-size:12px}
+.spacer{flex:1}
+.pill{display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:999px; font-size:12px; font-weight:600; border:1px solid transparent; white-space:nowrap}
+.pill-demo{background:var(--warn-weak); color:var(--warn); border-color:#f0dfb4}
+.pill-muted{background:var(--bg); color:var(--muted); border-color:var(--border)}
+
+.content{padding:var(--space-5); display:flex; flex-direction:column; gap:var(--space-4); max-width:1400px; width:100%}
+/* AppShell's three-card grid for this section. */
+.grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(330px,1fr)); gap:var(--space-4)}
+.card{background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow); display:flex; flex-direction:column}
+.card-head{padding:var(--space-4) var(--space-4) var(--space-2)}
+.card-head h2{font-size:14px; margin:0; letter-spacing:-.01em}
+.card-head .sub{color:var(--muted); font-size:12px; margin-top:2px}
+.card-body{padding:var(--space-3) var(--space-4) var(--space-4); flex:1; display:flex; flex-direction:column; gap:var(--space-3)}
+
+.btn{border:1px solid var(--border); background:var(--panel); border-radius:9px; padding:4px 10px; font-size:12px; font-weight:600; color:var(--muted); transition:.12s}
+.btn:hover{border-color:var(--accent); color:var(--accent); background:var(--accent-weak)}
+.btn[disabled]{opacity:.45; cursor:not-allowed}
+
+.spark{width:100%; height:120px; display:block}
+.chart-foot{display:flex; align-items:flex-end; justify-content:space-between; gap:var(--space-3); flex-wrap:wrap}
+.chart-metric{font-size:26px; font-weight:700; letter-spacing:-.02em; line-height:1.1}
+.chart-metric .unit{font-size:12px; font-weight:600; color:var(--muted); margin-left:5px}
+.chart-legend{display:flex; gap:var(--space-3); flex-wrap:wrap; color:var(--muted); font-size:12px; align-items:center}
+.swatch{display:inline-block; width:9px; height:9px; border-radius:3px; margin-right:5px; vertical-align:-1px}
+
+/* PerCoreCpuBody's bar rows. */
+.barrows{display:flex; flex-direction:column; gap:var(--space-2)}
+.barrow{display:flex; align-items:center; gap:var(--space-3); font-size:12px}
+.barrow-label{width:52px; color:var(--muted); font-weight:650; flex:none}
+.barrow-track{flex:1; height:10px; background:var(--bg); border-radius:999px; overflow:hidden}
+.barrow-fill{height:100%; background:var(--accent); border-radius:999px; transition:width .25s}
+.barrow-value{width:44px; text-align:right; font-weight:650; flex:none}
+
+.note{padding:var(--space-3) var(--space-4); border-radius:10px; background:var(--accent-weak); color:#12467f; font-size:12px; border:1px solid #cfe0f6}
+/* A "concept" chip marks an idea shown for discussion. Everything without one
+   mirrors behaviour the product actually ships — a demo must not quietly
+   promise features somebody then has to build. */
+.concept{display:inline-flex; align-items:center; gap:5px; padding:1px 8px; border-radius:999px; font-size:11px; font-weight:650; color:#6b4fa8; background:#f3effb; border:1px dashed #b9a5e0; white-space:nowrap}
+.provenance{color:var(--faint); font-size:11px; line-height:1.6; padding-top:var(--space-2); border-top:1px solid var(--border)}
+.provenance b{color:var(--muted); font-weight:650}
+.toast{position:fixed; left:50%; bottom:24px; transform:translate(-50%,20px); background:var(--ink); color:#fff; padding:9px 16px; border-radius:999px; font-size:13px; opacity:0; pointer-events:none; transition:.2s; z-index:50; max-width:min(720px,90vw); text-align:center}
+.toast.show{opacity:1; transform:translate(-50%,0)}
+@media (max-width:860px){ .layout{grid-template-columns:1fr} .sidebar{display:none} }
+</style>
+</head>
+<body>
+
+<!-- The analyzer's own CSV series, per the repo's inline-data convention.
+     Nothing on this screen needs anonymising — see the provenance line. -->
+<script id="demo-data" type="application/json">{"generatedFrom":"bundle40","cores":{"0":[26.8,27.2,38.8,32.8,22.2,22.8,19.8,14.9,23.2,41.3,21.0,23.6,26.2,15.0,26.0,19.8,25.5,14.9,34.7,34.0,36.0,45.6,31.2,19.0,40.6,27.0,43.0,27.2,43.6,24.0,35.3,26.5,23.0,27.0,23.0,37.8,36.9,26.0,39.9,26.8,27.2,43.0,26.8,22.5,43.4,22.2,26.0,23.6,26.0,42.3,23.0,33.7,37.3,32.4,29.0,29.3,38.2,23.0,49.5,32.0,38.0,25.8,36.8,15.7,25.0,31.7,32.0,35.9,31.7,59.7,38.0,28.1,26.0,23.5,20.2,25.5,27.5,31.0,24.0,31.0,26.5,36.0,30.5,26.0,42.0,27.8,53.5,23.0,28.8,39.0,47.5,24.8,31.0,46.0,22.2,41.0,37.0,24.8,35.3,39.6,24.5,29.2,28.8,32.7,22.2,24.0,43.0,22.8,26.5,45.3,25.2,28.1,32.0,22.2,30.3,51.0,27.0,26.8,36.1,34.3],"1":[11.1,15.7,22.1,30.3,13.6,8.2,7.0,5.1,7.2,29.9,7.1,22.0,26.2,5.0,5.0,11.8,22.0,6.0,15.9,10.2,11.2,34.4,21.8,8.2,27.5,25.5,31.0,10.3,29.2,11.1,21.0,21.2,8.1,13.2,15.9,33.7,19.2,14.9,29.7,28.8,20.7,22.7,17.6,4.3,29.8,11.0,10.1,25.3,18.5,29.6,24.8,23.4,21.0,20.8,21.4,15.8,25.3,8.2,28.0,20.2,23.2,11.1,39.4,9.6,15.2,20.8,15.2,20.6,14.4,36.5,24.6,16.9,16.1,9.1,12.6,28.1,23.2,20.4,11.0,17.0,8.1,35.7,32.0,13.2,18.0,7.3,38.3,11.0,12.4,34.6,26.8,17.0,16.2,16.9,12.9,26.5,26.0,10.4,21.0,18.2,15.9,15.2,17.0,18.2,11.7,11.1,51.1,11.7,8.0,47.1,14.0,16.9,22.4,17.2,13.8,26.5,14.1,16.5,30.0,25.8]},"busy":[18.9,21.4,30.4,31.5,17.9,15.5,13.4,10.0,15.2,35.6,14.1,22.8,26.2,10.0,15.5,15.8,23.8,10.4,25.3,22.1,23.6,40.0,26.5,13.6,34.0,26.2,37.0,18.8,36.4,17.6,28.1,23.9,15.6,20.1,19.4,35.8,28.0,20.4,34.8,27.8,23.9,32.9,22.2,13.4,36.6,16.6,18.1,24.5,22.2,36.0,23.9,28.6,29.1,26.6,25.2,22.6,31.8,15.6,38.8,26.1,30.6,18.4,38.1,12.6,20.1,26.2,23.6,28.2,23.1,48.1,31.3,22.5,21.1,16.3,16.4,26.8,25.4,25.7,17.5,24.0,17.3,35.9,31.2,19.6,30.0,17.6,45.9,17.0,20.6,36.8,37.1,20.9,23.6,31.4,17.6,33.8,31.5,17.6,28.1,28.9,20.2,22.2,22.9,25.5,16.9,17.6,47.0,17.2,17.2,46.2,19.6,22.5,27.2,19.7,22.1,38.8,20.6,21.6,33.0,30.0],"cpuLabels":[{"i":0,"text":"08-01 03:47"},{"i":39,"text":"08-01 16:33"},{"i":79,"text":"08-02 05:51"},{"i":119,"text":"08-02 19:19"}],"latestPerCore":{"0":34.3,"1":25.8},"latestBusy":30.0,"memory":{"effectiveKb":[417644,417472,417488,417436,417208,417464,417420,417156,416912,416880,416376,416712,416464,416732,416800,416492,416704,416492,416072,416320,416220,416164,415884,416096,416360,415940,416112,415840,415752,415532,415616,415672,415428,415556,415660,415628,415124,415324,415096,415080,415036,414860,414956,415012,415236,414592,414644,414556,414264,414504,414292,414060,414160,414476,414232,414128,414040,414104,413356,413340,413320,413252,413436,413356,413120,412960,413236,413152,413044,413000,412700,412724,412880,412624,412876,412696,412564,412312,412312,412528,412140,411940,411776,411648,411944,411460,411780,411576,411536,411568,411592,411256,411336,411172,411120,411180,411060,410840,410992,410632,410700,410868,410952,410608,410460,410504,410308,410184,410440,410420,410256,410180,410456,409996,410128,409800,409740,409896,409820,409692],"availableKb":[581380,581292,581312,581256,580984,581264,581200,581020,580760,580732,580412,580716,580488,580772,580792,580500,580752,580548,580180,580448,580360,580328,580104,580292,580560,580140,580360,580076,580036,579860,579940,580020,579756,579924,579980,579972,579480,579716,579492,579556,579536,579368,579416,579508,579732,579172,579188,579152,578856,579104,578928,578728,578852,579156,578944,578852,578752,578888,578384,578416,578316,578244,578440,578380,578152,578024,578304,578284,578168,578212,577940,577924,578060,577844,578040,577980,577848,577700,577600,577808,577536,577364,577276,577180,577464,577012,577324,577124,577076,577192,577244,576932,576972,576828,576812,576800,576768,576568,576712,576432,576500,576652,576756,576376,576272,576324,576156,576096,576384,576368,576176,576116,576372,575988,576088,575820,575736,575940,575852,575780],"slabKb":[170596,170680,170692,170700,170660,170704,170684,170776,170768,170772,170964,170932,170952,170980,170932,170948,171004,171012,171068,171096,171108,171132,171204,171180,171188,171188,171248,171244,171300,171348,171368,171396,171376,171416,171372,171416,171440,171476,171488,171568,171600,171620,171588,171620,171628,171712,171684,171736,171740,171752,171804,171844,171872,171864,171908,171920,171924,171996,172240,172296,172224,172236,172248,172268,172276,172316,172324,172388,172384,172480,172516,172480,172456,172516,172468,172592,172604,172712,172624,172628,172744,172780,172864,172908,172896,172928,172932,172936,172940,173044,173072,173096,173056,173080,173124,173064,173156,173184,173184,173272,173284,173264,173288,173268,173316,173324,173352,173436,173468,173480,173448,173472,173468,173548,173512,173580,173572,173620,173612,173684],"labels":[{"i":0,"text":"08-01 03:47"},{"i":39,"text":"08-01 16:33"},{"i":79,"text":"08-02 05:51"},{"i":119,"text":"08-02 19:19"}]},"spanFrom":"2026-08-01 03:47:42","spanTo":"2026-08-02 19:19:03","samples":1572}</script>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand"><span class="brand-mark">D</span><span class="brand-name">DUT_browser</span></div>
+    <div class="nav-group">Monitoring</div>
+    <button class="nav-item" data-screen="Overview"><span class="nav-icon">▣</span>Overview</button>
+    <button class="nav-item" aria-current="page"><span class="nav-icon">📈</span>CPU / Memory</button>
+    <button class="nav-item" data-screen="Wi-Fi Clients"><span class="nav-icon">📶</span>Wi-Fi Clients</button>
+    <button class="nav-item" data-screen="SSID Capability"><span class="nav-icon">🔍</span>SSID Capability</button>
+    <button class="nav-item" data-screen="Site Survey"><span class="nav-icon">📡</span>Site Survey</button>
+    <button class="nav-item" data-screen="Logs / Crash Events"><span class="nav-icon">⚠</span>Logs / Crash Events</button>
+    <button class="nav-item" data-screen="Serial Console"><span class="nav-icon">⌨</span>Serial Console</button>
+    <button class="nav-item" data-screen="Downloads"><span class="nav-icon">⬇</span>Downloads</button>
+    <div class="nav-group">Workspace</div>
+    <button class="nav-item" data-screen="Files"><span class="nav-icon">🗂</span>Files</button>
+    <button class="nav-item" data-screen="Bulletin"><span class="nav-icon">📌</span>Bulletin</button>
+    <div class="nav-group">System</div>
+    <button class="nav-item" data-screen="Settings"><span class="nav-icon">⚙</span>Settings</button>
+    <button class="nav-item" data-screen="Upgrade Firmware"><span class="nav-icon">⚡</span>Upgrade Firmware</button>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div>
+        <h1>CPU / Memory</h1>
+        <div class="sub">Per-core CPU and memory trends</div>
+      </div>
+      <span class="spacer"></span>
+      <span class="pill pill-demo">● DEMO — canned data, no DUT attached</span>
+      <span class="pill pill-muted" id="dutPill">AP6_420E</span>
+    </header>
+
+    <div class="content">
+
+      <!-- The product's three cards for this section, in its order. It has no
+           controls of its own; the one button here carries a concept chip. -->
+      <div class="grid">
+        <section class="card">
+          <div class="card-head"><h2>CPU trend</h2><div class="sub">Per-core busy % over time</div></div>
+          <div class="card-body">
+            <svg class="spark" id="cpuSpark" viewBox="0 0 320 120" preserveAspectRatio="none" role="img" aria-label="CPU busy percent trend"></svg>
+            <div class="chart-foot">
+              <div class="chart-metric" id="busyMetric"></div>
+              <div class="chart-legend" id="coreLegend"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><h2>Per-core CPU</h2><div class="sub">Current busy % by core</div></div>
+          <div class="card-body">
+            <div class="barrows" id="barrows"></div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head"><h2>Memory trend</h2><div class="sub">Effective available — live or post-analysis</div></div>
+          <div class="card-body">
+            <svg class="spark" id="memSpark" viewBox="0 0 320 120" preserveAspectRatio="none" role="img" aria-label="Effective available memory trend"></svg>
+            <div class="chart-foot">
+              <div class="chart-metric" id="memMetric"></div>
+              <div class="chart-legend" id="memFoot"></div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div class="note" style="display:flex;align-items:center;gap:var(--space-3);flex-wrap:wrap">
+        <span class="concept">◇ concept</span>
+        <button class="btn" id="btnReplay">Replay the 40-hour session</button>
+        <span>The product has no control on this screen — it streams. This walks the same measured
+          series forward so the cards move as they would with a DUT attached.</span>
+      </div>
+
+      <div class="note" id="navNote">
+        This is the <b>CPU / Memory</b> screen of the demo kit.
+      </div>
+
+      <div class="provenance" id="provenance"></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+"use strict";
+const DATA = JSON.parse(document.getElementById("demo-data").textContent);
+const $ = (id) => document.getElementById(id);
+const CORE_COLOURS = ["#1565c0", "#e07a1f", "#0c7a43", "#8e44ad", "#b3261e", "#00838f"];
+
+let toastTimer;
+function toast(msg){
+  const el = $("toast");
+  el.textContent = msg; el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 3400);
+}
+
+/* Sparkline: the product's charts are hand-rendered inline SVG, and so is this.
+   The memory series is normalised to its own range because the absolute values
+   barely move over a session — exactly what LiveMemoryBody does, for the same
+   reason — and the footer carries the real number in MB. */
+function sparkline(svg, values, colour, opts){
+  const W = 320, H = 120, pad = 4;
+  if (!values.length){ svg.innerHTML = ""; return; }
+  const lo = opts?.min ?? Math.min(...values);
+  const hi = opts?.max ?? Math.max(...values);
+  const span = (hi - lo) || 1;
+  const x = (i) => pad + (i / Math.max(1, values.length - 1)) * (W - pad * 2);
+  const y = (v) => pad + (1 - (v - lo) / span) * (H - pad * 2);
+  const d = values.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
+  svg.innerHTML =
+    `<path d="${d}L${x(values.length - 1).toFixed(1)},${(H - pad).toFixed(1)}L${x(0).toFixed(1)},${(H - pad).toFixed(1)}Z" fill="${colour}" opacity=".10"/>`
+    + `<path d="${d}" fill="none" stroke="${colour}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>`;
+}
+
+const mb = (kb) => Math.round(kb / 1024);
+const coreNames = () => Object.keys(DATA.cores).sort();
+
+/* ---------------- render at a point in the series ---------------- */
+function renderAt(index){
+  const n = DATA.busy.length;
+  const at = Math.max(0, Math.min(index, n - 1));
+
+  sparkline($("cpuSpark"), DATA.busy.slice(0, at + 1), "#1565c0", { min: 0, max: 100 });
+  $("busyMetric").innerHTML = `${DATA.busy[at]}<span class="unit">% busy</span>`;
+  $("coreLegend").innerHTML = coreNames().map((core, i) =>
+    `<span><span class="swatch" style="background:${CORE_COLOURS[i % CORE_COLOURS.length]}"></span>`
+    + `CPU${core} ${DATA.cores[core][at]}%</span>`).join("");
+
+  $("barrows").innerHTML = coreNames().map((core, i) => {
+    const busy = DATA.cores[core][at];
+    return `<div class="barrow">
+        <div class="barrow-label">CPU${core}</div>
+        <div class="barrow-track"><div class="barrow-fill" style="width:${Math.min(100, Math.max(0, busy))}%;background:${CORE_COLOURS[i % CORE_COLOURS.length]}"></div></div>
+        <div class="barrow-value">${busy}%</div>
+      </div>`;
+  }).join("");
+
+  const eff = DATA.memory.effectiveKb.slice(0, at + 1);
+  sparkline($("memSpark"), eff, "#0c7a43");
+  const latest = DATA.memory.effectiveKb[at];
+  $("memMetric").innerHTML = `${mb(latest)}<span class="unit">MB effective avail · post-analysis</span>`;
+  $("memFoot").innerHTML =
+    `<span>MemAvailable ${mb(DATA.memory.availableKb[at])} MB</span>`
+    + `<span>Slab ${mb(DATA.memory.slabKb[at])} MB</span>`;
+}
+
+/* ---------------- boot ---------------- */
+renderAt(DATA.busy.length - 1);
+$("provenance").innerHTML =
+  `<b>Demo kit</b> — canned data, no DUT attached. Every number on this screen is `
+  + `<b>measured</b> and needs no anonymising: per-core busy percentages and /proc/meminfo `
+  + `counters identify nobody. ${DATA.busy.length} plotted points downsampled from `
+  + `${DATA.samples.toLocaleString()} samples between ${DATA.spanFrom} and ${DATA.spanTo}, `
+  + `out of bundle <b>${DATA.generatedFrom}</b>. The memory card plots `
+  + `<span style="font-family:ui-monospace">EffectiveAvailable_kB</span> — MemAvailable minus `
+  + `SUnreclaim — straight from the analyzer's column rather than recomputing it. `
+  + `The product shows a <b>live</b> sparkline while a DUT streams and this post-analysis one `
+  + `otherwise; with no DUT here, the honest state is post-analysis. The replay above is the `
+  + `only <span class="concept">◇ concept</span>: this screen has no controls in the product.`;
+
+/* ---------------- the one (chipped) control ---------------- */
+let timer = null;
+$("btnReplay").addEventListener("click", (ev) => {
+  const b = ev.currentTarget;
+  if (timer){ clearInterval(timer); timer = null; b.textContent = "Replay the 40-hour session"; return; }
+  let i = 0;
+  b.textContent = "Stop";
+  renderAt(0);
+  timer = setInterval(() => {
+    i += 1;
+    renderAt(i);
+    if (i >= DATA.busy.length - 1){
+      clearInterval(timer); timer = null;
+      b.textContent = "Replay the 40-hour session";
+      toast(`Replayed ${DATA.busy.length} points — 40 hours of real capture in about 12 seconds.`);
+    }
+  }, 100);
+});
+
+document.querySelectorAll("[data-screen]").forEach(el => {
+  el.addEventListener("click", () => {
+    const name = el.dataset.screen;
+    /* Every screen in the kit, in sidebar order. This map used to be frozen at
+       whatever had shipped when the page was written, so a complete kit still
+       told the viewer that the screen next to it did not exist. The two entries
+       without a file — Logs / Crash Events and Settings — are the only ones
+       that take the other branch. */
+    const map = { "Overview": "overview.html", "Site Survey": "site-survey.html",
+                  "Wi-Fi Clients": "wifi-clients.html", "CPU / Memory": "cpu-memory.html",
+                  "SSID Capability": "ssid-capability.html", "Downloads": "downloads.html",
+                  "Serial Console": "serial-console.html", "Files": "files.html",
+                  "Bulletin": "bulletin.html", "Upgrade Firmware": "firmware.html" };
+    $("navNote").innerHTML = map[name]
+      ? `<b>${name}</b> is in this kit — open <b>${map[name]}</b> beside this file.`
+      : `<b>${name}</b> is a screen in the product with no file in this kit; `
+        + `open <b>index.html</b> for the ten that ship.`;
+    $("navNote").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  });
+});
+})();
+</script>
+</body>
+</html>

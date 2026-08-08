@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DUT_browser — SSID Capability (demo)</title>
+<style>
+:root{
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:24px;
+  --bg:#f4f6fa; --panel:#fff; --ink:#1b2333; --muted:#687389; --faint:#9aa4b8;
+  --accent:#1565c0; --accent-weak:#e8f0fb;
+  --ok:#0c7a43; --ok-weak:#e4f4ea;
+  --warn:#9a6a00; --warn-weak:#fbf0d9;
+  --danger:#b3261e; --danger-weak:#fce8e6;
+  --border:#e3e8f0;
+  --shadow:0 1px 2px rgba(20,30,55,.04), 0 6px 20px rgba(20,30,55,.06);
+  --radius:14px; --sidebar-w:232px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg); color:var(--ink); font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"PingFang TC","Noto Sans TC",sans-serif; -webkit-font-smoothing:antialiased}
+button{font:inherit; color:inherit; cursor:pointer}
+
+.layout{display:grid; grid-template-columns:var(--sidebar-w) 1fr; min-height:100vh}
+.sidebar{background:var(--panel); border-right:1px solid var(--border); padding:var(--space-4) 0; position:sticky; top:0; height:100vh; overflow-y:auto}
+.brand{display:flex; align-items:center; gap:var(--space-2); padding:0 var(--space-4) var(--space-5)}
+.brand-mark{width:28px; height:28px; border-radius:8px; background:var(--accent); color:#fff; display:grid; place-items:center; font-weight:700; font-size:13px}
+.brand-name{font-weight:650; letter-spacing:-.01em}
+.nav-group{padding:var(--space-3) var(--space-4) var(--space-1); font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--faint); font-weight:650}
+.nav-item{display:flex; align-items:center; gap:var(--space-3); width:100%; border:0; background:none; text-align:left; padding:var(--space-2) var(--space-4); border-left:3px solid transparent; color:var(--muted)}
+.nav-item:hover{background:var(--bg); color:var(--ink)}
+.nav-item[aria-current="page"]{background:var(--accent-weak); border-left-color:var(--accent); color:var(--accent); font-weight:600}
+.nav-icon{width:18px; text-align:center; font-size:13px}
+
+.main{display:flex; flex-direction:column; min-width:0}
+.topbar{display:flex; align-items:center; gap:var(--space-3); padding:var(--space-4) var(--space-5); background:var(--panel); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:5}
+.topbar h1{font-size:17px; margin:0; letter-spacing:-.01em}
+.topbar .sub{color:var(--muted); font-size:12px}
+.spacer{flex:1}
+.pill{display:inline-flex; align-items:center; gap:5px; padding:3px 10px; border-radius:999px; font-size:12px; font-weight:600; border:1px solid transparent; white-space:nowrap}
+.pill-demo{background:var(--warn-weak); color:var(--warn); border-color:#f0dfb4}
+.pill-muted{background:var(--bg); color:var(--muted); border-color:var(--border)}
+.pill.ok{background:var(--ok-weak); color:var(--ok)}
+.pill.danger{background:var(--danger-weak); color:var(--danger)}
+.pill.idle{background:var(--bg); color:var(--muted); border-color:var(--border); cursor:help}
+
+.content{padding:var(--space-5); display:flex; flex-direction:column; gap:var(--space-4); max-width:1400px; width:100%}
+.card{background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow)}
+.card-head{display:flex; align-items:flex-start; gap:var(--space-3); padding:var(--space-4) var(--space-4) var(--space-2); flex-wrap:wrap}
+.card-head h2{font-size:14px; margin:0; letter-spacing:-.01em}
+.card-head .sub{color:var(--muted); font-size:12px; margin-top:2px}
+.card-body{padding:var(--space-3) var(--space-4) var(--space-4)}
+
+.btn{border:1px solid var(--border); background:var(--panel); border-radius:9px; padding:5px 11px; font-size:12px; font-weight:600; color:var(--muted); transition:.12s}
+.btn:hover{border-color:var(--accent); color:var(--accent); background:var(--accent-weak)}
+.btn[disabled]{opacity:.45; cursor:not-allowed}
+.btn.primary{background:var(--accent); border-color:var(--accent); color:#fff}
+.btn.primary:hover{background:#0f4f9c; border-color:#0f4f9c; color:#fff}
+
+.summary{display:flex; gap:var(--space-2); align-items:center; flex-wrap:wrap; margin-bottom:var(--space-3)}
+table{width:100%; border-collapse:collapse; font-size:12px}
+thead th{text-align:left; color:var(--muted); font-weight:650; padding:var(--space-2) var(--space-3); border-bottom:1px solid var(--border); white-space:nowrap}
+tbody td{padding:var(--space-2) var(--space-3); border-bottom:1px solid #f1f4f9; white-space:nowrap}
+.tablewrap{overflow-x:auto; border:1px solid var(--border); border-radius:10px}
+.cap-row:hover{background:var(--bg)}
+.cap-row--miss td:first-child{box-shadow:inset 3px 0 0 var(--danger)}
+.cap-row--ok td:first-child{box-shadow:inset 3px 0 0 var(--ok)}
+/* The product puts this control inside the Iface cell (CapabilityRowView), not
+   in a column of its own — an extra column would be a twelfth the product does
+   not have. */
+.twist{border:0; background:none; color:var(--muted); padding:0 5px; margin-right:6px}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.cap-expand td{background:#f7f8fa; white-space:normal}
+.kv{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:var(--space-3); padding:var(--space-3) 0}
+.kv-label{font-size:11px; color:var(--faint); text-transform:uppercase; letter-spacing:.04em}
+.kv-value{font-weight:600}
+.absent{color:var(--faint)}
+
+.note{padding:var(--space-3) var(--space-4); border-radius:10px; background:var(--accent-weak); color:#12467f; font-size:12px; border:1px solid #cfe0f6}
+/* A "concept" chip marks an idea shown for discussion. Everything without one
+   mirrors behaviour the product actually ships — a demo must not quietly
+   promise features somebody then has to build. */
+.concept{display:inline-flex; align-items:center; gap:5px; padding:1px 8px; border-radius:999px; font-size:11px; font-weight:650; color:#6b4fa8; background:#f3effb; border:1px dashed #b9a5e0; white-space:nowrap}
+.provenance{color:var(--faint); font-size:11px; line-height:1.6; padding-top:var(--space-2); border-top:1px solid var(--border)}
+.provenance b{color:var(--muted); font-weight:650}
+.toast{position:fixed; left:50%; bottom:24px; transform:translate(-50%,20px); background:var(--ink); color:#fff; padding:9px 16px; border-radius:999px; font-size:13px; opacity:0; pointer-events:none; transition:.2s; z-index:50; max-width:min(720px,90vw); text-align:center}
+.toast.show{opacity:1; transform:translate(-50%,0)}
+.spin{display:inline-block; width:11px; height:11px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; animation:spin .7s linear infinite; vertical-align:-1px}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (max-width:860px){ .layout{grid-template-columns:1fr} .sidebar{display:none} }
+</style>
+</head>
+<body>
+
+<!-- The DUT's own VAP config, per the repo's inline-data convention.
+     SSIDs and BSSIDs are pseudonymised — see README_demo_kit.md. -->
+<script id="demo-data" type="application/json">{"generatedFrom":"dut-session-20260804-154148","capturedAt":"2026-08-04 12:44","rows":[{"iface":"ath0","ssid":"DemoAP-Lab-4","bssid":"02:00:6f:0c:d5:99","band":"2.4GHz","channel":1,"width":"20 MHz","security":"Open","pmf":"disabled","generation":"Wi-Fi 6","dot11k":null,"dot11v":null,"dot11r":null,"akm":[],"pairwise":[],"freqMhz":2412},{"iface":"ath1","ssid":"DemoAP-Corp-4","bssid":"02:00:41:a2:ef:2a","band":"2.4GHz","channel":1,"width":"20 MHz","security":"Open","pmf":"disabled","generation":"Wi-Fi 6","dot11k":null,"dot11v":null,"dot11r":null,"akm":[],"pairwise":[],"freqMhz":2412},{"iface":"ath10","ssid":"DemoAP-Voice-2","bssid":"02:00:89:06:df:72","band":"2.4GHz","channel":1,"width":"20 MHz","security":"Open","pmf":"disabled","generation":"Wi-Fi 6","dot11k":null,"dot11v":null,"dot11r":null,"akm":[],"pairwise":[],"freqMhz":2412},{"iface":"ath11","ssid":"DemoAP-Voice-3","bssid":"02:00:b6:77:1f:c9","band":"2.4GHz","channel":1,"width":"20 MHz","security":"Open","pmf":"disabled","generation":"Wi-Fi 6","dot11k":null,"dot11v":null,"dot11r":null,"akm":[],"pairwise":[],"freqMhz":2412},{"iface":"ath12","ssid":"DemoAP-Sensor-4","bssid":"02:00:48:04:b3:3e","band":"2.4GHz","channel":1,"width":"20 MHz","security":"Open","pmf":"disabled","generation":"Wi-Fi 6","dot11k":null,"dot11v":null,"dot11r":null,"akm":[],"pairwise":[],"freqMhz":2412},{"iface":"ath13","ssid":"DemoAP-Guest-2","bssid":"02:00:7d:70:39:b8","band":"2.4GHz","channel":1,"width":"20 MHz","security":"Open","pmf":"disabled","generation":"Wi-Fi 6","dot11k":null,"dot11v":null,"dot11r":null,"akm":[],"pairwise":[],"freqMhz":2412},{"iface":"ath2","ssid":"DemoAP-Depot","bssid":"02:00:ef:1a:a5:c0","band":"2.4GHz","channel":1,"width":"20 MHz","security":"Open","pmf":"disabled","generation":"Wi-Fi 6","dot11k":null,"dot11v":null,"dot11r":null,"akm":[],"pairwise":[],"freqMhz":2412},{"iface":"ath3","ssid":"DemoAP-Sensor","bssid":"02:00:9f:87:4d:17","band":"2.4GHz","channel":1,"width":"20 MHz","security":"Open","pmf":"disabled","generation":"Wi-Fi 6","dot11k":null,"dot11v":null,"dot11r":null,"akm":[],"pairwise":[],"freqMhz":2412},{"iface":"ath4","ssid":"DemoAP-Corp","bssid":"02:00:1e:9e:5c:97","band":"2.4GHz","channel":1,"width":"20 MHz","security":"Open","pmf":"disabled","generation":"Wi-Fi 6","dot11k":null,"dot11v":null,"dot11r":null,"akm":[],"pairwise":[],"freqMhz":2412},{"iface":"ath5","ssid":"DemoAP-Guest","bssid":"02:00:a4:da:eb:0a","band":"2.4GHz","channel":1,"width":"20 MHz","security":"Open","pmf":"disabled","generation":"Wi-Fi 6","dot11k":null,"dot11v":null,"dot11r":null,"akm":[],"pairwise":[],"freqMhz":2412},{"iface":"ath6","ssid":"DemoAP-Kiosk-2","bssid":"02:00:f4:de:9f:35","band":"2.4GHz","channel":1,"width":"20 MHz","security":"Open","pmf":"disabled","generation":"Wi-Fi 6","dot11k":null,"dot11v":null,"dot11r":null,"akm":[],"pairwise":[],"freqMhz":2412},{"iface":"ath7","ssid":"DemoAP-Corp-2","bssid":"02:00:74:d6:11:b3","band":"2.4GHz","channel":1,"width":"20 MHz","security":"Open","pmf":"disabled","generation":"Wi-Fi 6","dot11k":null,"dot11v":null,"dot11r":null,"akm":[],"pairwise":[],"freqMhz":2412},{"iface":"ath8","ssid":"DemoAP-IoT","bssid":"02:00:f9:6d:cd:a7","band":"2.4GHz","channel":1,"width":"20 MHz","security":"Open","pmf":"disabled","generation":"Wi-Fi 6","dot11k":null,"dot11v":null,"dot11r":null,"akm":[],"pairwise":[],"freqMhz":2412},{"iface":"ath9","ssid":"DemoAP-Lab-2","bssid":"02:00:0a:04:1a:08","band":"2.4GHz","channel":1,"width":"20 MHz","security":"Open","pmf":"disabled","generation":"Wi-Fi 6","dot11k":null,"dot11v":null,"dot11r":null,"akm":[],"pairwise":[],"freqMhz":2412},{"iface":"ath16","ssid":"DemoAP-Lab-4","bssid":"02:00:22:27:02:54","band":"5GHz","channel":153,"width":"40 MHz","security":"Open","pmf":"disabled","generation":"Wi-Fi 6","dot11k":null,"dot11v":null,"dot11r":null,"akm":[],"pairwise":[],"freqMhz":5765},{"iface":"ath17","ssid":"DemoAP-Corp-4","bssid":"02:00:82:1b:44:46","band":"5GHz","channel":153,"width":"40 MHz","security":"Open","pmf":"disabled","generation":"Wi-Fi 6","dot11k":null,"dot11v":null,"dot11r":null,"akm":[],"pairwise":[],"freqMhz":5765},{"iface":"ath18","ssid":"DemoAP-Depot","bssid":"02:00:9a:29:3b:3b","band":"5GHz","channel":153,"width":"40 MHz","security":"Open","pmf":"disabled","generation":"Wi-Fi 6","dot11k":null,"dot11v":null,"dot11r":null,"akm":[],"pairwise":[],"freqMhz":5765},{"iface":"ath19","ssid":"DemoAP-Sensor","bssid":"02:00:94:07:fb:93","band":"5GHz","channel":153,"width":"40 MHz","security":"Open","pmf":"disabled","generation":"Wi-Fi 6","dot11k":null,"dot11v":null,"dot11r":null,"akm":[],"pairwise":[],"freqMhz":5765},{"iface":"ath20","ssid":"DemoAP-Kiosk","bssid":"02:00:07:92:5b:7f","band":"5GHz","channel":153,"width":"40 MHz","security":"Open","pmf":"disabled","generation":"Wi-Fi 6","dot11k":null,"dot11v":null,"dot11r":null,"akm":[],"pairwise":[],"freqMhz":5765},{"iface":"ath21","ssid":"DemoAP-Corp","bssid":"02:00:a2:95:e8:58","band":"5GHz","channel":153,"width":"40 MHz","security":"Open","pmf":"disabled","generation":"Wi-Fi 6","dot11k":null,"dot11v":null,"dot11r":null,"akm":[],"pairwise":[],"freqMhz":5765},{"iface":"ath22","ssid":"DemoAP-Kiosk-2","bssid":"02:00:cb:d7:d1:83","band":"5GHz","channel":153,"width":"40 MHz","security":"Open","pmf":"disabled","generation":"Wi-Fi 6","dot11k":null,"dot11v":null,"dot11r":null,"akm":[],"pairwise":[],"freqMhz":5765},{"iface":"ath23","ssid":"DemoAP-Corp-2","bssid":"02:00:1a:a9:c1:d6","band":"5GHz","channel":153,"width":"40 MHz","security":"Open","pmf":"disabled","generation":"Wi-Fi 6","dot11k":null,"dot11v":null,"dot11r":null,"akm":[],"pairwise":[],"freqMhz":5765},{"iface":"ath24","ssid":"DemoAP-IoT","bssid":"02:00:14:ad:33:64","band":"5GHz","channel":153,"width":"40 MHz","security":"Open","pmf":"disabled","generation":"Wi-Fi 6","dot11k":null,"dot11v":null,"dot11r":null,"akm":[],"pairwise":[],"freqMhz":5765},{"iface":"ath25","ssid":"DemoAP-Lab-2","bssid":"02:00:41:ef:a1:11","band":"5GHz","channel":153,"width":"40 MHz","security":"Open","pmf":"disabled","generation":"Wi-Fi 6","dot11k":null,"dot11v":null,"dot11r":null,"akm":[],"pairwise":[],"freqMhz":5765},{"iface":"ath26","ssid":"DemoAP-Voice-2","bssid":"02:00:6c:12:f7:ac","band":"5GHz","channel":153,"width":"40 MHz","security":"Open","pmf":"disabled","generation":"Wi-Fi 6","dot11k":null,"dot11v":null,"dot11r":null,"akm":[],"pairwise":[],"freqMhz":5765},{"iface":"ath27","ssid":"DemoAP-Voice-3","bssid":"02:00:b5:4b:d0:cd","band":"5GHz","channel":153,"width":"40 MHz","security":"Open","pmf":"disabled","generation":"Wi-Fi 6","dot11k":null,"dot11v":null,"dot11r":null,"akm":[],"pairwise":[],"freqMhz":5765},{"iface":"ath28","ssid":"DemoAP-Sensor-4","bssid":"02:00:18:40:c8:d4","band":"5GHz","channel":153,"width":"40 MHz","security":"Open","pmf":"disabled","generation":"Wi-Fi 6","dot11k":null,"dot11v":null,"dot11r":null,"akm":[],"pairwise":[],"freqMhz":5765},{"iface":"ath29","ssid":"DemoAP-Guest-2","bssid":"02:00:af:00:fb:6d","band":"5GHz","channel":153,"width":"40 MHz","security":"Open","pmf":"disabled","generation":"Wi-Fi 6","dot11k":null,"dot11v":null,"dot11r":null,"akm":[],"pairwise":[],"freqMhz":5765}],"sourceBAvailable":false}</script>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand"><span class="brand-mark">D</span><span class="brand-name">DUT_browser</span></div>
+    <div class="nav-group">Monitoring</div>
+    <button class="nav-item" data-screen="Overview"><span class="nav-icon">▣</span>Overview</button>
+    <button class="nav-item" data-screen="CPU / Memory"><span class="nav-icon">📈</span>CPU / Memory</button>
+    <button class="nav-item" data-screen="Wi-Fi Clients"><span class="nav-icon">📶</span>Wi-Fi Clients</button>
+    <button class="nav-item" aria-current="page"><span class="nav-icon">🔍</span>SSID Capability</button>
+    <button class="nav-item" data-screen="Site Survey"><span class="nav-icon">📡</span>Site Survey</button>
+    <button class="nav-item" data-screen="Logs / Crash Events"><span class="nav-icon">⚠</span>Logs / Crash Events</button>
+    <button class="nav-item" data-screen="Serial Console"><span class="nav-icon">⌨</span>Serial Console</button>
+    <button class="nav-item" data-screen="Downloads"><span class="nav-icon">⬇</span>Downloads</button>
+    <div class="nav-group">Workspace</div>
+    <button class="nav-item" data-screen="Files"><span class="nav-icon">🗂</span>Files</button>
+    <button class="nav-item" data-screen="Bulletin"><span class="nav-icon">📌</span>Bulletin</button>
+    <div class="nav-group">System</div>
+    <button class="nav-item" data-screen="Settings"><span class="nav-icon">⚙</span>Settings</button>
+    <button class="nav-item" data-screen="Upgrade Firmware"><span class="nav-icon">⚡</span>Upgrade Firmware</button>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div>
+        <h1>SSID Capability</h1>
+        <div class="sub">DUT config vs host-side scan reconciliation</div>
+      </div>
+      <span class="spacer"></span>
+      <span class="pill pill-demo">● DEMO — canned data, no DUT attached</span>
+      <span class="pill pill-muted">AP6_840E</span>
+    </header>
+
+    <div class="content">
+      <section class="card">
+        <div class="card-head">
+          <div style="flex:1;min-width:260px">
+            <h2>SSID Capability — Config vs Air</h2>
+            <div class="sub">DUT hostapd config (Source A, serial) reconciled with host-side iw scan (Source B)</div>
+          </div>
+          <button class="btn primary" id="btnRerun">Re-run</button>
+        </div>
+        <div class="card-body">
+          <div class="summary" id="summary"></div>
+          <div class="tablewrap">
+            <table>
+              <!-- SsidCapabilityCard's eleven columns, in its order. -->
+              <thead><tr>
+                <th>Iface</th><th>SSID</th><th>Band</th><th>Ch</th>
+                <th>Security</th><th>PMF</th><th>Gen</th><th>k</th><th>v</th><th>r</th><th>Status</th>
+              </tr></thead>
+              <tbody id="tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <div class="note">
+        <b>Why every row reads “miss”.</b> This card reconciles two sources: the DUT's own hostapd
+        config, read over serial (<b>Source A</b>), and a scan run on the host machine
+        (<b>Source B</b>), which needs <span class="mono">SURVEY_WIFI_IFACE</span> set. The bundle
+        behind this page has Source A only, so the product shows exactly this — every VAP unmatched
+        and a <b>Source B unavailable</b> badge. Inventing a Source B would mean inventing the
+        reconciliation the card exists to perform.
+      </div>
+
+      <div class="note" id="navNote">
+        This is the <b>SSID Capability</b> screen of the demo kit.
+      </div>
+
+      <div class="provenance" id="provenance"></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+"use strict";
+const DATA = JSON.parse(document.getElementById("demo-data").textContent);
+const $ = (id) => document.getElementById(id);
+
+let toastTimer;
+function toast(msg){
+  const el = $("toast");
+  el.textContent = msg; el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 3600);
+}
+const esc = (s) => String(s).replace(/[<&]/g, c => c === "<" ? "&lt;" : "&amp;");
+/* The k/v/r columns are 802.11k/v/r support. The capture reports null when
+   hostapd did not state it, which is not the same as "off" — so it renders as
+   an em dash, exactly as the card does. */
+const flag = (v) => v === true ? "✓" : v === false ? "—" : `<span class="absent">—</span>`;
+const dash = (v) => (v === null || v === undefined || v === "")
+  ? `<span class="absent">—</span>` : esc(v);
+
+const expanded = new Set();
+
+function renderSummary(){
+  // Source B is absent, so no row can match: the counts are what the product
+  // would compute from the same report, not a happier set.
+  const total = DATA.rows.length;
+  $("summary").innerHTML =
+    `<span class="pill ok">✓ 0 match</span>`
+    + `<span class="pill danger">✗ ${total} miss</span>`
+    + (DATA.sourceBAvailable ? "" :
+       `<span class="pill idle" title="Set SURVEY_WIFI_IFACE on the host to enable Source B">Source B unavailable</span>`)
+    + `<span style="color:var(--muted);font-size:12px">A: ${esc(DATA.capturedAt)}</span>`;
+}
+
+function renderRows(){
+  $("tbody").innerHTML = DATA.rows.map(r => {
+    const open = expanded.has(r.iface);
+    return `
+      <tr class="cap-row cap-row--miss" aria-expanded="${open}">
+        <td class="cap-iface mono"><button class="twist" data-iface="${esc(r.iface)}"
+            title="Show config vs observed detail">${open ? "▾" : "▸"}</button>${esc(r.iface)}</td>
+        <td>${esc(r.ssid)}</td>
+        <td>${dash(r.band)}</td>
+        <td>${dash(r.channel)}</td>
+        <td>${dash(r.security)}</td>
+        <td>${dash(r.pmf)}</td>
+        <td>${dash(r.generation)}</td>
+        <td>${flag(r.dot11k)}</td>
+        <td>${flag(r.dot11v)}</td>
+        <td>${flag(r.dot11r)}</td>
+        <td><span class="pill danger">✗ miss</span></td>
+      </tr>
+      ${open ? `<tr class="cap-expand"><td colspan="11">${detail(r)}</td></tr>` : ""}`;
+  }).join("");
+}
+
+function detail(r){
+  const items = [
+    ["BSSID", `<span class="mono">${esc(r.bssid)}</span>`],
+    ["Frequency", r.freqMhz ? `${r.freqMhz} MHz` : dash(null)],
+    ["Channel width", dash(r.width)],
+    ["AKM", r.akm.length ? esc(r.akm.join(", ")) : dash(null)],
+    ["Pairwise cipher", r.pairwise.length ? esc(r.pairwise.join(", ")) : dash(null)],
+  ];
+  return `<div class="kv">${items.map(([k, v]) =>
+      `<div><div class="kv-label">${k}</div><div class="kv-value">${v}</div></div>`).join("")}
+    </div>
+    <div style="color:var(--muted);padding-bottom:var(--space-3)">
+      With Source B present the product shows a field-by-field
+      <b>Config (DUT)</b> vs <b>Observed (scan)</b> table here. There is no scan in this
+      capture, so there is nothing to compare against.
+    </div>`;
+}
+
+/* ---------------- boot ---------------- */
+renderSummary(); renderRows();
+$("provenance").innerHTML =
+  `<b>Demo kit</b> — canned data, no DUT attached. All ${DATA.rows.length} rows are `
+  + `<b>measured</b>: the DUT's own hostapd config as captured over serial into bundle `
+  + `<b>${esc(DATA.generatedFrom)}</b> at ${esc(DATA.capturedAt)}. Every SSID and BSSID was `
+  + `replaced before commit (see <b>demo/README_demo_kit.md</b>); channels, security, PMF and `
+  + `the 802.11k/v/r flags are untouched. The all-miss state is the real one for a capture with `
+  + `no Source B — not a failure of this page. Chips marked `
+  + `<span class="concept">◇ concept</span> are ideas for discussion; this page has none.`;
+
+/* ---------------- interactions ---------------- */
+$("tbody").addEventListener("click", (ev) => {
+  const t = ev.target.closest("[data-iface]");
+  if (!t) return;
+  const iface = t.dataset.iface;
+  expanded.has(iface) ? expanded.delete(iface) : expanded.add(iface);
+  renderRows();
+});
+
+/* The kit ships one captured report, so Re-run replays it rather than
+   inventing a second reconciliation. */
+$("btnRerun").addEventListener("click", (ev) => {
+  const b = ev.currentTarget;
+  b.innerHTML = `<span class="spin"></span> Loading…`;
+  b.disabled = true;
+  setTimeout(() => {
+    b.textContent = "Re-run"; b.disabled = false;
+    expanded.clear();
+    renderSummary(); renderRows();
+    toast(`Replayed the captured report — ${DATA.rows.length} VAPs, still no Source B. `
+        + `The kit ships one real capture, so the numbers are unchanged rather than invented.`);
+  }, 1200);
+});
+
+document.querySelectorAll("[data-screen]").forEach(el => {
+  el.addEventListener("click", () => {
+    const name = el.dataset.screen;
+    /* Every screen in the kit, in sidebar order. This map used to be frozen at
+       whatever had shipped when the page was written, so a complete kit still
+       told the viewer that the screen next to it did not exist. The two entries
+       without a file — Logs / Crash Events and Settings — are the only ones
+       that take the other branch. */
+    const map = { "Overview": "overview.html", "Site Survey": "site-survey.html",
+                  "Wi-Fi Clients": "wifi-clients.html", "CPU / Memory": "cpu-memory.html",
+                  "SSID Capability": "ssid-capability.html", "Downloads": "downloads.html",
+                  "Serial Console": "serial-console.html", "Files": "files.html",
+                  "Bulletin": "bulletin.html", "Upgrade Firmware": "firmware.html" };
+    $("navNote").innerHTML = map[name]
+      ? `<b>${name}</b> is in this kit — open <b>${map[name]}</b> beside this file.`
+      : `<b>${name}</b> is a screen in the product with no file in this kit; `
+        + `open <b>index.html</b> for the ten that ship.`;
+    $("navNote").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  });
+});
+})();
+</script>
+</body>
+</html>

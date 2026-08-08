@@ -41,6 +41,7 @@ from __future__ import annotations
 import argparse
 import collections
 import csv
+import functools
 import hashlib
 import json
 import re
@@ -408,6 +409,483 @@ def build_clients(bundle: Path, anon: Anonymiser, survey_bundle: Path | None = N
     }
 
 
+def build_downloads(bundle: Path, anon: Anonymiser,
+                    survey_bundle: Path | None = None) -> dict:
+    """Downloads page: what a real Download DUT Log actually produced.
+
+    This is the one screen whose subject IS the bundle, so it is listed from a
+    real one — names, sizes and grouping exactly as they came off disk. The
+    only judgement is which of the four cards a file belongs to, and that
+    follows the split the API reports: the session log, the analyzer's
+    published outputs, the persisted surveys, and the connect-time context.
+
+    One plot is embedded as a data URI so the inline preview is real rather
+    than mimed; the rest are listed, because a page that inlined a megabyte of
+    PNGs would stop being something you can email.
+    """
+    import base64
+
+    log = next((p for p in bundle.iterdir() if p.suffix == ".log"), None)
+    if log is None:
+        raise SystemExit(f"no session log in {bundle}")
+
+    def entry(path: Path, **extra) -> dict:
+        stat = path.stat()
+        return {"name": path.name, "size": stat.st_size,
+                "modified": _stamp(stat.st_mtime), **extra}
+
+    outputs, surveys, context = [], [], []
+    for path in sorted(bundle.iterdir()):
+        if path.is_file() and path != log and path.suffix in (".csv", ".png", ".txt"):
+            outputs.append(entry(path, plot=path.suffix == ".png"))
+
+    context_dir = bundle / "context"
+    report = context_dir / "capture-report.txt"
+    for kind_dir in sorted(p for p in context_dir.iterdir() if p.is_dir()):
+        for path in sorted(kind_dir.iterdir()):
+            (surveys if kind_dir.name == "site-survey" else context).append(
+                entry(path, kind=kind_dir.name))
+
+    # The peek shows the log's last lines, as the product's does. A serial log
+    # is free text, so it cannot be aliased field by field: instead the tail is
+    # refused outright if it carries anything identifying. A loud stop beats a
+    # silent leak, and the operator can pick another bundle or widen the scrub.
+    tail_lines = log.read_text(encoding="utf-8", errors="ignore").splitlines()[-14:]
+    tail = "\n".join(tail_lines)
+    refuse_if_identifying(tail, "the log tail",
+                          captured_identifiers(bundle, survey_bundle))
+
+    plots = sorted(bundle.glob("*.png"), key=lambda p: p.stat().st_size)
+    preview = plots[0] if plots else None
+
+    return {
+        "generatedFrom": bundle.name,
+        "sessionLog": entry(log),
+        "outputs": outputs,
+        "surveys": surveys,
+        "context": context,
+        "logTail": tail,
+        "captureReport": (report.read_text(encoding="utf-8").strip().splitlines()
+                          if report.is_file() else []),
+        "previewName": preview.name if preview else None,
+        "previewData": ("data:image/png;base64,"
+                        + base64.b64encode(preview.read_bytes()).decode()) if preview else None,
+    }
+
+
+IDENTIFIER_PATTERNS = (
+    (r"(?i)\bssid\b", "an SSID field"),
+    # Case-insensitive on purpose. `iw` prints BSSIDs lowercase, but a DUT's own
+    # log lines, a vendor daemon and anything hand-pasted print them uppercase or
+    # mixed, and a lowercase-only class let `AA:BB:CC:DD:EE:FF` straight through.
+    (r"(?i)\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b", "a MAC address"),
+    (r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "an IP address"),
+)
+
+
+#: Field names that carry an identifier, in any capture this project writes.
+#: Matched case-insensitively against JSON keys at any depth and CSV headers.
+IDENTIFIER_KEYS = frozenset({
+    "ssid", "ssid_name", "essid", "bssid", "mac", "mac_address", "macaddr",
+    "ip", "ip_address", "ipaddr", "hostname",
+})
+
+
+def _unreadable_capture(path: Path, why: Exception) -> SystemExit:
+    """A capture that cannot be read is not a capture that holds nothing.
+
+    Skipping a truncated snapshot is fail-open, and silently so: if that file
+    was the only structured record of a bare SSID, the name never enters the
+    inventory and the guard then waves it through in a log line. The whole
+    design here is that refusing too much costs another excerpt while refusing
+    too little publishes somebody's network name — a parse error has to land on
+    the expensive side of that trade too.
+    """
+    return SystemExit(
+        f"{path} is in the bundle but could not be read ({why}). A damaged "
+        f"capture is not an empty one: the identifiers it holds would go "
+        f"unlearned and could then be published from a log line. Repair or "
+        f"remove it, or regenerate from a complete bundle."
+    )
+
+
+#: What a column name written by our own tools looks like: an ASCII word.
+#: A *grammar*, not a blacklist of punctuation — see `_check_capture_header`.
+COLUMN_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _field_key(name: str) -> str:
+    """The one canonical form of a field name — a CSV column or a JSON key.
+
+    Every place that decides "is this an identifier field?" goes through here.
+
+    The header check and the identifier lookup have to agree on what a column
+    is called, and they did not: validation canonicalised with
+    ``name.strip().lower()`` while collection looked up ``name.lower()``. A
+    header of ``" ssid "`` therefore passed validation and then missed
+    ``IDENTIFIER_KEYS``, so the SSID under it was never learned — the same
+    fail-open, produced by two functions disagreeing rather than by either being
+    wrong on its own. There is no ``strip()`` here because a name needing one
+    does not survive :data:`COLUMN_NAME_RE`.
+    """
+    return name.lower()
+
+
+def _check_capture_header(path: Path, fieldnames: list[str] | None) -> None:
+    """A header that cannot address every column loses values without raising.
+
+    `DictReader` builds the row dict from the header, so a damaged header
+    discards data quietly and the row still passes the field-count check:
+
+    * **no header at all** — an empty file yields no rows and no complaint;
+    * **an unnamed column** — its value lands under `""`, never an identifier
+      key, so it is dropped;
+    * **a repeated column** — the later value overwrites the earlier one, and
+      an SSID vanishes with the row looking well formed;
+    * **a file that is not comma-separated** — `ssid;bssid` is one column named
+      `ssid;bssid` holding `OlderSecret;aa:bb:…`, so every value merges and
+      none is collected.
+
+    Each keeps the inventory looking complete while it is not, which is the
+    failure this whole function exists to avoid.
+
+    The rule is a **grammar, not a blacklist**. Listing `;`, `|` and tab left
+    `ssid:bssid` — and every other separator — passing as one valid column, and
+    a blacklist can only ever be extended one delimiter at a time. Our writers
+    emit ASCII words, so anything else is not a header we wrote: colons,
+    padding, a BOM and every unlisted delimiter are refused by the same rule.
+    """
+    if not fieldnames:
+        raise _unreadable_capture(path, ValueError("it has no header row"))
+    seen: set[str] = set()
+    for name in fieldnames:
+        if name is None or not name.strip():
+            raise _unreadable_capture(path, ValueError("a column has no name"))
+        if not COLUMN_NAME_RE.fullmatch(name):
+            raise _unreadable_capture(path, ValueError(
+                f"column name {name!r} is not a bare ASCII column name; capture columns "
+                f"look like 'ssid_name'. Padding or punctuation here usually means the "
+                f"file is not comma-separated"))
+        key = _field_key(name)
+        if key in seen:
+            raise _unreadable_capture(path, ValueError(f"column {name!r} appears twice"))
+        seen.add(key)
+
+
+def _collect_identifiers(node, into: set[str]) -> None:
+    """Depth-first over parsed JSON, gathering values under identifier keys."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if isinstance(value, (str, int, float)) and _field_key(str(key)) in IDENTIFIER_KEYS:
+                into.add(str(value))
+            else:
+                _collect_identifiers(value, into)
+    elif isinstance(node, list):
+        for item in node:
+            _collect_identifiers(item, into)
+
+
+def captured_identifiers(bundle: Path | None,
+                         survey_bundle: Path | None = None) -> frozenset[str]:
+    """Every identifier *value* the capture itself knows about, lowercased.
+
+    A MAC or an IP announces itself by shape, so a pattern catches it wherever it
+    turns up. **An SSID does not.** ``HomeNetwork`` is a word like any other, and
+    is an identifier only because the scan sitting beside it says so — which is
+    why matching the literal word "ssid" was never a check on SSIDs at all, only
+    on the field label. So the guard reads the structured half of the same
+    bundle and treats every name it finds there as identifying wherever it
+    appears in prose.
+
+    Deliberately a superset. Our own VAPs are included: the pages publish
+    aliases for them, so the real name leaking through a log line would
+    contradict the anonymisation just as much as a neighbour's would. And a
+    network named after an ordinary word will refuse excerpts that were probably
+    harmless. That trade is the right way round — refusing too much costs
+    another excerpt, refusing too little publishes somebody's network name.
+
+    **Every** structured file under the bundle is read, not the newest of two
+    known kinds. The first version took ``_newest_json()`` from ``site-survey``
+    and ``ssid-capability``, which was wrong twice over: a session records a
+    snapshot per connect, so a bundle holds several captures per kind and the
+    log can name an SSID from any of them — the reference bundle here already
+    carries two ``ssid-capability`` reports — and naming the kinds by hand meant
+    ``context/wifi-clients/`` was never opened at all. Its MACs and IPs have a
+    shape and were caught anyway; its SSIDs have none and were not.
+
+    So this walks the files rather than the schema: any key named like an
+    identifier, at any depth, in any JSON or CSV the bundle contains. A context
+    kind added later is covered without anyone remembering to come back here,
+    which is the property that was actually missing.
+
+    A file that cannot be parsed stops the build — see
+    :func:`_unreadable_capture`. Every other failure mode in this function is
+    designed to over-refuse; an unreadable capture must not be the one that
+    quietly under-refuses.
+    """
+    values: set[str] = set()
+    for source in (bundle, survey_bundle):
+        if source is None or not source.is_dir():
+            continue
+        for path in sorted(source.rglob("*.json")):
+            try:
+                parsed = json.loads(path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError) as unreadable:
+                raise _unreadable_capture(path, unreadable) from unreadable
+            _collect_identifiers(parsed, values)
+        for path in sorted(source.rglob("*.csv")):
+            # Three ways a CSV can hand back a value that is not what was
+            # captured, all of them silent by default, all of them fail-open:
+            #
+            #   decoding    `errors="ignore"` drops an undecodable byte, so the
+            #               SSID enters the inventory in a shape the log's own
+            #               bytes can never match. Hence strict decoding.
+            #   quoting     the default dialect is `strict=False`, so an
+            #               unterminated quote swallows the rest of the file into
+            #               one field — `"OlderSecret,aa:bb:…` becomes a single
+            #               value and the bare SSID is no longer in the
+            #               inventory at all. Hence `strict=True`.
+            #   alignment   neither of the above catches a row with the wrong
+            #               number of fields, and a row that lost its first
+            #               field shifts every value one column left: an SSID
+            #               lands under `ts`, which is not an identifier key, so
+            #               it is never collected. Hence the field-count check.
+            #   the header   `DictReader` addresses the row through the header,
+            #               so an unnamed column, a repeated one, or a file that
+            #               is not comma-separated at all drops values while
+            #               every row still looks the right width. Hence
+            #               `_check_capture_header`.
+            try:
+                with path.open(newline="", encoding="utf-8") as handle:
+                    reader = csv.DictReader(handle, strict=True)
+                    _check_capture_header(path, reader.fieldnames)
+                    rows = list(reader)
+            except (UnicodeDecodeError, csv.Error) as unreadable:
+                raise _unreadable_capture(path, unreadable) from unreadable
+            for row in rows:
+                # DictReader pads a short row with None and files a long one
+                # under the None restkey; our own writers do neither.
+                if None in row or None in row.values():
+                    raise _unreadable_capture(
+                        path, ValueError("a row does not match the header's field count"))
+                for key, value in row.items():
+                    # `_field_key`, the same canonicalisation the header check
+                    # used to accept this name by. Two spellings of "the same
+                    # column" is how a validated header stopped matching here.
+                    if key and _field_key(key) in IDENTIFIER_KEYS and value:
+                        values.add(value)
+    return frozenset(value.strip().lower() for value in values if value and value.strip())
+
+
+@functools.lru_cache(maxsize=4)
+def _known_pattern(known: frozenset[str]) -> re.Pattern[str] | None:
+    """One alternation over every captured value, matched as a whole token.
+
+    The boundaries are load-bearing, and they are a *weakening* of the check, so
+    they need their reason on the record. This bench's scan contains neighbour
+    networks named ``bi`` and ``pt`` — two characters each, and real. Matched as
+    plain substrings they hit ``bits``, ``interrupt``, ``script``: 17k lines of
+    a 150k-line log, which collapsed the longest clean run from 80 lines to 7
+    and would have gutted the Monitor view. ``bi`` inside ``bits`` discloses
+    nothing about anybody's network, so a match must not be *inside* a word:
+    the character on each side has to be a non-alphanumeric one.
+
+    Longest-first so the value reported is the most specific one that matched.
+    Cached because this is called once per line of a 150k-line log.
+    """
+    if not known:
+        return None
+    alternatives = "|".join(re.escape(value) for value in sorted(known, key=len, reverse=True))
+    return re.compile(rf"(?<![0-9a-z])(?:{alternatives})(?![0-9a-z])")
+
+
+def identifier_in(text: str, known: frozenset[str] = frozenset()) -> str | None:
+    """Name what makes ``text`` identifying, or None. The one place that decides.
+
+    Both callers go through this: the log tail refuses outright, and the console
+    excerpt uses it to split the log into runs. If they disagreed about what
+    counts, the excerpt selector would happily hand the refuser something it
+    then rejects — or worse, hand it something it accepts and should not.
+    """
+    for pattern, found in IDENTIFIER_PATTERNS:
+        if re.search(pattern, text):
+            return found
+    pattern = _known_pattern(known)
+    if pattern is not None:
+        hit = pattern.search(text.lower())
+        if hit:
+            return f"the captured identifier {hit.group(0)!r}"
+    return None
+
+
+def refuse_if_identifying(text: str, what: str,
+                          known: frozenset[str] = frozenset()) -> str:
+    """Free text cannot be aliased field by field, so it is refused instead.
+
+    A serial log is prose plus whatever the DUT printed. There is no schema to
+    walk, so the only safe rule is: if it carries an identifier, do not ship it.
+    A loud stop beats a silent leak — the operator picks a cleaner excerpt.
+
+    ``known`` comes from :func:`captured_identifiers`. Callers that can reach a
+    bundle must pass it; the empty default leaves only the shape patterns, which
+    is the weaker check and is why no caller here relies on it.
+    """
+    found = identifier_in(text, known)
+    if found:
+        raise SystemExit(
+            f"{what} carries {found} and would ship as-is; choose a cleaner "
+            f"excerpt or widen the scrub in build_demo_data.py"
+        )
+    return text
+
+
+def build_console(bundle: Path, anon: Anonymiser,
+                  survey_bundle: Path | None = None) -> dict:
+    """Serial Console: real monitor output, and an honest note about the terminal.
+
+    The Monitor half is what ConsolePanel shows — a scrolling text view — so it
+    is real log lines, taken from the largest identifier-free run in the
+    session. The Terminal half is xterm.js over a pty in the product, which a
+    single HTML file cannot be; that half replays a recording and says so.
+    """
+    log = next((p for p in bundle.iterdir() if p.suffix == ".log"), None)
+    if log is None:
+        raise SystemExit(f"no session log in {bundle}")
+
+    lines = log.read_text(encoding="utf-8", errors="ignore").splitlines()
+    # The excerpt is chosen by the guard, not by hoping a fixed offset stays
+    # clean: take runs of consecutive identifier-free lines. Among those, prefer
+    # one containing a sysMon section header, so the Monitor view reads like the
+    # monitoring it is rather than starting mid-command.
+    #
+    # Same decision function as the refusal below, and the same known set — a
+    # selector with a weaker rule than the refuser is how a clean-looking run
+    # gets chosen and shipped.
+    known = captured_identifiers(bundle, survey_bundle)
+    runs, run = [], []
+    for line in lines:
+        if identifier_in(line, known):
+            if run:
+                runs.append(run)
+            run = []
+            continue
+        run.append(line)
+    if run:
+        runs.append(run)
+    if not runs:
+        raise SystemExit(f"{log.name} has no identifier-free run to excerpt")
+
+    def score(candidate: list[str]) -> tuple[int, int]:
+        headed = any(line.startswith("=== ") for line in candidate)
+        return (1 if headed else 0, len(candidate))
+
+    best = max(runs, key=score)
+    start = next((i for i, line in enumerate(best) if line.startswith("=== ")), 0)
+    excerpt = refuse_if_identifying("\n".join(best[start:start + 80]),
+                                    "the console excerpt", known)
+
+    return {
+        "generatedFrom": bundle.name,
+        "logName": log.name,
+        "lines": excerpt.splitlines(),
+        "totalLines": len(lines),
+    }
+
+
+def build_cpu(bundle: Path, anon: Anonymiser,
+              survey_bundle: Path | None = None) -> dict:
+    """CPU / Memory: the three cards, from the analyzer's own CSVs.
+
+    Nothing here needs anonymising — per-core busy percentages and
+    /proc/meminfo counters identify nobody — so this screen is measured
+    end to end. The memory card plots EffectiveAvailable_kB, which is what
+    the analyzer already computes (MemAvailable minus SUnreclaim); taking it
+    from the column rather than recomputing keeps one definition of the
+    number.
+    """
+    cpu_csv = next(bundle.glob("*_cpu_usage.csv"), None)
+    mem_csv = next(bundle.glob("*_memory.csv"), None)
+    if cpu_csv is None or mem_csv is None:
+        raise SystemExit(f"need both *_cpu_usage.csv and *_memory.csv in {bundle}")
+
+    cpu_rows = _downsample(list(csv.DictReader(cpu_csv.open())))
+    cores = sorted(c for c in cpu_rows[0] if c.startswith("CPU") and c.endswith("_UsagePct"))
+    series = {c[3:-len("_UsagePct")]: [round(float(r[c]), 1) for r in cpu_rows] for c in cores}
+    # useDutMonitor derives cpuBusyPct as 100 - mean(idle), which is the mean of
+    # the per-core busy figures. The CSV only carries those already rounded to
+    # one decimal, so averaging them differs from the product's single-rounding
+    # path by under 0.05 — the same quantity, not a different definition. Do not
+    # "correct" this to a max or a sum.
+    busy = [round(sum(series[c][i] for c in series) / len(series), 1)
+            for i in range(len(cpu_rows))]
+
+    mem_rows = _downsample(list(csv.DictReader(mem_csv.open())))
+    effective = [int(r["EffectiveAvailable_kB"]) for r in mem_rows]
+
+    return {
+        "generatedFrom": bundle.name,
+        "cores": series,
+        "busy": busy,
+        "cpuLabels": _labels([r["Timestamp"] for r in cpu_rows]),
+        "latestPerCore": {c: series[c][-1] for c in series},
+        "latestBusy": busy[-1],
+        "memory": {
+            "effectiveKb": effective,
+            "availableKb": [int(r["MemAvailable_kB"]) for r in mem_rows],
+            "slabKb": [int(r["Slab_kB"]) for r in mem_rows],
+            "labels": _labels([r["Timestamp"] for r in mem_rows]),
+        },
+        "spanFrom": cpu_rows[0]["Timestamp"],
+        "spanTo": cpu_rows[-1]["Timestamp"],
+        "samples": sum(1 for _ in csv.DictReader(cpu_csv.open())),
+    }
+
+
+def build_ssid(bundle: Path, anon: Anonymiser,
+               survey_bundle: Path | None = None) -> dict:
+    """SSID Capability: the DUT's own VAPs, reconciled against a host-side scan.
+
+    The capture holds Source A only — hostapd config read over serial. Source B
+    is a scan run on the host, which needs SURVEY_WIFI_IFACE set; without it the
+    product shows every row as a miss and says "Source B unavailable". That is
+    exactly the state of this bundle, so it is the state shown: inventing a
+    Source B would mean inventing the reconciliation this card exists to do.
+    """
+    source = survey_bundle or bundle
+    payload = _newest_json(source / "context" / "ssid-capability")
+    if payload is None:
+        raise SystemExit(f"no context/ssid-capability/*.json under {source}")
+
+    ssids = payload.get("ssids", [])
+    anon.prepare(own_ssids={s["ssid"] for s in ssids if s.get("ssid")},
+                 macs={s["bssid"] for s in ssids if s.get("bssid")})
+
+    rows = [{
+        "iface": s.get("iface"),
+        "ssid": anon.ssid(s.get("ssid"), own=True),
+        "bssid": anon.mac(s.get("bssid")),
+        "band": s.get("band"),
+        "channel": s.get("channel"),
+        "width": s.get("channel_width"),
+        "security": s.get("security"),
+        "pmf": s.get("pmf"),
+        "generation": s.get("generation"),
+        "dot11k": s.get("dot11k"),
+        "dot11v": s.get("dot11v"),
+        "dot11r": s.get("dot11r"),
+        "akm": s.get("akm") or [],
+        "pairwise": s.get("pairwise_cipher") or [],
+        "freqMhz": s.get("freq_mhz"),
+    } for s in sorted(ssids, key=lambda s: (s.get("band") or "", s.get("iface") or ""))]
+
+    return {
+        "generatedFrom": source.name,
+        "capturedAt": (payload.get("captured_at") or "")[:16].replace("T", " "),
+        "rows": rows,
+        "sourceBAvailable": False,
+    }
+
+
 def build_static(bundle: Path | None, anon: Anonymiser,
                  survey_bundle: Path | None = None) -> dict:
     """A page whose content is synthetic in full — nothing to derive or replace.
@@ -418,6 +896,11 @@ def build_static(bundle: Path | None, anon: Anonymiser,
     whole payload, and each page says so in its provenance line.
     """
     return {}
+
+
+def _stamp(epoch: float) -> str:
+    from datetime import datetime
+    return datetime.fromtimestamp(epoch).strftime("%Y-%m-%d %H:%M")
 
 
 def _newest_json(kind_dir: Path) -> dict | None:
@@ -480,7 +963,16 @@ def _dual_radio_client(rows: list[dict], anon: Anonymiser) -> dict | None:
     return None
 
 
+#: Pages with nothing to generate. index.html is a front door — it links the
+#: screens and says which are measured; there is no capture behind it and no
+#: data block to fill. It was in the builder map anyway, so `--page index.html`
+#: always died on a missing block, which made "every page regenerates" false for
+#: a page that has nothing to regenerate.
+HAND_MAINTAINED = frozenset({"index.html"})
+
+
 def inject(page: Path, payload: dict) -> None:
+    """Rewrite only the data block, so hand-edits to the markup survive."""
     html = page.read_text(encoding="utf-8")
     if not DATA_BLOCK_RE.search(html):
         raise SystemExit(f"{page.name} has no <script id='demo-data'> block")
@@ -490,6 +982,18 @@ def inject(page: Path, payload: dict) -> None:
         encoding="utf-8",
     )
     print(f"{page.name}: injected {len(blob):,} bytes of data")
+
+
+#: Which builder fills each page. Module level so the set of generated pages can
+#: be asserted against HAND_MAINTAINED rather than discovered by running it.
+PAGE_BUILDERS = {"overview.html": build, "site-survey.html": build_survey,
+                 "wifi-clients.html": build_clients,
+                 "files.html": build_static, "bulletin.html": build_static,
+                 "downloads.html": build_downloads,
+                 "serial-console.html": build_console,
+                 "cpu-memory.html": build_cpu,
+                 "ssid-capability.html": build_ssid,
+                 "firmware.html": build_static}
 
 
 def main() -> int:
@@ -505,9 +1009,12 @@ def main() -> int:
                          "or wifi-clients.html (default: overview.html)")
     args = ap.parse_args()
 
-    builders = {"overview.html": build, "site-survey.html": build_survey,
-                "wifi-clients.html": build_clients,
-                "files.html": build_static, "bulletin.html": build_static}
+    builders = PAGE_BUILDERS
+    if args.page in HAND_MAINTAINED:
+        raise SystemExit(
+            f"{args.page} is hand-maintained and carries no data block — it is the "
+            f"kit's front door, not a generated page. Edit it directly."
+        )
     if args.page not in builders:
         raise SystemExit(f"no builder for {args.page}; known: {', '.join(builders)}")
 
