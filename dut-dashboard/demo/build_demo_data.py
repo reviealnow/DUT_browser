@@ -841,7 +841,16 @@ def _dual_radio_client(rows: list[dict], anon: Anonymiser) -> dict | None:
     return None
 
 
+#: Pages with nothing to generate. index.html is a front door — it links the
+#: screens and says which are measured; there is no capture behind it and no
+#: data block to fill. It was in the builder map anyway, so `--page index.html`
+#: always died on a missing block, which made "every page regenerates" false for
+#: a page that has nothing to regenerate.
+HAND_MAINTAINED = frozenset({"index.html"})
+
+
 def inject(page: Path, payload: dict) -> None:
+    """Rewrite only the data block, so hand-edits to the markup survive."""
     html = page.read_text(encoding="utf-8")
     if not DATA_BLOCK_RE.search(html):
         raise SystemExit(f"{page.name} has no <script id='demo-data'> block")
@@ -851,6 +860,18 @@ def inject(page: Path, payload: dict) -> None:
         encoding="utf-8",
     )
     print(f"{page.name}: injected {len(blob):,} bytes of data")
+
+
+#: Which builder fills each page. Module level so the set of generated pages can
+#: be asserted against HAND_MAINTAINED rather than discovered by running it.
+PAGE_BUILDERS = {"overview.html": build, "site-survey.html": build_survey,
+                 "wifi-clients.html": build_clients,
+                 "files.html": build_static, "bulletin.html": build_static,
+                 "downloads.html": build_downloads,
+                 "serial-console.html": build_console,
+                 "cpu-memory.html": build_cpu,
+                 "ssid-capability.html": build_ssid,
+                 "firmware.html": build_static}
 
 
 def main() -> int:
@@ -866,14 +887,12 @@ def main() -> int:
                          "or wifi-clients.html (default: overview.html)")
     args = ap.parse_args()
 
-    builders = {"overview.html": build, "site-survey.html": build_survey,
-                "wifi-clients.html": build_clients,
-                "files.html": build_static, "bulletin.html": build_static,
-                "downloads.html": build_downloads,
-                "serial-console.html": build_console,
-                "cpu-memory.html": build_cpu,
-                "ssid-capability.html": build_ssid,
-                "firmware.html": build_static, "index.html": build_static}
+    builders = PAGE_BUILDERS
+    if args.page in HAND_MAINTAINED:
+        raise SystemExit(
+            f"{args.page} is hand-maintained and carries no data block — it is the "
+            f"kit's front door, not a generated page. Edit it directly."
+        )
     if args.page not in builders:
         raise SystemExit(f"no builder for {args.page}; known: {', '.join(builders)}")
 

@@ -222,6 +222,17 @@ def test_a_bare_ssid_value_is_refused_once_the_capture_is_known(
         assert anon_module.identifier_in(text) is None
 
 
+def test_the_front_door_is_refused_by_name_not_by_a_missing_block(anon_module) -> None:
+    """index.html has no data block, so it was never regenerable — say that.
+
+    It sat in the builder map, so `--page index.html` always died on the missing
+    block, and "every page regenerates" was a claim about a page that has
+    nothing to regenerate.
+    """
+    assert "index.html" in anon_module.HAND_MAINTAINED
+    assert "index.html" not in anon_module.PAGE_BUILDERS
+
+
 def test_clean_monitoring_output_still_passes(anon_module, bundle: Path) -> None:
     known = anon_module.captured_identifiers(bundle)
     text = "=== CPU ===\nCpu(s):  3.4 us,  1.2 sy, 95.0 id\nMemAvailable:   183624 kB"

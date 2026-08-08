@@ -66,6 +66,11 @@ python3 build_demo_data.py --page files.html
 python3 build_demo_data.py --page bulletin.html
 ```
 
+**Ten of the eleven pages are generated. `index.html` is not** — it is the front
+door, linking the screens and saying which are measured, with no capture behind
+it and no `demo-data` block to fill. Edit it by hand; the generator refuses it by
+name rather than failing on the missing block.
+
 Downloads lists a bundle rather than parsing one, and embeds its smallest plot
 so the inline preview is genuine:
 
