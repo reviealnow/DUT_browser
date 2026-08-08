@@ -186,8 +186,8 @@ tbody tr:hover{background:var(--bg)}
       </section>
 
       <div class="note" id="navNote">
-        This is the <b>Site Survey</b> screen of the demo kit. <b>overview.html</b> is the other
-        screen shipped so far; the rest of the sidebar is not in the kit yet.
+        This is the <b>Site Survey</b> screen of the demo kit. Ten screens ship beside it —
+        open <b>index.html</b> for the list. Click any sidebar entry to see which file it is.
       </div>
 
       <div class="provenance" id="provenance"></div>
@@ -457,10 +457,20 @@ $("btnCopy").addEventListener("click", async () => {
 document.querySelectorAll("[data-screen]").forEach(el => {
   el.addEventListener("click", () => {
     const name = el.dataset.screen;
-    $("navNote").innerHTML = name === "Overview"
-      ? `<b>Overview</b> is in this kit — open <b>overview.html</b> beside this file.`
-      : `<b>${name}</b> is not in the kit yet. Screens are added one file at a time; `
-        + `<b>overview.html</b> and this page are the two shipped so far.`;
+    /* Every screen in the kit, in sidebar order. This map used to be frozen at
+       whatever had shipped when the page was written, so a complete kit still
+       told the viewer that the screen next to it did not exist. The two entries
+       without a file — Logs / Crash Events and Settings — are the only ones
+       that take the other branch. */
+    const map = { "Overview": "overview.html", "Site Survey": "site-survey.html",
+                  "Wi-Fi Clients": "wifi-clients.html", "CPU / Memory": "cpu-memory.html",
+                  "SSID Capability": "ssid-capability.html", "Downloads": "downloads.html",
+                  "Serial Console": "serial-console.html", "Files": "files.html",
+                  "Bulletin": "bulletin.html", "Upgrade Firmware": "firmware.html" };
+    $("navNote").innerHTML = map[name]
+      ? `<b>${name}</b> is in this kit — open <b>${map[name]}</b> beside this file.`
+      : `<b>${name}</b> is a screen in the product with no file in this kit; `
+        + `open <b>index.html</b> for the ten that ship.`;
     $("navNote").scrollIntoView({ behavior: "smooth", block: "nearest" });
   });
 });

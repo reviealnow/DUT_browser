@@ -284,13 +284,20 @@ $("btnRerun").addEventListener("click", (ev) => {
 document.querySelectorAll("[data-screen]").forEach(el => {
   el.addEventListener("click", () => {
     const name = el.dataset.screen;
+    /* Every screen in the kit, in sidebar order. This map used to be frozen at
+       whatever had shipped when the page was written, so a complete kit still
+       told the viewer that the screen next to it did not exist. The two entries
+       without a file — Logs / Crash Events and Settings — are the only ones
+       that take the other branch. */
     const map = { "Overview": "overview.html", "Site Survey": "site-survey.html",
-                  "Wi-Fi Clients": "wifi-clients.html", "Files": "files.html",
-                  "Bulletin": "bulletin.html", "Downloads": "downloads.html",
-                  "Serial Console": "serial-console.html", "CPU / Memory": "cpu-memory.html" };
+                  "Wi-Fi Clients": "wifi-clients.html", "CPU / Memory": "cpu-memory.html",
+                  "SSID Capability": "ssid-capability.html", "Downloads": "downloads.html",
+                  "Serial Console": "serial-console.html", "Files": "files.html",
+                  "Bulletin": "bulletin.html", "Upgrade Firmware": "firmware.html" };
     $("navNote").innerHTML = map[name]
       ? `<b>${name}</b> is in this kit — open <b>${map[name]}</b> beside this file.`
-      : `<b>${name}</b> is not in the kit yet. Screens are added one file at a time.`;
+      : `<b>${name}</b> is a screen in the product with no file in this kit; `
+        + `open <b>index.html</b> for the ten that ship.`;
     $("navNote").scrollIntoView({ behavior: "smooth", block: "nearest" });
   });
 });
