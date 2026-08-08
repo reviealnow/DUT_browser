@@ -233,6 +233,46 @@ def test_an_unterminated_quote_stops_the_build(anon_module, bundle: Path) -> Non
         anon_module.captured_identifiers(bundle)
 
 
+@pytest.mark.parametrize("label,text,reason", [
+    # Every one of these produces rows that pass the field-count check while
+    # the value the log could name is simply not in the inventory.
+    ("an unnamed column",
+     "ts,,mac_address\nnow,OlderSecret,de:ad:be:ef:00:01\n", "no name"),
+    ("a repeated column",
+     "ssid_name,ssid_name\nOlderSecret,NewPublic\n", "appears twice"),
+    ("no header at all",
+     "", "no header row"),
+    # Not in the review's list: one column named `ssid;bssid` holding
+    # `OlderSecret;aa:bb:…`, so every value merges and none is collected.
+    ("a file that is not comma-separated",
+     "ssid;bssid\nOlderSecret;aa:bb:cc:dd:ee:ff\n", "not comma-separated"),
+])
+def test_a_damaged_header_stops_the_build(
+    anon_module, bundle: Path, label: str, text: str, reason: str,
+) -> None:
+    """DictReader addresses the row through the header, so a damaged one drops
+    values silently — and the rows still look the right width."""
+    broken = bundle / "context" / "site-survey" / "site-survey-default-20260808-150000.csv"
+    broken.write_text(text, encoding="utf-8")
+    with pytest.raises(SystemExit, match=reason):
+        anon_module.captured_identifiers(bundle)
+    with pytest.raises(SystemExit, match=broken.name):
+        anon_module.captured_identifiers(bundle)
+
+
+def test_a_legitimately_empty_value_is_not_a_damaged_row(anon_module, bundle: Path) -> None:
+    """The checks must not fire on a capture that simply has a blank field.
+
+    A missing field is None; an empty one is "". Conflating them would stop the
+    build on perfectly good bundles, and over-refusal that blocks every capture
+    is not fail-closed, it is broken.
+    """
+    fine = bundle / "context" / "site-survey" / "site-survey-default-20260808-160000.csv"
+    fine.write_text("ssid,bssid\n,aa:bb:cc:dd:ee:04\nRealName,\n", encoding="utf-8")
+    known = anon_module.captured_identifiers(bundle)
+    assert {"realname", "aa:bb:cc:dd:ee:04"} <= known
+
+
 def test_a_row_that_does_not_match_the_header_stops_the_build(anon_module, bundle: Path) -> None:
     """Strict quoting still does not catch a row with the wrong field count.
 

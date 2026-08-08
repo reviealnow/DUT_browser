@@ -509,6 +509,41 @@ def _unreadable_capture(path: Path, why: Exception) -> SystemExit:
     )
 
 
+def _check_capture_header(path: Path, fieldnames: list[str] | None) -> None:
+    """A header that cannot address every column loses values without raising.
+
+    `DictReader` builds the row dict from the header, so a damaged header
+    discards data quietly and the row still passes the field-count check:
+
+    * **no header at all** — an empty file yields no rows and no complaint;
+    * **an unnamed column** — its value lands under `""`, never an identifier
+      key, so it is dropped;
+    * **a repeated column** — the later value overwrites the earlier one, and
+      an SSID vanishes with the row looking well formed;
+    * **another delimiter** — `ssid;bssid` is one column named `ssid;bssid`
+      holding `OlderSecret;aa:bb:…`, so every value merges and none is
+      collected. Our writers emit comma-separated ASCII column names, so a
+      delimiter inside a name means the file is not what it claims to be.
+
+    Each of these keeps the inventory looking complete while it is not, which is
+    the failure this whole function exists to avoid.
+    """
+    if not fieldnames:
+        raise _unreadable_capture(path, ValueError("it has no header row"))
+    seen: set[str] = set()
+    for name in fieldnames:
+        if name is None or not name.strip():
+            raise _unreadable_capture(path, ValueError("a column has no name"))
+        found = next((d for d in (";", "|", "\t") if d in name), None)
+        if found is not None:
+            raise _unreadable_capture(path, ValueError(
+                f"column name {name!r} contains {found!r}, so the file is not comma-separated"))
+        key = name.strip().lower()
+        if key in seen:
+            raise _unreadable_capture(path, ValueError(f"column {name!r} appears twice"))
+        seen.add(key)
+
+
 def _collect_identifiers(node, into: set[str]) -> None:
     """Depth-first over parsed JSON, gathering values under identifier keys."""
     if isinstance(node, dict):
@@ -587,9 +622,16 @@ def captured_identifiers(bundle: Path | None,
             #               field shifts every value one column left: an SSID
             #               lands under `ts`, which is not an identifier key, so
             #               it is never collected. Hence the field-count check.
+            #   the header   `DictReader` addresses the row through the header,
+            #               so an unnamed column, a repeated one, or a file that
+            #               is not comma-separated at all drops values while
+            #               every row still looks the right width. Hence
+            #               `_check_capture_header`.
             try:
                 with path.open(newline="", encoding="utf-8") as handle:
-                    rows = list(csv.DictReader(handle, strict=True))
+                    reader = csv.DictReader(handle, strict=True)
+                    _check_capture_header(path, reader.fieldnames)
+                    rows = list(reader)
             except (UnicodeDecodeError, csv.Error) as unreadable:
                 raise _unreadable_capture(path, unreadable) from unreadable
             for row in rows:
