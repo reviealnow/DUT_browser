@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DUT_browser — Bulletin (demo)</title>
+<style>
+:root{
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:24px;
+  --bg:#f4f6fa; --panel:#fff; --ink:#1b2333; --muted:#687389; --faint:#9aa4b8;
+  --accent:#1565c0; --accent-weak:#e8f0fb;
+  --ok:#0c7a43; --ok-weak:#e4f4ea;
+  --warn:#9a6a00; --warn-weak:#fbf0d9;
+  --danger:#b3261e; --danger-weak:#fce8e6;
+  --border:#e3e8f0;
+  --shadow:0 1px 2px rgba(20,30,55,.04), 0 6px 20px rgba(20,30,55,.06);
+  --radius:14px; --sidebar-w:232px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg); color:var(--ink); font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"PingFang TC","Noto Sans TC",sans-serif; -webkit-font-smoothing:antialiased}
+button,input,textarea{font:inherit; color:inherit}
+button{cursor:pointer}
+
+.layout{display:grid; grid-template-columns:var(--sidebar-w) 1fr; min-height:100vh}
+.sidebar{background:var(--panel); border-right:1px solid var(--border); padding:var(--space-4) 0; position:sticky; top:0; height:100vh; overflow-y:auto}
+.brand{display:flex; align-items:center; gap:var(--space-2); padding:0 var(--space-4) var(--space-5)}
+.brand-mark{width:28px; height:28px; border-radius:8px; background:var(--accent); color:#fff; display:grid; place-items:center; font-weight:700; font-size:13px}
+.brand-name{font-weight:650; letter-spacing:-.01em}
+.nav-group{padding:var(--space-3) var(--space-4) var(--space-1); font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--faint); font-weight:650}
+.nav-item{display:flex; align-items:center; gap:var(--space-3); width:100%; border:0; background:none; text-align:left; padding:var(--space-2) var(--space-4); border-left:3px solid transparent; color:var(--muted)}
+.nav-item:hover{background:var(--bg); color:var(--ink)}
+.nav-item[aria-current="page"]{background:var(--accent-weak); border-left-color:var(--accent); color:var(--accent); font-weight:600}
+.nav-icon{width:18px; text-align:center; font-size:13px}
+
+.main{display:flex; flex-direction:column; min-width:0}
+.topbar{display:flex; align-items:center; gap:var(--space-3); padding:var(--space-4) var(--space-5); background:var(--panel); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:5}
+.topbar h1{font-size:17px; margin:0; letter-spacing:-.01em}
+.topbar .sub{color:var(--muted); font-size:12px}
+.spacer{flex:1}
+.pill{display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:999px; font-size:12px; font-weight:600; border:1px solid transparent; white-space:nowrap}
+.pill-demo{background:var(--warn-weak); color:var(--warn); border-color:#f0dfb4}
+.pill-muted{background:var(--bg); color:var(--muted); border-color:var(--border)}
+
+.content{padding:var(--space-5); display:flex; flex-direction:column; gap:var(--space-4); max-width:900px; width:100%}
+.card{background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow)}
+.card-head{display:flex; align-items:center; gap:var(--space-3); padding:var(--space-4) var(--space-4) var(--space-2); flex-wrap:wrap}
+.card-head h2{font-size:14px; margin:0; letter-spacing:-.01em}
+.card-head .hint{color:var(--muted); font-size:12px; font-weight:400}
+.card-body{padding:var(--space-3) var(--space-4) var(--space-4); display:flex; flex-direction:column; gap:var(--space-3)}
+
+.btn{border:1px solid var(--border); background:var(--panel); border-radius:9px; padding:5px 11px; font-size:12px; font-weight:600; color:var(--muted); transition:.12s}
+.btn:hover{border-color:var(--accent); color:var(--accent); background:var(--accent-weak)}
+.btn:active{transform:translateY(1px)}
+.btn[disabled]{opacity:.45; cursor:not-allowed}
+.btn-primary{background:var(--accent); border-color:var(--accent); color:#fff}
+.btn-primary:hover{background:#0f4f9c; border-color:#0f4f9c; color:#fff}
+.linklike{border:0; background:none; color:var(--accent); font-size:12px; font-weight:600; padding:0}
+.linklike:hover{text-decoration:underline}
+
+.field,textarea.field{border:1px solid var(--border); border-radius:9px; padding:7px 11px; font-size:13px; background:var(--panel); width:100%; resize:vertical}
+.field:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-weak)}
+.posting-as{display:flex; align-items:center; gap:var(--space-2); font-size:12px; color:var(--muted); flex-wrap:wrap}
+.posting-as .field{width:auto; min-width:160px; padding:4px 9px}
+
+.author{display:inline-block; padding:1px 9px; border-radius:999px; font-size:11px; font-weight:650}
+.unverified{margin-left:5px; font-size:10px; color:var(--warn); background:var(--warn-weak); border-radius:999px; padding:1px 6px; font-weight:650; cursor:help}
+.tag{display:inline-block; padding:1px 8px; border-radius:999px; font-size:11px; font-weight:650; margin-right:4px}
+
+.post-head{display:flex; align-items:flex-start; gap:var(--space-3); flex-wrap:wrap}
+.post-title{font-size:15px; font-weight:650; letter-spacing:-.01em; margin:0}
+.post-meta{color:var(--faint); font-size:12px}
+.post-body{white-space:pre-wrap; line-height:1.6}
+.edited{color:var(--faint); cursor:help}
+.comments{border-top:1px solid var(--border); margin-top:var(--space-2); padding-top:var(--space-3); display:flex; flex-direction:column; gap:var(--space-3)}
+.comment{font-size:13px}
+.comment-body{margin-top:2px; white-space:pre-wrap}
+.replies{margin-left:var(--space-5); border-left:2px solid var(--border); padding-left:var(--space-3); margin-top:var(--space-2); display:flex; flex-direction:column; gap:var(--space-2)}
+.reply-row{display:flex; gap:var(--space-2); margin-top:var(--space-2)}
+
+.note{padding:var(--space-3) var(--space-4); border-radius:10px; background:var(--accent-weak); color:#12467f; font-size:12px; border:1px solid #cfe0f6}
+/* A "concept" chip marks an idea shown for discussion. Everything without one
+   mirrors behaviour the product actually ships — a demo must not quietly
+   promise features somebody then has to build. */
+.concept{display:inline-flex; align-items:center; gap:5px; padding:1px 8px; border-radius:999px; font-size:11px; font-weight:650; color:#6b4fa8; background:#f3effb; border:1px dashed #b9a5e0; white-space:nowrap}
+.provenance{color:var(--faint); font-size:11px; line-height:1.6; padding-top:var(--space-2); border-top:1px solid var(--border)}
+.provenance b{color:var(--muted); font-weight:650}
+.toast{position:fixed; left:50%; bottom:24px; transform:translate(-50%,20px); background:var(--ink); color:#fff; padding:9px 16px; border-radius:999px; font-size:13px; opacity:0; pointer-events:none; transition:.2s; z-index:50; max-width:min(720px,90vw); text-align:center}
+.toast.show{opacity:1; transform:translate(-50%,0)}
+@media (max-width:860px){ .layout{grid-template-columns:1fr} .sidebar{display:none} }
+</style>
+</head>
+<body>
+
+<!-- This screen's content, per the repo's inline-data convention. Like Files it
+     is synthetic in full — see the provenance line. -->
+<script id="demo-data" type="application/json">{"identity":"alex.doe","posts":[{"id":1,"title":"Lab unit booked for a long capture until Friday","author":"Alex Doe","verified":true,"at":"2026-08-04 15:52","edited":null,"tags":["bench","long-run"],"body":"Running a 40-hour telemetry capture for the offline-analysis acceptance. Please leave the serial adapter alone \u2014 the console needs a human login after any reboot and a reconnect would end the run.","comments":[{"id":11,"author":"Sam Roe","verified":true,"at":"2026-08-04 16:10","edited":null,"body":"Noted \u2014 I'll use the spare unit for the 6 GHz checks.","replies":[{"id":12,"author":"Alex Doe","verified":true,"at":"2026-08-04 16:14","edited":null,"body":"Good, that one has the newer telemetry script with the per-radio client markers."}]},{"id":13,"author":"Jo Coe","verified":false,"at":"2026-08-04 17:02","edited":"2026-08-04 17:05","body":"Bundle looked right on my side: two CSVs, nine plots, no empty files.","replies":[]}]},{"id":2,"title":"2.4 GHz is saturated in this room","author":"Sam Roe","verified":true,"at":"2026-08-04 12:50","edited":"2026-08-04 13:02","tags":["site-survey","rf"],"body":"Latest survey has 2.4 GHz utilisation at 85-94% all day, with over a thousand neighbouring SSIDs across the band. The recommendation moves us off the busiest channel. 5 GHz is fine.","comments":[{"id":21,"author":"Alex Doe","verified":true,"at":"2026-08-04 13:30","edited":null,"body":"Matches the offline render. Worth moving before the next long run.","replies":[]}]},{"id":3,"title":"Firmware upgrade went through cleanly","author":"Jo Coe","verified":false,"at":"2026-07-31 06:20","edited":null,"tags":["firmware"],"body":"Upload took about 24 s, the downloader ran, and the unit came back healthy. The device logged the reboot as a local-UI firmware upgrade.","comments":[]}]}</script>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand"><span class="brand-mark">D</span><span class="brand-name">DUT_browser</span></div>
+    <div class="nav-group">Monitoring</div>
+    <button class="nav-item" data-screen="Overview"><span class="nav-icon">▣</span>Overview</button>
+    <button class="nav-item" data-screen="CPU / Memory"><span class="nav-icon">📈</span>CPU / Memory</button>
+    <button class="nav-item" data-screen="Wi-Fi Clients"><span class="nav-icon">📶</span>Wi-Fi Clients</button>
+    <button class="nav-item" data-screen="SSID Capability"><span class="nav-icon">🔍</span>SSID Capability</button>
+    <button class="nav-item" data-screen="Site Survey"><span class="nav-icon">📡</span>Site Survey</button>
+    <button class="nav-item" data-screen="Logs / Crash Events"><span class="nav-icon">⚠</span>Logs / Crash Events</button>
+    <button class="nav-item" data-screen="Serial Console"><span class="nav-icon">⌨</span>Serial Console</button>
+    <button class="nav-item" data-screen="Downloads"><span class="nav-icon">⬇</span>Downloads</button>
+    <div class="nav-group">Workspace</div>
+    <button class="nav-item" data-screen="Files"><span class="nav-icon">🗂</span>Files</button>
+    <button class="nav-item" aria-current="page"><span class="nav-icon">📌</span>Bulletin</button>
+    <div class="nav-group">System</div>
+    <button class="nav-item" data-screen="Settings"><span class="nav-icon">⚙</span>Settings</button>
+    <button class="nav-item" data-screen="Upgrade Firmware"><span class="nav-icon">⚡</span>Upgrade Firmware</button>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div>
+        <h1>Bulletin</h1>
+        <div class="sub">Team notes and replies</div>
+      </div>
+      <span class="spacer"></span>
+      <span class="pill pill-demo">● DEMO — synthetic workspace content</span>
+      <span class="pill pill-muted">engineer</span>
+    </header>
+
+    <div class="content">
+
+      <!-- ============ new post ============ -->
+      <section class="card">
+        <div class="card-head"><h2>New note</h2></div>
+        <div class="card-body">
+          <label class="posting-as">
+            <span>Posting as</span>
+            <input class="field" id="identity" type="text" placeholder="your name" aria-label="Your name" maxlength="40">
+            <span id="identityTag"></span>
+          </label>
+          <input class="field" id="title" type="text" placeholder="Title" aria-label="Post title" maxlength="120">
+          <textarea class="field" id="body" rows="3" placeholder="What's the note?" aria-label="Post content" maxlength="1000"></textarea>
+          <input class="field" id="tags" type="text" placeholder="tags, comma separated" aria-label="Post tags" maxlength="200">
+          <div><button class="btn btn-primary" id="btnPost" disabled>Post note</button></div>
+        </div>
+      </section>
+
+      <!-- ============ posts ============ -->
+      <div id="posts" style="display:flex;flex-direction:column;gap:var(--space-4)"></div>
+
+      <div class="note" id="navNote">
+        This is the <b>Bulletin</b> screen of the demo kit. <b>Files</b> is a separate screen in the
+        product, so it is a separate file here too.
+      </div>
+
+      <div class="provenance" id="provenance"></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+"use strict";
+const DATA = JSON.parse(document.getElementById("demo-data").textContent);
+const $ = (id) => document.getElementById(id);
+
+let toastTimer;
+function toast(msg){
+  const el = $("toast");
+  el.textContent = msg; el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 3200);
+}
+
+/* Same idea as monitoring/authorColor.ts: one name always gets one colour. */
+function nameColour(name){
+  let hash = 0;
+  for (const ch of String(name || "")) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  const hue = hash % 360;
+  return { bg: `hsl(${hue} 70% 93%)`, fg: `hsl(${hue} 55% 30%)` };
+}
+/* AuthorTag: a coloured pill, plus the "unverified" marker for a name that was
+   client-supplied with no session behind it (pre-P71d rows). */
+function authorTag(name, verified){
+  const { bg, fg } = nameColour(name);
+  const label = (name || "").trim() || "—";
+  const mark = verified === false && label !== "—"
+    ? `<span class="unverified" title="Posted before names were tied to a login — not verified">unverified</span>`
+    : "";
+  return `<span class="author" style="background:${bg};color:${fg}">${label}</span>${mark}`;
+}
+function tagPill(tag){
+  const { bg, fg } = nameColour(tag);
+  return `<span class="tag" style="background:${bg};color:${fg}">${tag}</span>`;
+}
+const esc = (s) => String(s).replace(/[<&]/g, c => c === "<" ? "&lt;" : "&amp;");
+const editedMark = (at) => at ? `<span class="edited" title="Edited ${at}"> · edited</span>` : "";
+
+async function copyToClipboard(text){
+  try {
+    if (navigator.clipboard?.writeText){
+      try { await navigator.clipboard.writeText(text); return true; } catch { /* fall through */ }
+    }
+    const holder = document.createElement("textarea");
+    holder.value = text; holder.setAttribute("readonly", "");
+    holder.style.position = "fixed"; holder.style.opacity = "0";
+    document.body.appendChild(holder);
+    try { holder.select(); return document.execCommand("copy"); }
+    finally { holder.remove(); }
+  } catch { return false; }
+}
+
+/* ---------------- state ---------------- */
+let posts = DATA.posts.slice();
+let identity = DATA.identity || "";
+const replying = new Set();
+const editing = new Set();   // inline editors, as CommentEditor does
+/* Every ReplyBox and CommentEditor in the product owns its own React state, so
+   opening a second one cannot touch the first. This page re-renders the whole
+   list instead, which would wipe an unsent draft — unsaved input surviving is
+   persistence a viewer reads as product behaviour. Drafts are therefore kept
+   outside the DOM, keyed by field, and restored after every render. */
+const drafts = new Map();
+const draftKey = (el) =>
+  ["replyfield", "editfield", "edittitle", "edittags"]
+    .filter(a => el.dataset[a] !== undefined)
+    .map(a => `${a}:${el.dataset[a]}`)[0];
+
+function restoreDrafts(){
+  document.querySelectorAll("[data-replyfield],[data-editfield],[data-edittitle],[data-edittags]")
+    .forEach(el => {
+      const key = draftKey(el);
+      if (key && drafts.has(key)) el.value = drafts.get(key);
+    });
+}
+const clearDrafts = (prefix) => {
+  [...drafts.keys()].filter(k => k.endsWith(`:${prefix}`)).forEach(k => drafts.delete(k));
+};
+const opened = new Set();    // BulletinSection collapses a post's comments behind Open/Hide
+let nextId = 1000;
+function findByKey(key){
+  const [kind, postId, a, b] = key.split(":");
+  const post = posts.find(p => String(p.id) === postId);
+  if (!post) return null;
+  if (kind === "p") return post;
+  const comment = post.comments.find(c => String(c.id) === a);
+  if (kind === "c") return comment;
+  return comment ? (comment.replies || []).find(r => String(r.id) === b) : null;
+}
+
+const countReplies = (list) => list.reduce((n, c) => n + 1 + countReplies(c.replies || []), 0);
+
+/* CommentEditor is a single-line 600-character input whose Save is disabled
+   while the draft is empty; the post editor is title + body + tags. */
+function commentEditor(key, value){
+  return `<div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
+      <input class="field" data-editfield="${key}" maxlength="600" value="${esc(value)}" aria-label="Edit comment">
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-primary" data-editsave="${key}" ${value.trim() ? "" : "disabled"}>Save</button>
+        <button class="btn" data-editcancel="${key}">Cancel</button>
+      </div>
+    </div>`;
+}
+
+function postEditor(key, post){
+  return `<div style="display:flex;flex-direction:column;gap:var(--space-2)">
+      <input class="field" data-edittitle="${key}" maxlength="120" value="${esc(post.title)}" aria-label="Edit post title">
+      <textarea class="field" data-editfield="${key}" rows="3" maxlength="1000" aria-label="Edit post content">${esc(post.body)}</textarea>
+      <input class="field" data-edittags="${key}" maxlength="200" value="${esc((post.tags || []).join(", "))}" aria-label="Edit post tags">
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-primary" data-editsave="${key}" ${post.title.trim() && post.body.trim() ? "" : "disabled"}>Save</button>
+        <button class="btn" data-editcancel="${key}">Cancel</button>
+      </div>
+    </div>`;
+}
+
+function replyHtml(r, postId, parentId){
+  const key = `r:${postId}:${parentId}:${r.id}`;
+  return `<div class="comment">
+      ${authorTag(r.author, r.verified)}
+      <span class="post-meta"> ${r.at}${editedMark(r.edited)}</span>
+      ${editing.has(key) ? commentEditor(key, r.body)
+        : `<div class="comment-body">${esc(r.body)}</div>
+           <button class="linklike" data-editopen="${key}" style="margin-top:2px">Edit</button>`}
+    </div>`;
+}
+
+function commentHtml(c, postId){
+  return `<div class="comment">
+      ${authorTag(c.author, c.verified)}
+      <span class="post-meta"> ${c.at}${editedMark(c.edited)}</span>
+      ${editing.has(`c:${postId}:${c.id}`) ? commentEditor(`c:${postId}:${c.id}`, c.body)
+        : `<div class="comment-body">${esc(c.body)}</div>
+           <div style="display:flex;gap:var(--space-3);margin-top:4px">
+             <button class="linklike" data-reply="${postId}:${c.id}">Reply</button>
+             <button class="linklike" data-editopen="c:${postId}:${c.id}">Edit</button>
+           </div>`}
+      ${(c.replies || []).length ? `<div class="replies">${c.replies.map(r => replyHtml(r, postId, c.id)).join("")}</div>` : ""}
+      ${replying.has(`${postId}:${c.id}`) ? replyBox(postId, c.id, "Reply…") : ""}
+    </div>`;
+}
+
+function replyBox(postId, parentId, placeholder){
+  return `<div class="reply-row">
+      <input class="field" data-replyfield="${postId}:${parentId}" maxlength="600" placeholder="${placeholder}" aria-label="Reply">
+      <button class="btn" data-replysend="${postId}:${parentId}" disabled>Reply</button>
+    </div>`;
+}
+
+function renderPosts(){
+  $("posts").innerHTML = posts.map(p => {
+    const n = countReplies(p.comments || []);
+    return `<section class="card">
+      <div class="card-head" style="align-items:flex-start">
+        <div style="flex:1;min-width:220px">
+          <h3 class="post-title">${esc(p.title)}</h3>
+          <div class="post-meta" style="margin-top:3px">
+            ${authorTag(p.author, p.verified)} <span>${p.at}${editedMark(p.edited)}</span>
+          </div>
+        </div>
+        <div style="display:flex;gap:var(--space-2);align-items:center">
+          <button class="btn" data-open="${p.id}">${opened.has(p.id) ? "Hide" : "Open"}</button>
+          <button class="btn" data-copy="${p.id}" title="Copy this note">⧉</button>
+          <button class="btn" data-editopen="p:${p.id}" title="Edit this note">✎</button>
+          <button class="btn" data-delpost="${p.id}" title="Delete this note">🗑</button>
+        </div>
+      </div>
+      <div class="card-body">
+        ${editing.has(`p:${p.id}`) ? postEditor(`p:${p.id}`, p)
+          : `<div class="post-body">${esc(p.body)}</div>`}
+        <div>${(p.tags || []).map(tagPill).join("")}</div>
+        <div class="post-meta">${n} repl${n === 1 ? "y" : "ies"}</div>
+        ${opened.has(p.id) ? `<div class="comments">
+          ${(p.comments || []).map(c => commentHtml(c, p.id)).join("")}
+          ${replying.has(`${p.id}:root`) ? replyBox(p.id, "root", "Add a reply…")
+            : `<button class="linklike" data-reply="${p.id}:root" style="align-self:flex-start">Add a reply</button>`}
+        </div>` : ""}
+      </div>
+    </section>`;
+  }).join("");
+  restoreDrafts();
+}
+
+function renderIdentity(){
+  $("identity").value = identity;
+  $("identityTag").innerHTML = identity ? authorTag(identity, true) : "";
+  updatePostButton();
+}
+function updatePostButton(){
+  $("btnPost").disabled = !($("title").value.trim() && $("body").value.trim() && identity.trim());
+}
+
+/* ---------------- boot ---------------- */
+renderIdentity(); renderPosts();
+$("provenance").innerHTML =
+  `<b>Demo kit</b> — this screen's content is <b>synthetic in full</b>, unlike the monitoring `
+  + `screens. A note board is content rather than measurement, so there is no measured claim to `
+  + `keep; the real one on this bench is test scaffolding carrying colleagues' names, which is `
+  + `not something to publish. Posting, replying, nested replies, the per-author colour, the `
+  + `"· edited" marker and the <b>unverified</b> badge on a name with no session behind it all `
+  + `mirror <b>BulletinSection.tsx</b> and <b>AuthorTag.tsx</b>. Chips marked `
+  + `<span class="concept">◇ concept</span> are ideas for discussion; this page has none.`;
+
+/* ---------------- interactions ---------------- */
+$("identity").addEventListener("input", (ev) => {
+  identity = ev.target.value;
+  $("identityTag").innerHTML = identity ? authorTag(identity, true) : "";
+  updatePostButton();
+  updateReplyButtons();      // an open reply box may now be sendable, or not
+});
+["title", "body"].forEach(id => $(id).addEventListener("input", updatePostButton));
+
+$("btnPost").addEventListener("click", () => {
+  posts.unshift({
+    id: ++nextId, title: $("title").value.trim(), body: $("body").value.trim(),
+    author: identity.trim(), verified: true,
+    at: new Date().toISOString().slice(0, 16).replace("T", " "), edited: null,
+    tags: $("tags").value.split(",").map(t => t.trim()).filter(Boolean),
+    comments: [],
+  });
+  $("title").value = ""; $("body").value = ""; $("tags").value = "";
+  updatePostButton(); renderPosts();
+  toast("Posted to this page only — there is no workspace behind the demo.");
+});
+
+/* CommentEditor recomputes canSave on every keystroke; the post editor needs
+   both a title and a body. Mirroring that means the button state is the
+   validation, rather than a click that fails afterwards. */
+$("posts").addEventListener("input", (ev) => {
+  const tracked = ev.target.closest("[data-replyfield],[data-editfield],[data-edittitle],[data-edittags]");
+  if (tracked){
+    const key = draftKey(tracked);
+    if (key) drafts.set(key, tracked.value);
+  }
+  if (ev.target.closest("[data-replyfield]")){ updateReplyButtons(); return; }
+  const field = ev.target.closest("[data-editfield], [data-edittitle]");
+  if (!field) return;
+  const key = field.dataset.editfield || field.dataset.edittitle;
+  const body = document.querySelector(`[data-editfield="${key}"]`);
+  const title = document.querySelector(`[data-edittitle="${key}"]`);
+  const save = document.querySelector(`[data-editsave="${key}"]`);
+  if (!save) return;
+  save.disabled = !(body?.value.trim()) || (title !== null && !title.value.trim());
+});
+
+/* canReply = draft AND identity. Either can change last, so both inputs feed
+   the same recompute; tracking only the draft left a valid pair unsendable
+   until the draft was touched again. */
+function updateReplyButtons(){
+  document.querySelectorAll("[data-replyfield]").forEach(field => {
+    const send = document.querySelector(`[data-replysend="${field.dataset.replyfield}"]`);
+    if (send) send.disabled = !(field.value.trim() && identity.trim());
+  });
+}
+
+$("posts").addEventListener("keydown", (ev) => {
+  if (ev.key !== "Enter") return;
+  const reply = ev.target.closest("[data-replyfield]");
+  if (reply){
+    ev.preventDefault();
+    document.querySelector(`[data-replysend="${reply.dataset.replyfield}"]`)?.click();
+    return;
+  }
+  const edit = ev.target.closest("input[data-editfield]");   // single-line comment editor only
+  if (edit){
+    ev.preventDefault();
+    document.querySelector(`[data-editsave="${edit.dataset.editfield}"]`)?.click();
+  }
+});
+
+$("posts").addEventListener("click", (ev) => {
+  const reply = ev.target.closest("[data-reply]");
+  if (reply){
+    const key = reply.dataset.reply;
+    if (replying.has(key)){ replying.delete(key); clearDrafts(key); }
+    else replying.add(key);
+    renderPosts();
+    const field = document.querySelector(`[data-replyfield="${key}"]`);
+    if (field) field.focus();
+    updateReplyButtons();
+    return;
+  }
+  const send = ev.target.closest("[data-replysend]");
+  if (send){
+    const key = send.dataset.replysend;
+    const [postId, parentId] = key.split(":");
+    const field = document.querySelector(`[data-replyfield="${key}"]`);
+    const text = (field?.value || "").trim();
+    if (!text || !identity.trim()){
+      toast(identity.trim() ? "Nothing to send." : "Set a name in “Posting as” first.");
+      return;
+    }
+    const post = posts.find(p => String(p.id) === postId);
+    const entry = { id: ++nextId, author: identity.trim(), verified: true,
+                    at: new Date().toISOString().slice(0, 16).replace("T", " "),
+                    edited: null, body: text, replies: [] };
+    if (parentId === "root") post.comments.push(entry);
+    else post.comments.find(c => String(c.id) === parentId).replies.push(entry);
+    replying.delete(key);
+    clearDrafts(key);
+    renderPosts();
+    return;
+  }
+  // Inline editors, as CommentEditor does for posts, comments and replies
+  // alike — the product never uses a browser prompt here.
+  const toggle = ev.target.closest("[data-open]");
+  if (toggle){
+    const id = Number(toggle.dataset.open);
+    opened.has(id) ? opened.delete(id) : opened.add(id);
+    renderPosts(); return;
+  }
+  const copy = ev.target.closest("[data-copy]");
+  if (copy){
+    const post = posts.find(p => String(p.id) === copy.dataset.copy);
+    // BulletinSection copies the body alone — adding the title would be an
+    // unmarked extra, which is the one thing this kit must not do.
+    void copyToClipboard(post.body).then(ok =>
+      toast(ok ? "Note copied" : "Copy failed — select the text instead"));
+    return;
+  }
+  const delPost = ev.target.closest("[data-delpost]");
+  if (delPost){
+    const post = posts.find(p => String(p.id) === delPost.dataset.delpost);
+    if (!confirm(`Delete "${post.title}" and its replies? This cannot be undone.`)) return;
+    posts = posts.filter(p => p.id !== post.id);
+    renderPosts();
+    toast("Removed from this page — nothing was deleted anywhere.");
+    return;
+  }
+  const open = ev.target.closest("[data-editopen]");
+  if (open){ const k = open.dataset.editopen;
+             if (editing.has(k)){ editing.delete(k); clearDrafts(k); renderPosts(); return; }
+             editing.add(k); renderPosts();
+             document.querySelector(`[data-editfield="${open.dataset.editopen}"]`)?.focus(); return; }
+  const cancel = ev.target.closest("[data-editcancel]");
+  if (cancel){ editing.delete(cancel.dataset.editcancel); clearDrafts(cancel.dataset.editcancel); renderPosts(); return; }
+  const save = ev.target.closest("[data-editsave]");
+  if (save && !save.disabled){
+    const key = save.dataset.editsave;
+    const text = (document.querySelector(`[data-editfield="${key}"]`)?.value || "").trim();
+    const target = findByKey(key);
+    const titleField = document.querySelector(`[data-edittitle="${key}"]`);
+    const tagsField = document.querySelector(`[data-edittags="${key}"]`);
+    // Save is disabled while the draft is invalid, so reaching here means the
+    // body is non-empty; a post additionally needs a title.
+    if (titleField && !titleField.value.trim()) return;
+    if (target){
+      const before = JSON.stringify([target.title, target.body, target.tags]);
+      target.body = text;
+      if (titleField) target.title = titleField.value.trim();
+      if (tagsField) target.tags = tagsField.value.split(",").map(t => t.trim()).filter(Boolean);
+      if (JSON.stringify([target.title, target.body, target.tags]) !== before){
+        target.edited = new Date().toISOString().slice(0, 16).replace("T", " ");
+        toast("Edited — the “· edited” marker keeps the change visible, as in the product.");
+      }
+    }
+    editing.delete(key); clearDrafts(key); renderPosts();
+  }
+});
+
+document.querySelectorAll("[data-screen]").forEach(el => {
+  el.addEventListener("click", () => {
+    const name = el.dataset.screen;
+    const map = { "Overview": "overview.html", "Site Survey": "site-survey.html",
+                  "Wi-Fi Clients": "wifi-clients.html", "Files": "files.html" };
+    $("navNote").innerHTML = map[name]
+      ? `<b>${name}</b> is in this kit — open <b>${map[name]}</b> beside this file.`
+      : `<b>${name}</b> is not in the kit yet. Screens are added one file at a time.`;
+    $("navNote").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  });
+});
+})();
+</script>
+</body>
+</html>

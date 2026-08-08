@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DUT_browser — Files (demo)</title>
+<style>
+:root{
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:24px;
+  --bg:#f4f6fa; --panel:#fff; --ink:#1b2333; --muted:#687389; --faint:#9aa4b8;
+  --accent:#1565c0; --accent-weak:#e8f0fb;
+  --ok:#0c7a43; --ok-weak:#e4f4ea;
+  --warn:#9a6a00; --warn-weak:#fbf0d9;
+  --danger:#b3261e; --danger-weak:#fce8e6;
+  --border:#e3e8f0;
+  --shadow:0 1px 2px rgba(20,30,55,.04), 0 6px 20px rgba(20,30,55,.06);
+  --radius:14px; --sidebar-w:232px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg); color:var(--ink); font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"PingFang TC","Noto Sans TC",sans-serif; -webkit-font-smoothing:antialiased}
+button,input{font:inherit; color:inherit}
+button{cursor:pointer}
+
+.layout{display:grid; grid-template-columns:var(--sidebar-w) 1fr; min-height:100vh}
+.sidebar{background:var(--panel); border-right:1px solid var(--border); padding:var(--space-4) 0; position:sticky; top:0; height:100vh; overflow-y:auto}
+.brand{display:flex; align-items:center; gap:var(--space-2); padding:0 var(--space-4) var(--space-5)}
+.brand-mark{width:28px; height:28px; border-radius:8px; background:var(--accent); color:#fff; display:grid; place-items:center; font-weight:700; font-size:13px}
+.brand-name{font-weight:650; letter-spacing:-.01em}
+.nav-group{padding:var(--space-3) var(--space-4) var(--space-1); font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--faint); font-weight:650}
+.nav-item{display:flex; align-items:center; gap:var(--space-3); width:100%; border:0; background:none; text-align:left; padding:var(--space-2) var(--space-4); border-left:3px solid transparent; color:var(--muted)}
+.nav-item:hover{background:var(--bg); color:var(--ink)}
+.nav-item[aria-current="page"]{background:var(--accent-weak); border-left-color:var(--accent); color:var(--accent); font-weight:600}
+.nav-icon{width:18px; text-align:center; font-size:13px}
+
+.main{display:flex; flex-direction:column; min-width:0}
+.topbar{display:flex; align-items:center; gap:var(--space-3); padding:var(--space-4) var(--space-5); background:var(--panel); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:5}
+.topbar h1{font-size:17px; margin:0; letter-spacing:-.01em}
+.topbar .sub{color:var(--muted); font-size:12px}
+.spacer{flex:1}
+.pill{display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:999px; font-size:12px; font-weight:600; border:1px solid transparent; white-space:nowrap}
+.pill-demo{background:var(--warn-weak); color:var(--warn); border-color:#f0dfb4}
+.pill-muted{background:var(--bg); color:var(--muted); border-color:var(--border)}
+
+.content{padding:var(--space-5); display:flex; flex-direction:column; gap:var(--space-5); max-width:1400px; width:100%}
+.card{background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow)}
+.card-head{display:flex; align-items:center; gap:var(--space-3); padding:var(--space-4) var(--space-4) var(--space-2); flex-wrap:wrap}
+.card-head h2{font-size:14px; margin:0; letter-spacing:-.01em}
+.card-head .hint{color:var(--muted); font-size:12px; font-weight:400}
+.card-body{padding:var(--space-3) var(--space-4) var(--space-4)}
+.card-foot{display:flex; align-items:center; justify-content:space-between; gap:var(--space-3); padding:var(--space-2) var(--space-4) var(--space-4); color:var(--muted); font-size:12px; flex-wrap:wrap}
+
+.btn{border:1px solid var(--border); background:var(--panel); border-radius:9px; padding:5px 11px; font-size:12px; font-weight:600; color:var(--muted); transition:.12s}
+.btn:hover{border-color:var(--accent); color:var(--accent); background:var(--accent-weak)}
+.btn:active{transform:translateY(1px)}
+.btn[disabled]{opacity:.45; cursor:not-allowed}
+.btn-primary{background:var(--accent); border-color:var(--accent); color:#fff}
+.btn-primary:hover{background:#0f4f9c; border-color:#0f4f9c; color:#fff}
+.btn-icon{padding:2px 7px}
+.btn-danger:hover{border-color:var(--danger); color:var(--danger); background:var(--danger-weak)}
+
+.field{border:1px solid var(--border); border-radius:9px; padding:6px 11px; font-size:13px; background:var(--panel); min-width:180px}
+.field:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-weak)}
+
+/* the real drop zone — FilesSection's UploadCard */
+.drop{border:2px dashed var(--border); border-radius:var(--radius); padding:var(--space-5); text-align:center; color:var(--muted); transition:.15s; cursor:pointer; background:var(--bg)}
+.drop:hover{border-color:var(--accent); color:var(--accent)}
+.drop.over{border-color:var(--accent); background:var(--accent-weak); color:var(--accent); transform:scale(1.005)}
+.drop-icon{font-size:26px; line-height:1}
+.drop-main{font-weight:650; margin-top:var(--space-2)}
+.drop-sub{font-size:12px; margin-top:2px}
+
+table{width:100%; border-collapse:collapse; font-size:12px}
+thead th{text-align:left; color:var(--muted); font-weight:650; padding:var(--space-2) var(--space-3); border-bottom:1px solid var(--border); white-space:nowrap}
+thead th.sortable{cursor:pointer; user-select:none}
+thead th.sortable:hover{color:var(--accent)}
+tbody td{padding:var(--space-2) var(--space-3); border-bottom:1px solid #f1f4f9; vertical-align:middle}
+tbody tr.file-row:hover{background:var(--bg)}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.tablewrap{overflow-x:auto; border:1px solid var(--border); border-radius:10px}
+.nowrap{white-space:nowrap}
+.tag{display:inline-block; padding:1px 8px; border-radius:999px; font-size:11px; font-weight:650; margin-right:4px}
+.author{display:inline-block; padding:1px 9px; border-radius:999px; font-size:11px; font-weight:650}
+.preview{background:#f7f8fa}
+.preview pre{margin:0; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px; line-height:1.5; white-space:pre-wrap; word-break:break-word; max-height:200px; overflow:auto; color:var(--ink)}
+.preview .shot{width:100%; max-width:520px; border:1px solid var(--border); border-radius:8px; background:var(--panel)}
+
+.stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:var(--space-4)}
+.bar{display:flex; align-items:center; gap:var(--space-2); font-size:12px; margin-bottom:4px}
+.bar-label{width:84px; color:var(--muted); text-align:right; flex:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.bar-track{flex:1; height:9px; background:var(--bg); border-radius:999px; overflow:hidden}
+.bar-fill{height:100%; background:var(--accent); border-radius:999px}
+.bar-value{width:26px; text-align:right; color:var(--muted); flex:none}
+
+.note{padding:var(--space-3) var(--space-4); border-radius:10px; background:var(--accent-weak); color:#12467f; font-size:12px; border:1px solid #cfe0f6}
+/* A "concept" chip marks an idea shown for discussion. Everything without one
+   mirrors behaviour the product actually ships — a demo must not quietly
+   promise features somebody then has to build. */
+.concept{display:inline-flex; align-items:center; gap:5px; padding:1px 8px; border-radius:999px; font-size:11px; font-weight:650; color:#6b4fa8; background:#f3effb; border:1px dashed #b9a5e0; white-space:nowrap}
+.provenance{color:var(--faint); font-size:11px; line-height:1.6; padding-top:var(--space-2); border-top:1px solid var(--border)}
+.provenance b{color:var(--muted); font-weight:650}
+.toast{position:fixed; left:50%; bottom:24px; transform:translate(-50%,20px); background:var(--ink); color:#fff; padding:9px 16px; border-radius:999px; font-size:13px; opacity:0; pointer-events:none; transition:.2s; z-index:50; max-width:min(720px,90vw); text-align:center}
+.toast.show{opacity:1; transform:translate(-50%,0)}
+.spin{display:inline-block; width:11px; height:11px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; animation:spin .7s linear infinite; vertical-align:-1px}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (max-width:860px){ .layout{grid-template-columns:1fr} .sidebar{display:none} }
+</style>
+</head>
+<body>
+
+<!-- This screen's content, per the repo's inline-data convention. Unlike the
+     monitoring screens it is synthetic throughout — see the provenance line. -->
+<script id="demo-data" type="application/json">{"uploader":"alex.doe","files":[{"id":1,"name":"dut-session-20260804-110255.log","size":4512771,"uploader":"Alex Doe","sha":"9f2c41ab7e05","at":"2026-08-04 15:41","tags":["ap6-840e","phase-75"],"head":"# mode=serial source=/dev/cu.usbserial-XXXX\n=== CPU Utilization ===\nCPU0:   0.0% usr   2.0% sys  73.3% idle\nCPU1:   1.0% usr   6.1% sys  88.9% idle\n=== Memory Utilization (/proc/meminfo) ===\nMemTotal:   921552 kB\nMemAvailable:  581380 kB"},{"id":2,"name":"08041542_notime_survey_channels_2g4.png","size":50158,"uploader":"Alex Doe","sha":"3ad8810c94f1","at":"2026-08-04 15:42","tags":["site-survey"]},{"id":3,"name":"08041542_notime_wifi_summary.csv","size":869,"uploader":"Alex Doe","sha":"c17e0b3d5a92","at":"2026-08-04 15:42","tags":["phase-75","csv"],"head":"ts,cycle,connected_clients,cpu_load_pct,mem_load_pct,cpu_temp_c,radio_temp_c\n2026-08-04 07:16:55,1,0,8,55,64,82\n2026-08-04 07:17:34,2,0,5,56,64,82\n2026-08-04 07:18:13,3,0,5,55,64,82"},{"id":4,"name":"wifix.tar.gz.sig","size":35763146,"uploader":"Sam Roe","sha":"0685884c872f","at":"2026-07-31 05:40","tags":["firmware","1.10.339"]},{"id":5,"name":"crash-events-20260802.csv","size":2418,"uploader":"Jo Coe","sha":"5e10bb27c3d4","at":"2026-08-02 03:22","tags":["crash"],"head":"time,severity,line\n08-01 07:22:13,critical,wlan1: STA deauthenticated (reason 4)\n08-01 14:05:52,warning,ath_dfs: radar detected on channel 60"},{"id":6,"name":"bench-layout.png","size":181402,"uploader":"Sam Roe","sha":"7c93de40182b","at":"2026-07-28 11:04","tags":["bench"]},{"id":7,"name":"sysMon001.sh","size":9907,"uploader":"Jo Coe","sha":"b204fa71ee38","at":"2026-07-12 09:15","tags":["tooling"]},{"id":8,"name":"ap6-420e-notes.txt","size":612,"uploader":"Alex Doe","sha":null,"at":"2026-07-09 16:48","tags":["ap6-420e"],"head":"Two-core unit \u2014 cpu_usage.csv carries CPU0/CPU1 only.\nSerial adapter: USB-to-UART bridge, 115200 8N1.\nConsole needs a human login after any reboot."}],"stats":{"perDay":[0,0,2,0,1,0,0,3,1,0,0,2,4,3],"byType":[["log",1],["png",2],["csv",2],["txt",2],["sig",1]],"topUploaders":[["Alex Doe",4],["Sam Roe",2],["Jo Coe",2]]}}</script>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand"><span class="brand-mark">D</span><span class="brand-name">DUT_browser</span></div>
+    <div class="nav-group">Monitoring</div>
+    <button class="nav-item" data-screen="Overview"><span class="nav-icon">▣</span>Overview</button>
+    <button class="nav-item" data-screen="CPU / Memory"><span class="nav-icon">📈</span>CPU / Memory</button>
+    <button class="nav-item" data-screen="Wi-Fi Clients"><span class="nav-icon">📶</span>Wi-Fi Clients</button>
+    <button class="nav-item" data-screen="SSID Capability"><span class="nav-icon">🔍</span>SSID Capability</button>
+    <button class="nav-item" data-screen="Site Survey"><span class="nav-icon">📡</span>Site Survey</button>
+    <button class="nav-item" data-screen="Logs / Crash Events"><span class="nav-icon">⚠</span>Logs / Crash Events</button>
+    <button class="nav-item" data-screen="Serial Console"><span class="nav-icon">⌨</span>Serial Console</button>
+    <button class="nav-item" data-screen="Downloads"><span class="nav-icon">⬇</span>Downloads</button>
+    <div class="nav-group">Workspace</div>
+    <button class="nav-item" aria-current="page"><span class="nav-icon">🗂</span>Files</button>
+    <button class="nav-item" data-screen="Bulletin"><span class="nav-icon">📌</span>Bulletin</button>
+    <div class="nav-group">System</div>
+    <button class="nav-item" data-screen="Settings"><span class="nav-icon">⚙</span>Settings</button>
+    <button class="nav-item" data-screen="Upgrade Firmware"><span class="nav-icon">⚡</span>Upgrade Firmware</button>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div>
+        <h1>Files</h1>
+        <div class="sub">Shared file workspace</div>
+      </div>
+      <span class="spacer"></span>
+      <span class="pill pill-demo">● DEMO — synthetic workspace content</span>
+      <span class="pill pill-muted">engineer</span>
+    </header>
+
+    <div class="content">
+
+      <!-- ============ upload (the real drop zone) ============ -->
+      <section class="card">
+        <div class="card-head">
+          <h2>Upload</h2>
+          <span class="hint">Max 50 MB each · pdf, png, csv, log, pcapng…</span>
+        </div>
+        <div class="card-body" style="display:flex;flex-direction:column;gap:var(--space-3)">
+          <div style="display:flex;gap:var(--space-3);flex-wrap:wrap">
+            <!-- FilesSection hardcodes a colleague's first name in this placeholder;
+               the demo keeps the shape and uses its own identity instead. -->
+          <input class="field" id="uploader" type="text" aria-label="Uploader name" maxlength="40" placeholder="e.g. alex.doe — tags the uploader">
+            <input class="field" id="tags" type="text" aria-label="Tags" placeholder="tags, comma separated">
+          </div>
+          <div class="drop" id="drop" role="button" tabindex="0" aria-label="Drag files here, or click to browse">
+            <div class="drop-icon" aria-hidden="true">⬆</div>
+            <div class="drop-main" id="dropMain">Drag files here, or click to browse</div>
+            <div class="drop-sub" id="dropSub">Uploads run one at a time, so a rejected file does not stop the rest</div>
+          </div>
+          <input type="file" id="picker" multiple hidden>
+          <div id="uploadResults" style="font-size:12px"></div>
+        </div>
+      </section>
+
+      <!-- ============ files table ============ -->
+      <section class="card">
+        <div class="card-head">
+          <h2>Workspace files</h2>
+          <span class="hint" id="fileCount"></span>
+          <span class="spacer"></span>
+          <input class="field" id="search" type="search" aria-label="Search files" placeholder="Search filename, uploader or tag…">
+        </div>
+        <div class="card-body">
+          <div class="tablewrap">
+            <table>
+              <!-- FilesSection's columns: filename, size and uploader sort;
+                   SHA-256 shows the first twelve characters. -->
+              <thead><tr>
+                <th class="sortable" data-sort="name">Filename<span data-arrow="name"></span></th>
+                <th class="sortable" data-sort="size">Size<span data-arrow="size"></span></th>
+                <th class="sortable" data-sort="uploader">Uploader<span data-arrow="uploader"></span></th>
+                <th>SHA-256</th>
+                <th></th>
+              </tr></thead>
+              <tbody id="tbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card-foot">
+          <span>🏷 edits tags · 👁 previews inline · ⬇ downloads · 🗑 deletes</span>
+          <span id="searchNote"></span>
+        </div>
+      </section>
+
+      <!-- ============ stats (P30 cards) ============ -->
+      <div class="stats">
+        <section class="card">
+          <div class="card-head"><h2>Uploads</h2><span class="hint">last 14 days</span></div>
+          <div class="card-body"><svg id="trend" viewBox="0 0 300 70" style="width:100%;height:70px" role="img" aria-label="Uploads per day, last 14 days"></svg></div>
+        </section>
+        <section class="card">
+          <div class="card-head"><h2>By type</h2></div>
+          <div class="card-body" id="byType"></div>
+        </section>
+        <section class="card">
+          <div class="card-head"><h2>Top uploaders</h2></div>
+          <div class="card-body" id="topUploaders"></div>
+        </section>
+      </div>
+
+      <div class="note" id="navNote">
+        This is the <b>Files</b> screen of the demo kit. <b>Bulletin</b> is a separate screen in the
+        product, so it is a separate file here too.
+      </div>
+
+      <div class="provenance" id="provenance"></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+"use strict";
+const DATA = JSON.parse(document.getElementById("demo-data").textContent);
+const $ = (id) => document.getElementById(id);
+
+let toastTimer;
+function toast(msg){
+  const el = $("toast");
+  el.textContent = msg; el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 3600);
+}
+
+/* Same idea as monitoring/authorColor.ts: one name always gets one colour. */
+function nameColour(name){
+  let hash = 0;
+  for (const ch of String(name || "")) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  const hue = hash % 360;
+  return { bg: `hsl(${hue} 70% 93%)`, fg: `hsl(${hue} 55% 30%)` };
+}
+const authorPill = (name) => {
+  const { bg, fg } = nameColour(name);
+  return `<span class="author" style="background:${bg};color:${fg}">${name || "—"}</span>`;
+};
+const tagPill = (tag) => {
+  const { bg, fg } = nameColour(tag);
+  return `<span class="tag" style="background:${bg};color:${fg}">${tag}</span>`;
+};
+
+function bytes(n){
+  if (n === null || n === undefined) return "—";
+  const u = ["B", "KB", "MB", "GB"];
+  let i = 0, v = n;
+  while (v >= 1024 && i < u.length - 1){ v /= 1024; i++; }
+  return `${v.toFixed(v < 10 && i > 0 ? 1 : 0)} ${u[i]}`;
+}
+
+/* ---------------- state ---------------- */
+let files = DATA.files.slice();
+// FilesSection: default is upload date, newest first, and a header click cycles
+// other-column -> asc -> desc -> back to the default. It does not toggle forever.
+const DEFAULT_SORT = "date", DEFAULT_ORDER = "desc";
+let sortCol = DEFAULT_SORT, sortAsc = false, search = "";
+// FilesSection keeps a single expandedId and a single tagEditId — opening one
+// row closes the other, rather than letting several stay open at once.
+let expandedId = null;
+let tagEditId = null;
+// Preview is offered only for types previewKind() can render.
+// FilesSection's lists exactly. A wider allowlist is extra capability: the
+// .sh fixture below gets no 👁 here because the product would not offer one.
+const PREVIEW_IMAGE = new Set(["png", "jpg", "jpeg", "gif"]);
+const PREVIEW_TEXT = new Set(["log", "txt", "csv", "json"]);
+const previewKind = (name) => {
+  const ext = (name.split(".").pop() || "").toLowerCase();
+  return PREVIEW_IMAGE.has(ext) ? "image" : PREVIEW_TEXT.has(ext) ? "text" : null;
+};
+
+function visible(){
+  const q = search.trim().toLowerCase();
+  const rows = files.filter(f => !q
+    || f.name.toLowerCase().includes(q)
+    || String(f.uploader).toLowerCase().includes(q)
+    || (f.tags || []).some(t => t.toLowerCase().includes(q)));
+  return rows.sort((a, b) => {
+    const dir = sortAsc ? 1 : -1;
+    if (sortCol === "size") return (a.size - b.size) * dir;
+    if (sortCol === "date") return String(a.at).localeCompare(String(b.at)) * dir;
+    return String(a[sortCol]).localeCompare(String(b[sortCol])) * dir;
+  });
+}
+
+function previewHtml(f){
+  // Derived from the filename, exactly as the button's gating is — a separate
+  // `kind` field on the row would be a second source of truth for the same
+  // question, and the two could disagree.
+  if (previewKind(f.name) === "image"){
+    // A demo has no file store, so the preview is drawn rather than fetched —
+    // the product streams the real image here.
+    return `<div style="display:flex;gap:var(--space-3);align-items:flex-start;flex-wrap:wrap">
+      <svg class="shot" viewBox="0 0 320 120" role="img" aria-label="Image preview placeholder">
+        <rect width="320" height="120" fill="#eef2f8"/>
+        <text x="160" y="58" text-anchor="middle" font-size="12" fill="#9aa4b8">${f.name}</text>
+        <text x="160" y="76" text-anchor="middle" font-size="10" fill="#b6c0d0">image preview renders inline in the product</text>
+      </svg></div>`;
+  }
+  if (f.head) return `<pre>${f.head.replace(/[<&]/g, c => c === "<" ? "&lt;" : "&amp;")}</pre>`;
+  return `<span style="color:var(--muted)">No inline preview for this type — download it instead.</span>`;
+}
+
+function renderTable(){
+  const rows = visible();
+  $("tbody").innerHTML = rows.map(f => {
+    const open = expandedId === f.id;
+    const editing = tagEditId === f.id;
+    const kind = previewKind(f.name);
+    return `
+      <tr class="file-row">
+        <td>
+          <div style="font-weight:600">${f.name}</div>
+          <div style="margin-top:2px">${(f.tags || []).map(tagPill).join("")}</div>
+          ${editing ? `<div style="margin-top:6px;display:flex;gap:6px">
+              <input class="field" data-tagfield="${f.id}" maxlength="200" value="${(f.tags || []).join(", ")}" aria-label="Tags for ${f.name}">
+              <button class="btn" data-tagsave="${f.id}">Save</button>
+              <button class="btn" data-tagcancel="${f.id}">Cancel</button></div>` : ""}
+        </td>
+        <td class="nowrap">${bytes(f.size)}</td>
+        <td class="nowrap">${authorPill(f.uploader)}</td>
+        <td class="mono nowrap" title="${f.sha || "no checksum recorded"}">${f.sha || "—"}</td>
+        <td class="nowrap">
+          <button class="btn btn-icon" data-tag="${f.id}" title="${editing ? "Close tag editor" : "Edit tags"}">🏷</button>
+          ${kind ? `<button class="btn btn-icon" data-eye="${f.id}" title="${open ? "Hide preview" : "Preview"}" aria-expanded="${open}">${open ? "▴" : "👁"}</button>` : ""}
+          <button class="btn btn-icon" data-dl="${f.id}" title="Download">⬇</button>
+          <button class="btn btn-icon btn-danger" data-del="${f.id}" title="Delete">🗑</button>
+        </td>
+      </tr>
+      ${open ? `<tr class="preview"><td colspan="5">${previewHtml(f)}</td></tr>` : ""}`;
+  }).join("") || `<tr><td colspan="5" style="color:var(--muted);padding:var(--space-5);text-align:center">No files match.</td></tr>`;
+
+  $("fileCount").textContent = `${files.length} file${files.length === 1 ? "" : "s"}`;
+  $("searchNote").textContent = search ? `${rows.length} match${rows.length === 1 ? "" : "es"}` : "";
+  ["name", "size", "uploader"].forEach(c => {
+    const el = document.querySelector(`[data-arrow="${c}"]`);
+    if (el) el.textContent = sortCol === c ? (sortAsc ? " ▲" : " ▼") : "";
+  });
+}
+
+/* ---------------- stats ---------------- */
+function renderStats(){
+  const s = DATA.stats;
+  const W = 300, H = 70, pad = 4, hi = Math.max(...s.perDay, 1);
+  const bw = (W - pad * 2) / s.perDay.length;
+  $("trend").innerHTML = s.perDay.map((v, i) => {
+    const h = (v / hi) * (H - pad * 2), x = pad + i * bw, y = H - pad - h;
+    return `<rect x="${(x + bw * .2).toFixed(1)}" y="${y.toFixed(1)}" width="${(bw * .6).toFixed(1)}" height="${Math.max(1, h).toFixed(1)}" rx="2" fill="#1565c0" opacity="${v ? 1 : .18}"><title>${v} upload${v === 1 ? "" : "s"}</title></rect>`;
+  }).join("");
+
+  const bars = (rows) => {
+    const max = Math.max(...rows.map(r => r[1]), 1);
+    return rows.map(([label, n]) => `
+      <div class="bar">
+        <span class="bar-label" title="${label}">${label}</span>
+        <span class="bar-track"><span class="bar-fill" style="width:${(n / max * 100).toFixed(0)}%"></span></span>
+        <span class="bar-value">${n}</span>
+      </div>`).join("");
+  };
+  $("byType").innerHTML = bars(s.byType);
+  $("topUploaders").innerHTML = bars(s.topUploaders);
+}
+
+/* ---------------- boot ---------------- */
+$("uploader").value = DATA.uploader || "";
+renderTable(); renderStats();
+$("provenance").innerHTML =
+  `<b>Demo kit</b> — this screen's content is <b>synthetic in full</b>, unlike the monitoring `
+  + `screens. A file list and a note board are content rather than measurements, so there is no `
+  + `measured claim to keep; the real workspace on this bench is test scaffolding carrying `
+  + `colleagues' names, which is not something to publish. The drop zone, the sortable columns, `
+  + `the tag editor, the inline preview, search, download and delete all mirror `
+  + `<b>FilesSection.tsx</b>. Dropping a file here really reads its name and size and adds a row — `
+  + `there is simply no server behind it. Chips marked <span class="concept">◇ concept</span> `
+  + `are ideas for discussion; this page has none.`;
+
+/* ---------------- table interactions ---------------- */
+document.querySelectorAll("[data-sort]").forEach(th => {
+  th.addEventListener("click", () => {
+    const col = th.dataset.sort;
+    if (sortCol !== col){ sortCol = col; sortAsc = true; }
+    else if (sortAsc){ sortAsc = false; }
+    else { sortCol = DEFAULT_SORT; sortAsc = DEFAULT_ORDER === "asc"; }
+    renderTable();
+  });
+});
+
+$("search").addEventListener("input", (ev) => { search = ev.target.value; renderTable(); });
+
+$("tbody").addEventListener("click", (ev) => {
+  const hit = (attr) => ev.target.closest(`[data-${attr}]`);
+  const eye = hit("eye"), tag = hit("tag"), dl = hit("dl"), del = hit("del"), save = hit("tagsave");
+  if (eye){
+    const id = Number(eye.dataset.eye);
+    expandedId = expandedId === id ? null : id;
+    renderTable(); return;
+  }
+  if (tag){
+    const id = Number(tag.dataset.tag);
+    tagEditId = tagEditId === id ? null : id;
+    renderTable(); return;
+  }
+  const cancel = ev.target.closest("[data-tagcancel]");
+  if (cancel){ tagEditId = null; renderTable(); return; }
+  if (save){
+    const id = Number(save.dataset.tagsave);
+    const field = document.querySelector(`[data-tagfield="${id}"]`);
+    const f = files.find(x => x.id === id);
+    f.tags = field.value.split(",").map(t => t.trim()).filter(Boolean);
+    tagEditId = null;
+    renderTable();
+    toast(`Tags saved on ${f.name}`); return;
+  }
+  if (dl){
+    const f = files.find(x => x.id === Number(dl.dataset.dl));
+    toast(`Download is a real action — this demo has no file store behind ${f.name}.`); return;
+  }
+  if (del){
+    const f = files.find(x => x.id === Number(del.dataset.del));
+    if (!confirm(`Delete "${f.name}"? This cannot be undone.`)) return;
+    files = files.filter(x => x.id !== f.id);
+    if (expandedId === f.id) expandedId = null;
+    renderTable();
+    toast(`Removed ${f.name} from this page — nothing was deleted anywhere.`);
+  }
+});
+
+/* ---------------- the real drop-upload ---------------- */
+const drop = $("drop"), picker = $("picker");
+drop.addEventListener("click", () => picker.click());
+drop.addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter" || ev.key === " "){ ev.preventDefault(); picker.click(); }
+});
+drop.addEventListener("dragover", (ev) => { ev.preventDefault(); drop.classList.add("over"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+drop.addEventListener("drop", (ev) => {
+  ev.preventDefault(); drop.classList.remove("over");
+  if (ev.dataTransfer.files?.length) accept(ev.dataTransfer.files);
+});
+picker.addEventListener("change", (ev) => {
+  if (ev.target.files?.length) accept(ev.target.files);
+  ev.target.value = "";
+});
+
+const KIND = { png: "image", jpg: "image", jpeg: "image", gif: "image",
+               csv: "text", log: "text", txt: "text", sh: "text", json: "text" };
+
+/* Sequential, like UploadCard: one rejected file does not stop the rest. The
+   file never leaves the browser — its name and size are read locally and a row
+   is added, which is as far as a page with no server can honestly go. */
+function accept(list){
+  const chosen = [...list];
+  const tags = $("tags").value.split(",").map(t => t.trim()).filter(Boolean);
+  const who = $("uploader").value.trim();
+  if (!who){
+    toast("Set an uploader name first — the product requires one.");
+    $("uploader").focus();
+    return;
+  }
+  const results = [];
+  let i = 0;
+
+  (function step(){
+    if (i >= chosen.length){
+      $("dropMain").textContent = "Drag files here, or click to browse";
+      $("uploadResults").innerHTML = results.map(r => r.error
+        ? `<div style="color:var(--danger)">✗ ${r.name} — ${r.error}</div>`
+        : `<div style="color:var(--ok)">✓ ${r.name}</div>`).join("");
+      renderTable(); renderStats();
+      const ok = results.filter(r => !r.error).length;
+      toast(`${ok} of ${chosen.length} added to the list. Nothing left your machine — `
+          + `the product would post these to the workspace.`);
+      return;
+    }
+    const file = chosen[i++];
+    $("dropMain").innerHTML = `<span class="spin"></span> Uploading ${i}/${chosen.length}…`;
+    setTimeout(() => {
+      if (file.size > 50 * 1024 * 1024){
+        results.push({ name: file.name, error: "over the 50 MB cap" });
+      } else {
+        const ext = (file.name.split(".").pop() || "").toLowerCase();
+        files.unshift({
+          id: Math.max(0, ...files.map(f => f.id)) + 1,
+          name: file.name, size: file.size, uploader: who, sha: null,
+          at: new Date().toISOString().slice(0, 16).replace("T", " "),
+          tags, kind: KIND[ext] || "other",
+          head: null,
+        });
+        results.push({ name: file.name, error: null });
+      }
+      step();
+    }, 420);
+  })();
+}
+
+document.querySelectorAll("[data-screen]").forEach(el => {
+  el.addEventListener("click", () => {
+    const name = el.dataset.screen;
+    const files = { "Overview": "overview.html", "Site Survey": "site-survey.html",
+                    "Wi-Fi Clients": "wifi-clients.html", "Bulletin": "bulletin.html" };
+    $("navNote").innerHTML = files[name]
+      ? `<b>${name}</b> is in this kit — open <b>${files[name]}</b> beside this file.`
+      : `<b>${name}</b> is not in the kit yet. Screens are added one file at a time.`;
+    $("navNote").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  });
+});
+})();
+</script>
+</body>
+</html>
