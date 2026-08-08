@@ -483,6 +483,27 @@ IDENTIFIER_PATTERNS = (
 )
 
 
+#: Field names that carry an identifier, in any capture this project writes.
+#: Matched case-insensitively against JSON keys at any depth and CSV headers.
+IDENTIFIER_KEYS = frozenset({
+    "ssid", "ssid_name", "essid", "bssid", "mac", "mac_address", "macaddr",
+    "ip", "ip_address", "ipaddr", "hostname",
+})
+
+
+def _collect_identifiers(node, into: set[str]) -> None:
+    """Depth-first over parsed JSON, gathering values under identifier keys."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if isinstance(value, (str, int, float)) and str(key).lower() in IDENTIFIER_KEYS:
+                into.add(str(value))
+            else:
+                _collect_identifiers(value, into)
+    elif isinstance(node, list):
+        for item in node:
+            _collect_identifiers(item, into)
+
+
 def captured_identifiers(bundle: Path | None,
                          survey_bundle: Path | None = None) -> frozenset[str]:
     """Every identifier *value* the capture itself knows about, lowercased.
@@ -501,25 +522,37 @@ def captured_identifiers(bundle: Path | None,
     network named after an ordinary word will refuse excerpts that were probably
     harmless. That trade is the right way round — refusing too much costs
     another excerpt, refusing too little publishes somebody's network name.
+
+    **Every** structured file under the bundle is read, not the newest of two
+    known kinds. The first version took ``_newest_json()`` from ``site-survey``
+    and ``ssid-capability``, which was wrong twice over: a session records a
+    snapshot per connect, so a bundle holds several captures per kind and the
+    log can name an SSID from any of them — the reference bundle here already
+    carries two ``ssid-capability`` reports — and naming the kinds by hand meant
+    ``context/wifi-clients/`` was never opened at all. Its MACs and IPs have a
+    shape and were caught anyway; its SSIDs have none and were not.
+
+    So this walks the files rather than the schema: any key named like an
+    identifier, at any depth, in any JSON or CSV the bundle contains. A context
+    kind added later is covered without anyone remembering to come back here,
+    which is the property that was actually missing.
     """
     values: set[str] = set()
     for source in (bundle, survey_bundle):
         if source is None or not source.is_dir():
             continue
-        survey = _newest_json(source / "context" / "site-survey")
-        if survey:
-            for entry in [*survey.get("neighbors", []), *survey.get("vaps", [])]:
-                values.update(str(entry[key]) for key in ("ssid", "bssid") if entry.get(key))
-        capability = _newest_json(source / "context" / "ssid-capability")
-        if capability:
-            for entry in capability.get("ssids", []):
-                values.update(str(entry[key]) for key in ("ssid", "bssid") if entry.get(key))
-        for clients_csv in source.glob("*_wifi_clients.csv"):
-            with clients_csv.open() as handle:
+        for path in sorted(source.rglob("*.json")):
+            try:
+                _collect_identifiers(json.loads(path.read_text(encoding="utf-8")), values)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                continue                     # not a capture; nothing to learn
+        for path in sorted(source.rglob("*.csv")):
+            with path.open(newline="", encoding="utf-8", errors="ignore") as handle:
                 for row in csv.DictReader(handle):
-                    values.update(str(row[key]) for key
-                                  in ("ssid_name", "mac_address", "ip_address") if row.get(key))
-    return frozenset(value.lower() for value in values if value.strip())
+                    for key, value in row.items():
+                        if key and key.lower() in IDENTIFIER_KEYS and value:
+                            values.add(value)
+    return frozenset(value.strip().lower() for value in values if value and value.strip())
 
 
 @functools.lru_cache(maxsize=4)

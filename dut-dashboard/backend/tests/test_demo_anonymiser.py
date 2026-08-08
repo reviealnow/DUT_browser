@@ -112,20 +112,34 @@ def test_running_out_of_aliases_fails_loudly(anon_module) -> None:
 
 @pytest.fixture
 def bundle(tmp_path: Path) -> Path:
-    """A capture holding the three places an identifier can be learned from."""
+    """A capture shaped like a real one: several snapshots, several kinds.
+
+    A session writes a context snapshot per connect, so a bundle holds more than
+    one capture per kind — the older ones are exactly as identifying as the
+    newest, and the log can name a network from any of them.
+    """
     root = tmp_path / "dut-session-20260808-101112"
     survey = root / "context" / "site-survey"
     capability = root / "context" / "ssid-capability"
-    survey.mkdir(parents=True)
-    capability.mkdir(parents=True)
+    clients = root / "context" / "wifi-clients"
+    for directory in (survey, capability, clients):
+        directory.mkdir(parents=True)
 
     (survey / "site-survey-default-20260808-101112.json").write_text(json.dumps({
         "neighbors": [{"ssid": "HomeNetwork", "bssid": "aa:bb:cc:dd:ee:ff"},
                       {"ssid": "café upstairs", "bssid": "11:22:33:44:55:66"}],
         "vaps": [{"ssid": "OurOwnLabVap"}],
     }), encoding="utf-8")
+    # An earlier snapshot of the same kind, holding a network the newest lost.
+    (capability / "ssid-capability-default-20260808-090000.json").write_text(json.dumps({
+        "ssids": [{"iface": "ath1", "ssid": "OlderSecret", "bssid": "aa:00:11:22:33:44"}],
+    }), encoding="utf-8")
     (capability / "ssid-capability-default-20260808-101112.json").write_text(json.dumps({
         "ssids": [{"iface": "ath0", "ssid": "LabGuest", "bssid": "77:88:99:aa:bb:cc"}],
+    }), encoding="utf-8")
+    # A kind the harvester never named: its MACs have a shape, its SSIDs do not.
+    (clients / "wifi-clients-default-20260808-101112.json").write_text(json.dumps({
+        "clients": [{"mac_address": "de:ad:be:ef:00:02", "ssid_name": "ClientSideOnly"}],
     }), encoding="utf-8")
 
     with (root / "08081011_notime_wifi_clients.csv").open("w", newline="") as handle:
@@ -142,6 +156,31 @@ def test_the_guard_learns_every_identifier_in_the_capture(anon_module, bundle: P
     # publish an alias for every one of them.
     assert {"homenetwork", "café upstairs", "ourownlabvap", "labguest"} <= known
     assert {"aa:bb:cc:dd:ee:ff", "de:ad:be:ef:00:01", "192.168.7.31"} <= known
+
+
+def test_an_older_snapshot_is_no_less_identifying_than_the_newest(
+    anon_module, bundle: Path,
+) -> None:
+    """Reading the newest capture per kind published everything before it.
+
+    A session writes a snapshot per connect, and the serial log spans all of
+    them. `OlderSecret` lives only in the earlier ssid-capability report.
+    """
+    known = anon_module.captured_identifiers(bundle)
+    assert "oldersecret" in known
+    assert anon_module.identifier_in("station joined OlderSecret", known) is not None
+
+
+def test_a_kind_nobody_named_is_still_read(anon_module, bundle: Path) -> None:
+    """`context/wifi-clients/` was never opened, so its SSIDs were free text.
+
+    Its MACs and IPs have a shape and were caught anyway; that is what made the
+    gap easy to miss. Harvesting walks the files now, not a list of kinds, so a
+    context kind added later needs no change here.
+    """
+    known = anon_module.captured_identifiers(bundle)
+    assert "clientsideonly" in known
+    assert anon_module.identifier_in("roamed onto ClientSideOnly", known) is not None
 
 
 def test_a_capture_free_directory_yields_nothing_rather_than_failing(anon_module, tmp_path) -> None:
