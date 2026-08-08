@@ -1,19 +1,34 @@
-"""The two properties the demo kit's identifier replacement has to hold.
+"""What keeps captured identifiers out of the demo kit's published pages.
 
 A neighbour scan sweeps up the SSIDs and BSSIDs of everyone in radio range, so
-`dut-dashboard/demo/` may never ship them as captured. Both properties below
-were defects found in review before they were tests:
+`dut-dashboard/demo/` may never ship them as captured. Two mechanisms stand
+between a bundle and a page, and every property below was a review finding
+before it was a test.
+
+*Structured data* goes through ``Anonymiser``, field by field:
 
 * the mapping depended on the order rows happened to be walked, so the same
   bundle could produce two different pages;
 * the IP space was one /24 with no collision handling, so two real addresses
   could land on one fake — which understates how many distinct devices were
   seen, and that count is the measurement the page exists to show.
+
+*Free text* — a serial log — has no schema to walk, so it is refused rather
+than scrubbed. Its guard had two holes that a page of real neighbours would
+have walked straight through:
+
+* the MAC class was lowercase-only, so an uppercase ``AA:BB:CC:DD:EE:FF`` was
+  not a MAC as far as the guard was concerned;
+* the SSID rule matched the literal word "ssid", which is the field *label* —
+  it never looked at an SSID *value*, so a log line naming a real network in
+  prose was published.
 """
 
 from __future__ import annotations
 
+import csv
 import importlib.util
+import json
 import random
 import re
 from pathlib import Path
@@ -86,3 +101,111 @@ def test_running_out_of_aliases_fails_loudly(anon_module) -> None:
     anon = anon_module.Anonymiser()
     with pytest.raises(SystemExit, match="exhausted"):
         anon.prepare(vendors=[f"vendor-{i}" for i in range(len(anon_module.VENDORS) + 1)])
+
+
+# --- the free-text guard -------------------------------------------------
+#
+# These are about a *different* bundle than the one committed today. The pages
+# in the repo are clean; what these pin is that the guard still refuses when
+# somebody regenerates them from a capture nobody has looked at yet.
+
+
+@pytest.fixture
+def bundle(tmp_path: Path) -> Path:
+    """A capture holding the three places an identifier can be learned from."""
+    root = tmp_path / "dut-session-20260808-101112"
+    survey = root / "context" / "site-survey"
+    capability = root / "context" / "ssid-capability"
+    survey.mkdir(parents=True)
+    capability.mkdir(parents=True)
+
+    (survey / "site-survey-default-20260808-101112.json").write_text(json.dumps({
+        "neighbors": [{"ssid": "HomeNetwork", "bssid": "aa:bb:cc:dd:ee:ff"},
+                      {"ssid": "café upstairs", "bssid": "11:22:33:44:55:66"}],
+        "vaps": [{"ssid": "OurOwnLabVap"}],
+    }), encoding="utf-8")
+    (capability / "ssid-capability-default-20260808-101112.json").write_text(json.dumps({
+        "ssids": [{"iface": "ath0", "ssid": "LabGuest", "bssid": "77:88:99:aa:bb:cc"}],
+    }), encoding="utf-8")
+
+    with (root / "08081011_notime_wifi_clients.csv").open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["ts", "ssid_name", "mac_address", "ip_address"])
+        writer.writeheader()
+        writer.writerow({"ts": "2026-08-08T10:11:12", "ssid_name": "OurOwnLabVap",
+                         "mac_address": "de:ad:be:ef:00:01", "ip_address": "192.168.7.31"})
+    return root
+
+
+def test_the_guard_learns_every_identifier_in_the_capture(anon_module, bundle: Path) -> None:
+    known = anon_module.captured_identifiers(bundle)
+    # Neighbours, our own VAPs and the capability report all count: the pages
+    # publish an alias for every one of them.
+    assert {"homenetwork", "café upstairs", "ourownlabvap", "labguest"} <= known
+    assert {"aa:bb:cc:dd:ee:ff", "de:ad:be:ef:00:01", "192.168.7.31"} <= known
+
+
+def test_a_capture_free_directory_yields_nothing_rather_than_failing(anon_module, tmp_path) -> None:
+    assert anon_module.captured_identifiers(tmp_path) == frozenset()
+    assert anon_module.captured_identifiers(None) == frozenset()
+
+
+@pytest.mark.parametrize("text", [
+    "peer AA:BB:CC:DD:EE:FF connected",              # the review's own repro
+    "peer aa:BB:cc:DD:ee:FF connected",              # mixed case
+    "peer aa:bb:cc:dd:ee:ff connected",              # lowercase, always caught
+    "wlan0: assoc 11:22:33:44:55:66",
+])
+def test_a_mac_is_refused_whatever_its_case(anon_module, text: str) -> None:
+    assert anon_module.identifier_in(text) == "a MAC address"
+    with pytest.raises(SystemExit, match="a MAC address"):
+        anon_module.refuse_if_identifying(text, "the excerpt")
+
+
+@pytest.mark.parametrize("text", [
+    "peer AA:BB:CC:DD:EE:FF connected to HomeNetwork",
+    "station roamed to HomeNetwork",                  # no shape at all: bare value
+    "station roamed to homenetwork",                  # case folded both ways
+    "hostapd: interface for café upstairs is down",   # spaces and non-ASCII
+    "assoc on OurOwnLabVap",                          # our own VAP is no freer
+    "reading config for LabGuest",                    # learned from Source A
+])
+def test_a_bare_ssid_value_is_refused_once_the_capture_is_known(
+    anon_module, bundle: Path, text: str,
+) -> None:
+    known = anon_module.captured_identifiers(bundle)
+    assert anon_module.identifier_in(text, known) is not None
+    with pytest.raises(SystemExit):
+        anon_module.refuse_if_identifying(text, "the excerpt", known)
+    # …and without the capture, the shape patterns alone do NOT save you. This
+    # is the hole the review found: fail closed only works if the guard is
+    # given something to close on.
+    if not re.search(r"(?i)([0-9a-f]{2}:){5}[0-9a-f]{2}", text):
+        assert anon_module.identifier_in(text) is None
+
+
+def test_clean_monitoring_output_still_passes(anon_module, bundle: Path) -> None:
+    known = anon_module.captured_identifiers(bundle)
+    text = "=== CPU ===\nCpu(s):  3.4 us,  1.2 sy, 95.0 id\nMemAvailable:   183624 kB"
+    assert anon_module.identifier_in(text, known) is None
+    assert anon_module.refuse_if_identifying(text, "the excerpt", known) == text
+
+
+def test_the_excerpt_selector_and_the_refusal_ask_the_same_question(anon_module, bundle) -> None:
+    """A selector with a weaker rule hands the refuser a run it must reject.
+
+    build_console splits the log on `identifier_in` and then refuses the joined
+    excerpt with `refuse_if_identifying`. If those two ever disagree, either the
+    build dies on a run it just chose, or — the dangerous direction — a line the
+    selector waved through is published.
+    """
+    known = anon_module.captured_identifiers(bundle)
+    lines = ["=== CPU ===", "peer AA:BB:CC:DD:EE:FF connected", "load average: 0.31",
+             "roamed to HomeNetwork", "MemFree: 12 kB", "192.168.7.31 pinged"]
+    for line in lines:
+        refused = anon_module.identifier_in(line, known) is not None
+        raised = False
+        try:
+            anon_module.refuse_if_identifying(line, "the excerpt", known)
+        except SystemExit:
+            raised = True
+        assert refused == raised, line

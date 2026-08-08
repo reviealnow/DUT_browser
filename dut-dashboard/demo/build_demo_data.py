@@ -41,6 +41,7 @@ from __future__ import annotations
 import argparse
 import collections
 import csv
+import functools
 import hashlib
 import json
 import re
@@ -451,7 +452,8 @@ def build_downloads(bundle: Path, anon: Anonymiser,
     # silent leak, and the operator can pick another bundle or widen the scrub.
     tail_lines = log.read_text(encoding="utf-8", errors="ignore").splitlines()[-14:]
     tail = "\n".join(tail_lines)
-    refuse_if_identifying(tail, "the log tail")
+    refuse_if_identifying(tail, "the log tail",
+                          captured_identifiers(bundle, survey_bundle))
 
     plots = sorted(bundle.glob("*.png"), key=lambda p: p.stat().st_size)
     preview = plots[0] if plots else None
@@ -473,24 +475,112 @@ def build_downloads(bundle: Path, anon: Anonymiser,
 
 IDENTIFIER_PATTERNS = (
     (r"(?i)\bssid\b", "an SSID field"),
-    (r"\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b", "a MAC address"),
+    # Case-insensitive on purpose. `iw` prints BSSIDs lowercase, but a DUT's own
+    # log lines, a vendor daemon and anything hand-pasted print them uppercase or
+    # mixed, and a lowercase-only class let `AA:BB:CC:DD:EE:FF` straight through.
+    (r"(?i)\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b", "a MAC address"),
     (r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "an IP address"),
 )
 
 
-def refuse_if_identifying(text: str, what: str) -> str:
+def captured_identifiers(bundle: Path | None,
+                         survey_bundle: Path | None = None) -> frozenset[str]:
+    """Every identifier *value* the capture itself knows about, lowercased.
+
+    A MAC or an IP announces itself by shape, so a pattern catches it wherever it
+    turns up. **An SSID does not.** ``HomeNetwork`` is a word like any other, and
+    is an identifier only because the scan sitting beside it says so — which is
+    why matching the literal word "ssid" was never a check on SSIDs at all, only
+    on the field label. So the guard reads the structured half of the same
+    bundle and treats every name it finds there as identifying wherever it
+    appears in prose.
+
+    Deliberately a superset. Our own VAPs are included: the pages publish
+    aliases for them, so the real name leaking through a log line would
+    contradict the anonymisation just as much as a neighbour's would. And a
+    network named after an ordinary word will refuse excerpts that were probably
+    harmless. That trade is the right way round — refusing too much costs
+    another excerpt, refusing too little publishes somebody's network name.
+    """
+    values: set[str] = set()
+    for source in (bundle, survey_bundle):
+        if source is None or not source.is_dir():
+            continue
+        survey = _newest_json(source / "context" / "site-survey")
+        if survey:
+            for entry in [*survey.get("neighbors", []), *survey.get("vaps", [])]:
+                values.update(str(entry[key]) for key in ("ssid", "bssid") if entry.get(key))
+        capability = _newest_json(source / "context" / "ssid-capability")
+        if capability:
+            for entry in capability.get("ssids", []):
+                values.update(str(entry[key]) for key in ("ssid", "bssid") if entry.get(key))
+        for clients_csv in source.glob("*_wifi_clients.csv"):
+            with clients_csv.open() as handle:
+                for row in csv.DictReader(handle):
+                    values.update(str(row[key]) for key
+                                  in ("ssid_name", "mac_address", "ip_address") if row.get(key))
+    return frozenset(value.lower() for value in values if value.strip())
+
+
+@functools.lru_cache(maxsize=4)
+def _known_pattern(known: frozenset[str]) -> re.Pattern[str] | None:
+    """One alternation over every captured value, matched as a whole token.
+
+    The boundaries are load-bearing, and they are a *weakening* of the check, so
+    they need their reason on the record. This bench's scan contains neighbour
+    networks named ``bi`` and ``pt`` — two characters each, and real. Matched as
+    plain substrings they hit ``bits``, ``interrupt``, ``script``: 17k lines of
+    a 150k-line log, which collapsed the longest clean run from 80 lines to 7
+    and would have gutted the Monitor view. ``bi`` inside ``bits`` discloses
+    nothing about anybody's network, so a match must not be *inside* a word:
+    the character on each side has to be a non-alphanumeric one.
+
+    Longest-first so the value reported is the most specific one that matched.
+    Cached because this is called once per line of a 150k-line log.
+    """
+    if not known:
+        return None
+    alternatives = "|".join(re.escape(value) for value in sorted(known, key=len, reverse=True))
+    return re.compile(rf"(?<![0-9a-z])(?:{alternatives})(?![0-9a-z])")
+
+
+def identifier_in(text: str, known: frozenset[str] = frozenset()) -> str | None:
+    """Name what makes ``text`` identifying, or None. The one place that decides.
+
+    Both callers go through this: the log tail refuses outright, and the console
+    excerpt uses it to split the log into runs. If they disagreed about what
+    counts, the excerpt selector would happily hand the refuser something it
+    then rejects — or worse, hand it something it accepts and should not.
+    """
+    for pattern, found in IDENTIFIER_PATTERNS:
+        if re.search(pattern, text):
+            return found
+    pattern = _known_pattern(known)
+    if pattern is not None:
+        hit = pattern.search(text.lower())
+        if hit:
+            return f"the captured identifier {hit.group(0)!r}"
+    return None
+
+
+def refuse_if_identifying(text: str, what: str,
+                          known: frozenset[str] = frozenset()) -> str:
     """Free text cannot be aliased field by field, so it is refused instead.
 
     A serial log is prose plus whatever the DUT printed. There is no schema to
     walk, so the only safe rule is: if it carries an identifier, do not ship it.
     A loud stop beats a silent leak — the operator picks a cleaner excerpt.
+
+    ``known`` comes from :func:`captured_identifiers`. Callers that can reach a
+    bundle must pass it; the empty default leaves only the shape patterns, which
+    is the weaker check and is why no caller here relies on it.
     """
-    for pattern, found in IDENTIFIER_PATTERNS:
-        if re.search(pattern, text):
-            raise SystemExit(
-                f"{what} carries {found} and would ship as-is; choose a cleaner "
-                f"excerpt or widen the scrub in build_demo_data.py"
-            )
+    found = identifier_in(text, known)
+    if found:
+        raise SystemExit(
+            f"{what} carries {found} and would ship as-is; choose a cleaner "
+            f"excerpt or widen the scrub in build_demo_data.py"
+        )
     return text
 
 
@@ -512,9 +602,14 @@ def build_console(bundle: Path, anon: Anonymiser,
     # clean: take runs of consecutive identifier-free lines. Among those, prefer
     # one containing a sysMon section header, so the Monitor view reads like the
     # monitoring it is rather than starting mid-command.
+    #
+    # Same decision function as the refusal below, and the same known set — a
+    # selector with a weaker rule than the refuser is how a clean-looking run
+    # gets chosen and shipped.
+    known = captured_identifiers(bundle, survey_bundle)
     runs, run = [], []
     for line in lines:
-        if any(re.search(pattern, line) for pattern, _ in IDENTIFIER_PATTERNS):
+        if identifier_in(line, known):
             if run:
                 runs.append(run)
             run = []
@@ -531,7 +626,8 @@ def build_console(bundle: Path, anon: Anonymiser,
 
     best = max(runs, key=score)
     start = next((i for i, line in enumerate(best) if line.startswith("=== ")), 0)
-    excerpt = refuse_if_identifying("\n".join(best[start:start + 80]), "the console excerpt")
+    excerpt = refuse_if_identifying("\n".join(best[start:start + 80]),
+                                    "the console excerpt", known)
 
     return {
         "generatedFrom": bundle.name,
