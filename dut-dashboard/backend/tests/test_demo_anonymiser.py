@@ -355,6 +355,90 @@ def test_a_bare_ssid_value_is_refused_once_the_capture_is_known(
         assert anon_module.identifier_in(text) is None
 
 
+# --- what may be embedded in a page -------------------------------------
+#
+# A PNG cannot be aliased and no text scan will flag one, so which images travel
+# is decided by an allowlist of plot kinds, and the two artifacts that are tables
+# rendered to pixels are redrawn from the aliased snapshot instead.
+
+
+@pytest.mark.parametrize("name,suffix", [
+    ("08081837_notime_cpu_usage_plot.png", "cpu_usage_plot.png"),
+    ("08041542_notime_survey_channels_2g4.png", "survey_channels_2g4.png"),
+    ("no_prefix_at_all.png", "no_prefix_at_all.png"),
+])
+def test_the_plot_kind_is_read_without_the_bundle_stamp(anon_module, name, suffix) -> None:
+    # The prefix is a per-bundle stamp, so matching whole names would tie the
+    # allowlist to one capture.
+    assert anon_module._artifact_suffix(name) == suffix
+
+
+def test_an_unrecognised_plot_kind_is_withheld_not_embedded(anon_module) -> None:
+    """The allowlist is positive, so a new plot kind is withheld until judged.
+
+    The generator cannot inspect pixels. Anything not established as
+    identifier-free has not been shown to be safe to publish, and a demo that
+    embedded it by default would be publishing on the strength of nobody having
+    looked.
+    """
+    assert "wifi_clients_plot.png" in anon_module.EMBEDDABLE_PLOTS
+    # The two that are tables of real identifiers are deliberately absent.
+    assert "ssid_capability.png" not in anon_module.EMBEDDABLE_PLOTS
+    assert "wifi_clients_table.png" not in anon_module.EMBEDDABLE_PLOTS
+    assert set(anon_module._REDRAWN_TABLES) == {"ssid_capability.png", "wifi_clients_table.png"}
+    # And a kind nobody has classified is on neither list.
+    assert "wifi_something_new_plot.png" not in anon_module.EMBEDDABLE_PLOTS
+    assert "wifi_something_new_plot.png" not in anon_module._REDRAWN_TABLES
+
+
+def test_aliasing_a_snapshot_replaces_identifiers_and_keeps_measurements(anon_module) -> None:
+    snapshot = {"clients": [{
+        "mac": "fe:47:fc:93:bf:ee", "ssid": "AP6_2.4GWPA2", "vendor": "2C:1F:23",
+        "ip": "192.168.1.44", "rssi": -39, "snr": 55, "txrate": "130M",
+        "assoc_time": "25:24:51", "band": "2.4G", "channel": 11,
+    }]}
+    anon = anon_module.Anonymiser()
+    out = anon_module._alias_snapshot(snapshot, anon)["clients"][0]
+
+    assert out["mac"].startswith("02:") and out["mac"] != snapshot["clients"][0]["mac"]
+    assert out["ssid"].startswith("DemoAP-")
+    assert out["vendor"] in anon_module.VENDORS
+    assert out["ip"] != snapshot["clients"][0]["ip"]
+    # The measurement is the point of the artifact and must survive untouched.
+    for field in ("rssi", "snr", "txrate", "assoc_time", "band", "channel"):
+        assert out[field] == snapshot["clients"][0][field]
+
+
+def test_nothing_aliased_is_still_in_the_identifier_inventory(anon_module, bundle: Path) -> None:
+    """The leak test for the redraw path, since its output is pixels.
+
+    Whatever is handed to the renderer must contain no value the inventory knows
+    as a real identifier. Checking the input is the only way to check the image:
+    once it is a PNG, no scan can read it.
+    """
+    known = anon_module.captured_identifiers(bundle)
+    snapshot = json.loads(
+        (bundle / "context" / "ssid-capability"
+         / "ssid-capability-default-20260808-101112.json").read_text(encoding="utf-8"))
+    assert any(str(v).lower() in known for v in
+               [e["ssid"] for e in snapshot["ssids"]]), "fixture must start out identifying"
+
+    aliased = anon_module._alias_snapshot(snapshot, anon_module.Anonymiser())
+
+    def strings(node):
+        if isinstance(node, dict):
+            for value in node.values():
+                yield from strings(value)
+        elif isinstance(node, list):
+            for item in node:
+                yield from strings(item)
+        elif isinstance(node, str):
+            yield node
+
+    leaked = [s for s in strings(aliased) if s.lower() in known]
+    assert not leaked, f"aliased snapshot still carries {leaked}"
+
+
 def test_the_front_door_is_refused_by_name_not_by_a_missing_block(anon_module) -> None:
     """index.html has no data block, so it was never regenerable — say that.
 

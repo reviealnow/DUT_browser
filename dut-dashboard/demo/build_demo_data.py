@@ -39,6 +39,7 @@ are the product being demonstrated.
 from __future__ import annotations
 
 import argparse
+import base64
 import collections
 import csv
 import functools
@@ -423,8 +424,6 @@ def build_downloads(bundle: Path, anon: Anonymiser,
     than mimed; the rest are listed, because a page that inlined a megabyte of
     PNGs would stop being something you can email.
     """
-    import base64
-
     log = next((p for p in bundle.iterdir() if p.suffix == ".log"), None)
     if log is None:
         raise SystemExit(f"no session log in {bundle}")
@@ -455,8 +454,7 @@ def build_downloads(bundle: Path, anon: Anonymiser,
     refuse_if_identifying(tail, "the log tail",
                           captured_identifiers(bundle, survey_bundle))
 
-    plots = sorted(bundle.glob("*.png"), key=lambda p: p.stat().st_size)
-    preview = plots[0] if plots else None
+    previews, redrawn, withheld = _plot_previews(bundle, anon)
 
     return {
         "generatedFrom": bundle.name,
@@ -467,10 +465,151 @@ def build_downloads(bundle: Path, anon: Anonymiser,
         "logTail": tail,
         "captureReport": (report.read_text(encoding="utf-8").strip().splitlines()
                           if report.is_file() else []),
-        "previewName": preview.name if preview else None,
-        "previewData": ("data:image/png;base64,"
-                        + base64.b64encode(preview.read_bytes()).decode()) if preview else None,
+        "previews": previews,
+        "redrawn": sorted(redrawn),
+        "withheld": sorted(withheld),
     }
+
+
+#: Plot kinds whose pixels cannot carry an identifier, and why that is knowable
+#: rather than checked by eye: `analyzer3.py` never reads an SSID, BSSID, MAC, IP
+#: or hostname field at all, and `wifi_timeseries.py` labels its series with
+#: hardcoded strings ("clients", "2.4G", "CPU", "RSSI"). `context_render.py`'s
+#: band charts plot per-channel counts, so their axes are numbers.
+#:
+#: An **allowlist**, and unknown kinds are withheld rather than embedded. A demo
+#: page cannot inspect pixels, so anything not on this list has not been shown to
+#: be safe — and the two artifacts this list deliberately omits are the reason
+#: the rule is the way round it is (see `_REDRAWN_TABLES`).
+EMBEDDABLE_PLOTS = frozenset({
+    "cpu_usage_plot.png", "memavailable_plot.png", "slab_plot.png",
+    "sunreclaim_plot.png", "wifi_clients_plot.png", "wifi_util_plot.png",
+    "wifi_temps_plot.png", "wifi_rssi_plot.png",
+    "survey_channels_2g4.png", "survey_channels_5g.png", "survey_channels_6g.png",
+})
+
+#: The two artifacts that are **tables rendered to pixels**, not plots:
+#: `ssid_capability.png` holds the DUT's VAP names, `wifi_clients_table.png`
+#: holds associated clients' MACs, SSIDs and vendor OUIs. `Anonymiser` cannot
+#: reach a PNG, and no text scan will ever flag one, so these are redrawn from
+#: the aliased snapshot by `context_render`'s own renderer rather than embedded.
+#: Maps artifact suffix -> (context kind, table builder name, image title).
+_REDRAWN_TABLES = {
+    "ssid_capability.png": ("ssid-capability", "prepare_capability_table", "SSID capability"),
+    "wifi_clients_table.png": ("wifi-clients", "prepare_clients_table",
+                               "Associated Wi-Fi clients"),
+}
+
+#: How a field in a context snapshot is aliased, by `_field_key` name.
+_ALIAS_BY_FIELD = {
+    "ssid": "ssid", "ssid_name": "ssid", "essid": "ssid",
+    "bssid": "mac", "mac": "mac", "mac_address": "mac", "macaddr": "mac",
+    "ip": "ip", "ip_address": "ip", "ipaddr": "ip",
+    "vendor": "vendor",
+}
+
+
+def _alias_snapshot(node, anon: Anonymiser):
+    """A copy of a context snapshot with every identifier replaced by its alias.
+
+    Walks by field name, the same way :func:`_collect_identifiers` does, so the
+    two cannot disagree about which fields hold an identifier. Own-VAP SSIDs
+    resolve to the DemoAP-* namespace: every SSID in these two snapshots is the
+    DUT's own, which is what the screens draw a distinction about.
+    """
+    if isinstance(node, dict):
+        out = {}
+        for key, value in node.items():
+            kind = _ALIAS_BY_FIELD.get(_field_key(str(key)))
+            if kind and isinstance(value, str) and value:
+                out[key] = {"ssid": lambda v: anon.ssid(v, own=True), "mac": anon.mac,
+                            "ip": anon.ip, "vendor": anon.vendor}[kind](value)
+            else:
+                out[key] = _alias_snapshot(value, anon)
+        return out
+    if isinstance(node, list):
+        return [_alias_snapshot(item, anon) for item in node]
+    return node
+
+
+def _plot_previews(bundle: Path, anon: Anonymiser) -> tuple[dict, set, set]:
+    """Data URIs for every plot that can travel, and the reason for those that cannot.
+
+    The page used to embed one plot and say the others were omitted to keep it
+    emailable. That was the wrong reason twice over: eleven real plots come to
+    1.7 MB, which is emailable by any measure — and the two artifacts that
+    genuinely cannot travel are not plots at all but tables of real MACs and
+    SSIDs rendered to pixels, which no amount of page budget would fix.
+    """
+    previews: dict[str, str] = {}
+    redrawn: set[str] = set()
+    withheld: set[str] = set()
+
+    def uri(data: bytes) -> str:
+        return "data:image/png;base64," + base64.b64encode(data).decode()
+
+    for path in sorted(bundle.glob("*.png")):
+        suffix = _artifact_suffix(path.name)
+        if suffix in EMBEDDABLE_PLOTS:
+            previews[path.name] = uri(path.read_bytes())
+        elif suffix in _REDRAWN_TABLES:
+            previews[path.name] = uri(_redraw_table(bundle, suffix, anon))
+            redrawn.add(path.name)
+        else:
+            # Not shown to be identifier-free, so not embedded. A plot kind
+            # added later lands here until somebody establishes what it draws.
+            withheld.add(path.name)
+    return previews, redrawn, withheld
+
+
+def _artifact_suffix(name: str) -> str:
+    """`08081837_notime_cpu_usage_plot.png` -> `cpu_usage_plot.png`.
+
+    The prefix is a per-bundle stamp (see #112), so the kind is what is left
+    after it. Matching on the whole name would tie the allowlist to one capture.
+    """
+    parts = name.split("_notime_", 1)
+    return parts[1] if len(parts) == 2 else name
+
+
+def _redraw_table(bundle: Path, suffix: str, anon: Anonymiser) -> bytes:
+    """Redraw a table artifact from the aliased snapshot, by the product's renderer.
+
+    `context_render` draws these in the first place, so calling it is how the
+    demo's copy keeps the real column set, layout and row order instead of a
+    lookalike built here. Only the values change, and only because they are
+    identifiers.
+
+    Imported inside the function: it pulls in matplotlib, which the other pages
+    and the tests have no need of.
+    """
+    import sys
+    sys.path.insert(0, str(HERE.parent / "tools"))
+    import context_render                              # noqa: E402  (deliberate)
+
+    kind, builder, title = _REDRAWN_TABLES[suffix]
+    snapshot_dir = bundle / "context" / kind
+    newest = sorted(snapshot_dir.glob("*.json"),
+                    key=lambda p: p.stat().st_mtime, reverse=True)
+    if not newest:
+        raise SystemExit(f"{suffix} is in the bundle but {snapshot_dir} has no snapshot "
+                         f"to redraw it from; the original cannot be published as-is")
+    source = newest[0]
+    table = getattr(context_render, builder)(
+        _alias_snapshot(context_render.load_snapshot(source), anon))
+
+    out = HERE / f".redrawn-{suffix}"
+    try:
+        # A fixed caption, not context_render's own: that one stamps the moment
+        # it ran, which would make the page differ on every regeneration — and
+        # it would name the original artifact, which this is not.
+        context_render.render_table(
+            table, out, f"{title} — {source.name}",
+            "Redrawn for the demo kit from the same snapshot, with every identifier "
+            "replaced. Row count, columns and order are the capture's.")
+        return out.read_bytes()
+    finally:
+        out.unlink(missing_ok=True)
 
 
 IDENTIFIER_PATTERNS = (

@@ -71,12 +71,35 @@ door, linking the screens and saying which are measured, with no capture behind
 it and no `demo-data` block to fill. Edit it by hand; the generator refuses it by
 name rather than failing on the missing block.
 
-Downloads lists a bundle rather than parsing one, and embeds its smallest plot
-so the inline preview is genuine:
+Downloads lists a bundle rather than parsing one, and embeds **every plot it
+produced**, so each inline preview is the real output rather than a note
+explaining its absence:
 
 ```bash
 python3 build_demo_data.py --page downloads.html --bundle <session-dir>
 ```
+
+**Which images may travel is an allowlist, because a PNG cannot be aliased.**
+`EMBEDDABLE_PLOTS` names the plot kinds whose pixels are known to carry no
+identifier, and that is knowable rather than eyeballed: `analyzer3.py` never
+reads an SSID, BSSID, MAC, IP or hostname field at all, `wifi_timeseries.py`
+labels its series with fixed strings, and `context_render.py`'s band charts plot
+per-channel counts. A kind on neither list is **withheld** and the page says so,
+so a plot added later is not published on the strength of nobody having looked.
+
+Two artifacts are not plots but **tables rendered to pixels** —
+`ssid_capability.png` holds the DUT's VAP names and `wifi_clients_table.png`
+holds associated clients' MACs, SSIDs and vendor OUIs. `Anonymiser` cannot reach
+a PNG and no text scan would ever flag one, so those two are **redrawn from the
+same snapshot by `context_render`'s own renderer** with the identifiers replaced,
+and carry a `◇ redrawn` chip saying so. Row count, columns and order are the
+capture's; only the identifiers differ. That is also why the generator can import
+`tools/context_render.py`: the demo's copy of a product artifact should be drawn
+by the product's code, not by a lookalike maintained here.
+
+The page comes to about 1.8 MB with thirteen images inlined — still one file you
+can email, and the earlier claim that inlining them all would stop it being that
+was simply wrong.
 
 Its "peek" shows the log's real last lines, and Serial Console shows a real
 run of them. A serial log is free text and cannot be aliased field by field, so
