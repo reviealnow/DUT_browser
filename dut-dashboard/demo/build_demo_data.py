@@ -548,18 +548,103 @@ def _plot_previews(bundle: Path, anon: Anonymiser) -> tuple[dict, set, set]:
     def uri(data: bytes) -> str:
         return "data:image/png;base64," + base64.b64encode(data).decode()
 
-    for path in sorted(bundle.glob("*.png")):
+    artifacts = sorted(bundle.glob("*.png"))
+    # Every snapshot that will be redrawn is loaded and its identifiers assigned
+    # in ONE pass before any of them is rendered — see `_prepare_redraw`.
+    snapshots = _prepare_redraw(
+        bundle, [_artifact_suffix(p.name) for p in artifacts], anon)
+
+    for path in artifacts:
         suffix = _artifact_suffix(path.name)
         if suffix in EMBEDDABLE_PLOTS:
             previews[path.name] = uri(path.read_bytes())
         elif suffix in _REDRAWN_TABLES:
-            previews[path.name] = uri(_redraw_table(bundle, suffix, anon))
+            previews[path.name] = uri(_redraw_table(suffix, snapshots[suffix], anon))
             redrawn.add(path.name)
         else:
             # Not shown to be identifier-free, so not embedded. A plot kind
             # added later lands here until somebody establishes what it draws.
             withheld.add(path.name)
     return previews, redrawn, withheld
+
+
+def _identifiers_by_kind(node, into: dict[str, set]) -> None:
+    """Group a snapshot's identifiers by which aliaser owns them.
+
+    Walks by field name exactly as :func:`_alias_snapshot` does, so the pass that
+    *assigns* aliases and the pass that *applies* them cannot disagree about what
+    is an identifier.
+    """
+    if isinstance(node, dict):
+        for key, value in node.items():
+            kind = _ALIAS_BY_FIELD.get(_field_key(str(key)))
+            if kind and isinstance(value, str) and value:
+                into[kind].add(value)
+            else:
+                _identifiers_by_kind(value, into)
+    elif isinstance(node, list):
+        for item in node:
+            _identifiers_by_kind(item, into)
+
+
+def _prepare_redraw(bundle: Path, suffixes: list[str],
+                    anon: Anonymiser) -> dict[str, dict]:
+    """Load every snapshot to be redrawn and assign all their aliases in one pass.
+
+    `Anonymiser` is order-independent **only through `prepare()`**: it assigns
+    over the sorted set, so the same bundle always yields the same page. Aliasing
+    values as they are met takes the on-demand path instead, where the first
+    value to reach a bucket keeps it and the next probes forward — so two
+    identifiers whose hashes collide would swap aliases if the rows were
+    reordered. The vendor pool has six entries, which makes that collision
+    ordinary rather than theoretical.
+
+    Nothing leaked and the mapping stayed injective either way, but "the same
+    bundle always yields the same page" is a property the kit states, tests and
+    relies on, and a second code path quietly not holding it is how that
+    guarantee stops being true.
+    """
+    snapshots: dict[str, dict] = {}
+    found: dict[str, set] = {"ssid": set(), "mac": set(), "ip": set(), "vendor": set()}
+    for suffix in suffixes:
+        if suffix not in _REDRAWN_TABLES or suffix in snapshots:
+            continue
+        snapshots[suffix] = _newest_snapshot(bundle, suffix)
+        _identifiers_by_kind(snapshots[suffix], found)
+
+    if snapshots:
+        # own_ssids: every SSID in these two artifacts is one the DUT itself
+        # broadcasts, which is the distinction the screens draw.
+        anon.prepare(own_ssids=found["ssid"], macs=found["mac"],
+                     ips=found["ip"], vendors=found["vendor"])
+    return snapshots
+
+
+def _newest_snapshot(bundle: Path, suffix: str) -> dict:
+    """The capture `context_render` would have drawn this artifact from.
+
+    Parsed here rather than through `context_render.load_snapshot`, and the
+    difference is deliberate: that one degrades a corrupt snapshot to ``{}`` so a
+    download is never crashed by one bad file, which is right for the product.
+    Here it would mean redrawing an *empty* table in place of one whose real
+    contents could not be read — publishing on the strength of a failure. Same
+    loud stop as every other unreadable capture.
+    """
+    kind, _, _ = _REDRAWN_TABLES[suffix]
+    snapshot_dir = bundle / "context" / kind
+    newest = sorted(snapshot_dir.glob("*.json"),
+                    key=lambda p: p.stat().st_mtime, reverse=True)
+    if not newest:
+        raise SystemExit(f"{suffix} is in the bundle but {snapshot_dir} has no snapshot "
+                         f"to redraw it from; the original cannot be published as-is")
+    try:
+        payload = json.loads(newest[0].read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as unreadable:
+        raise _unreadable_capture(newest[0], unreadable) from unreadable
+    if not isinstance(payload, dict):
+        raise _unreadable_capture(newest[0], ValueError("it is not a snapshot object"))
+    payload["__source__"] = newest[0].name
+    return payload
 
 
 def _artifact_suffix(name: str) -> str:
@@ -572,7 +657,7 @@ def _artifact_suffix(name: str) -> str:
     return parts[1] if len(parts) == 2 else name
 
 
-def _redraw_table(bundle: Path, suffix: str, anon: Anonymiser) -> bytes:
+def _redraw_table(suffix: str, snapshot: dict, anon: Anonymiser) -> bytes:
     """Redraw a table artifact from the aliased snapshot, by the product's renderer.
 
     `context_render` draws these in the first place, so calling it is how the
@@ -580,23 +665,21 @@ def _redraw_table(bundle: Path, suffix: str, anon: Anonymiser) -> bytes:
     lookalike built here. Only the values change, and only because they are
     identifiers.
 
-    Imported inside the function: it pulls in matplotlib, which the other pages
-    and the tests have no need of.
+    The snapshot arrives already loaded, and every alias it needs is already
+    assigned by :func:`_prepare_redraw` — this function must not be the first
+    place an identifier is seen, or the assignment order would depend on which
+    artifact happened to be rendered first.
+
+    `context_render` is imported inside the function: it pulls in matplotlib,
+    which the other pages and the tests have no need of.
     """
     import sys
     sys.path.insert(0, str(HERE.parent / "tools"))
     import context_render                              # noqa: E402  (deliberate)
 
-    kind, builder, title = _REDRAWN_TABLES[suffix]
-    snapshot_dir = bundle / "context" / kind
-    newest = sorted(snapshot_dir.glob("*.json"),
-                    key=lambda p: p.stat().st_mtime, reverse=True)
-    if not newest:
-        raise SystemExit(f"{suffix} is in the bundle but {snapshot_dir} has no snapshot "
-                         f"to redraw it from; the original cannot be published as-is")
-    source = newest[0]
-    table = getattr(context_render, builder)(
-        _alias_snapshot(context_render.load_snapshot(source), anon))
+    _, builder, title = _REDRAWN_TABLES[suffix]
+    source_name = snapshot.get("__source__", "")
+    table = getattr(context_render, builder)(_alias_snapshot(snapshot, anon))
 
     out = HERE / f".redrawn-{suffix}"
     try:
@@ -604,7 +687,7 @@ def _redraw_table(bundle: Path, suffix: str, anon: Anonymiser) -> bytes:
         # it ran, which would make the page differ on every regeneration — and
         # it would name the original artifact, which this is not.
         context_render.render_table(
-            table, out, f"{title} — {source.name}",
+            table, out, f"{title} — {source_name}",
             "Redrawn for the demo kit from the same snapshot, with every identifier "
             "replaced. Row count, columns and order are the capture's.")
         return out.read_bytes()

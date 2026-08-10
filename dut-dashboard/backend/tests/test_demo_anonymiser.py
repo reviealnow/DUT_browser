@@ -30,6 +30,7 @@ import csv
 import importlib.util
 import json
 import random
+import tempfile
 import re
 from pathlib import Path
 
@@ -407,6 +408,80 @@ def test_aliasing_a_snapshot_replaces_identifiers_and_keeps_measurements(anon_mo
     # The measurement is the point of the artifact and must survive untouched.
     for field in ("rssi", "snr", "txrate", "assoc_time", "band", "channel"):
         assert out[field] == snapshot["clients"][0][field]
+
+
+def _colliding_pair(anon_module, kind: str, space: int) -> tuple[str, str]:
+    """Two values that want the same bucket — where encounter order can matter.
+
+    Found rather than hardcoded: the bucket is a sha256 of the value, so the
+    pair is fixed for a given pool size but would silently stop colliding if the
+    pool were resized, and a test that quietly stopped testing anything is worse
+    than no test.
+    """
+    seen: dict[int, str] = {}
+    for i in range(2000):
+        value = f"{kind}-{i}"
+        bucket = anon_module._bucket(value, space, kind)
+        if bucket in seen:
+            return seen[bucket], value
+        seen[bucket] = value
+    raise AssertionError(f"no {kind} collision found in a space of {space}")
+
+
+def test_redraw_aliases_do_not_depend_on_the_order_rows_are_walked(anon_module) -> None:
+    """The kit's order-independence guarantee has to hold on the redraw path too.
+
+    `Anonymiser` is order-independent only through `prepare()`, which assigns
+    over the sorted set. Aliasing values as they are met takes the on-demand
+    path, where the first value to reach a bucket keeps it and the next probes
+    forward — so two colliding identifiers swap aliases if the rows are
+    reordered. Nothing leaks and the mapping stays injective, which is exactly
+    why an ordinary example would not catch it.
+    """
+    first, second = _colliding_pair(anon_module, "vendor", len(anon_module.VENDORS))
+    assert (anon_module._bucket(first, len(anon_module.VENDORS), "vendor")
+            == anon_module._bucket(second, len(anon_module.VENDORS), "vendor")), \
+        "the fixture must actually collide, or this test proves nothing"
+
+    def aliases(tmp: Path, order: list[str]) -> dict[str, str]:
+        """Through the real path: a bundle on disk, `_prepare_redraw`, then alias."""
+        kind_dir = tmp / "context" / "wifi-clients"
+        kind_dir.mkdir(parents=True, exist_ok=True)
+        rows = [{"mac": f"aa:bb:cc:00:00:{i:02x}", "vendor": v} for i, v in enumerate(order)]
+        (kind_dir / "wifi-clients-default-20260808-101112.json").write_text(
+            json.dumps({"clients": rows}), encoding="utf-8")
+        anon = anon_module.Anonymiser()
+        snapshots = anon_module._prepare_redraw(tmp, ["wifi_clients_table.png"], anon)
+        out = anon_module._alias_snapshot(snapshots["wifi_clients_table.png"], anon)["clients"]
+        return {row["vendor"]: alias["vendor"] for row, alias in zip(rows, out)}
+
+    with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
+        forward = aliases(Path(a), [first, second])
+        assert aliases(Path(b), [second, first]) == forward, "row order changed the aliases"
+    assert len(set(forward.values())) == 2, "colliding values must still get distinct aliases"
+
+
+def test_every_redrawn_snapshot_is_prepared_before_any_is_rendered(
+    anon_module, bundle: Path,
+) -> None:
+    """One `prepare()` over both artifacts, not one per artifact.
+
+    Preparing per artifact would make the aliases depend on which table was
+    rendered first, which is the same defect one level up.
+    """
+    anon = anon_module.Anonymiser()
+    snapshots = anon_module._prepare_redraw(
+        bundle, ["ssid_capability.png", "wifi_clients_table.png"], anon)
+    assert set(snapshots) == {"ssid_capability.png", "wifi_clients_table.png"}
+    # Every identifier in both snapshots already has an alias, so rendering
+    # cannot be the first place one is seen.
+    found = {"ssid": set(), "mac": set(), "ip": set(), "vendor": set()}
+    for payload in snapshots.values():
+        anon_module._identifiers_by_kind(payload, found)
+    for kind, values in found.items():
+        for value in values:
+            key = value.lower() if kind == "mac" else value
+            assert key in anon._maps[kind], f"{kind} {value!r} was not prepared"
 
 
 def test_nothing_aliased_is_still_in_the_identifier_inventory(anon_module, bundle: Path) -> None:
