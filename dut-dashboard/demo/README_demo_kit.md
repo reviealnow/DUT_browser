@@ -184,8 +184,17 @@ creates work for whoever has to make it true later.
   crowded the air is, which is the measurement these pages exist to show).
   Counts per channel, band and timestamp are untouched; only labels change.
   MACs get the `02:` locally-administered prefix and IPs land in the RFC 5737
-  documentation ranges, so both are visibly not real. Model names (`AP6_840E`)
-  are deliberately kept — they are the product being shown.
+  documentation ranges, so both are visibly not real.
+* **Renamed, for a different reason** — the DUT's model and id. `demo_name()`
+  rewrites them into the `DemoDUT-*` family wherever the generator emits a
+  captured filename or device name, and the markup uses the same names. This is
+  *not* anonymisation: the model is public hardware and no confidence is being
+  protected. These pages are published as a site, and naming a vendor's hardware
+  family on an indexed page is a different decision from naming it in a source
+  tree — so the demo declines to advertise a brand it does not speak for.
+  `DemoDUT-*` and not `DemoAP-*`, because the latter is the SSID namespace and a
+  device named like one of the networks it broadcasts is the exact confusion
+  these screens exist to avoid.
 
   This is pseudonymisation, not encryption. The page does not contain the
   original-to-alias mapping, but the hash is deterministic and unsalted, so
@@ -269,6 +278,9 @@ that page is measured or synthetic.
   see *Verifying a page*.)
 * `firmware.html` cannot reach anything, and says so — but it keeps one rule
   exactly: the management API takes the **encrypted** image and the web-UI path
-  takes the **signed** `.sig`. That rule is a filename *pattern*
-  (`ubi_kernel_AP6_*-encrypt_*.bin`), not a suffix; encoding it as a suffix
-  matches no real filename and silently makes that path undemonstrable.
+  takes the **signed** `.sig`. That rule is a filename *pattern* — the encrypted
+  image is `ubi_kernel_<model>-encrypt_<version>.bin` — and **not** a suffix;
+  encoding it as one matches no real filename and silently makes that path
+  undemonstrable. What `image_kind()` actually tests is `-encrypt_` *inside* the
+  name plus a `.bin` ending, which is why the demo's renamed
+  `ubi_kernel_DemoDUT-6E-encrypt_1.10.339.bin` still classifies correctly.

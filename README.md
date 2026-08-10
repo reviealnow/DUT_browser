@@ -39,11 +39,14 @@ above them is **synthetic** — a one-device bench cannot produce a fleet.*
 **What is measured and what is not.** The CPU and memory trends, the associated
 client counts, the neighbour scan and its channel recommendation, and the file
 listing all come from real DUT sessions. The **fleet is synthetic** — a
-one-device bench cannot produce one, so `AP6_lab2` and `AP6_bench3` and their
-status, crash counts and timestamps are invented, as are the workspace files and
-notes. Every SSID, BSSID, MAC and IP that *was* captured is replaced before
-commit, because a neighbour scan sweeps up the networks of everyone in radio
-range and none of that may be published.
+one-device bench cannot produce one, so `DemoDUT-lab2` and `DemoDUT-bench3` and
+their status, crash counts and timestamps are invented, as are the workspace
+files and notes. Every SSID, BSSID, MAC and IP that *was* captured is replaced
+before commit, because a neighbour scan sweeps up the networks of everyone in
+radio range and none of that may be published. The **device names are renamed
+too** — `DemoDUT-*` rather than the vendor's model — not to hide anything, but
+because a demo page has no business advertising a hardware brand it does not
+speak for.
 
 Anything the product does not do is marked `◇ concept`, and every page ends with
 a line naming which of its own data is measured, which is synthetic, and where

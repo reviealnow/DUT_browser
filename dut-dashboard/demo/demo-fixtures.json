@@ -21,7 +21,7 @@
     },
     "fleet": [
       {
-        "label": "AP6_840E",
+        "label": "DemoDUT-6E",
         "id": "default",
         "status": "streaming",
         "cpu": "34.3%",
@@ -35,7 +35,7 @@
         "lastSerial": "/dev/cu.PL2303G-1130"
       },
       {
-        "label": "AP6_420E",
+        "label": "DemoDUT-5G",
         "id": "lab-420",
         "status": "idle",
         "cpu": "—",
@@ -49,7 +49,7 @@
         "lastSerial": "/dev/cu.PL2303G-1130"
       },
       {
-        "label": "AP6_lab2",
+        "label": "DemoDUT-lab2",
         "id": "lab2",
         "status": "no DUT",
         "cpu": "—",
@@ -63,7 +63,7 @@
         "lastSerial": null
       },
       {
-        "label": "AP6_bench3",
+        "label": "DemoDUT-bench3",
         "id": "bench3",
         "status": "streaming",
         "cpu": "62.8%",
@@ -107,7 +107,7 @@
         "sha": "9f2c41ab7e05",
         "at": "2026-08-04 15:41",
         "tags": [
-          "ap6-840e",
+          "demodut-6e",
           "phase-75"
         ],
         "head": "# mode=serial source=/dev/cu.usbserial-XXXX\n=== CPU Utilization ===\nCPU0:   0.0% usr   2.0% sys  73.3% idle\nCPU1:   1.0% usr   6.1% sys  88.9% idle\n=== Memory Utilization (/proc/meminfo) ===\nMemTotal:   921552 kB\nMemAvailable:  581380 kB"
@@ -184,13 +184,13 @@
       },
       {
         "id": 8,
-        "name": "ap6-420e-notes.txt",
+        "name": "demodut-5g-notes.txt",
         "size": 612,
         "uploader": "Alex Doe",
         "sha": null,
         "at": "2026-07-09 16:48",
         "tags": [
-          "ap6-420e"
+          "demodut-5g"
         ],
         "head": "Two-core unit — cpu_usage.csv carries CPU0/CPU1 only.\nSerial adapter: USB-to-UART bridge, 115200 8N1.\nConsole needs a human login after any reboot."
       }
@@ -386,12 +386,12 @@
       },
       {
         "t": 3700,
-        "out": "\r\nAP6_840E# "
+        "out": "\r\nDemoDUT-6E# "
       }
     ]
   },
   "firmware.html": {
-    "dut": "AP6_840E",
+    "dut": "DemoDUT-6E",
     "mgmtUrl": "https://198.51.100.20",
     "dryRunForced": false,
     "transports": [
@@ -417,7 +417,7 @@
       },
       {
         "id": 9,
-        "name": "ubi_kernel_AP6_840E-encrypt_1.10.339.bin",
+        "name": "ubi_kernel_DemoDUT-6E-encrypt_1.10.339.bin",
         "size": 34117220,
         "sha256": "c41f9ab0273e5d68118aa4f0b6e2cd7395481a6f0d2e77bb3c1904ae62d5f8a1"
       },

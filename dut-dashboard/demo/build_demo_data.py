@@ -32,8 +32,13 @@ deterministic unsalted hash over a small candidate space is guessable by anyone
 already holding the original capture. The goal is that identifiers are never
 published — not that someone with the source bundle is defeated.
 
-Model/DUT names (AP6_840E and friends) are deliberately NOT anonymised: they
-are the product being demonstrated.
+Model and DUT names are renamed too, by `demo_name()`. They used to be kept as
+captured — "the product being demonstrated" — which was a fair call for files
+that lived in a repository. These pages are published as a site now, and naming
+a vendor's hardware family on an indexed page is a different decision from
+naming it in a source tree. This is not anonymisation: the model is public
+hardware and no confidence is being protected. It is the demo declining to
+advertise a brand it does not speak for.
 """
 
 from __future__ import annotations
@@ -81,6 +86,34 @@ VENDORS = [
     "Acme Devices", "Northwind Systems", "Contoso Networks", "Fabrikam Inc.",
     "Private (randomized)", "Litware Hardware",
 ]
+
+
+#: Captured names carry the DUT's model and id — in the session-log filename, in
+#: a hostname, in a firmware image name. `DemoDUT-*` and not `DemoAP-*`: the
+#: latter is the SSID namespace, and a device named like one of the networks it
+#: broadcasts is exactly the confusion these screens exist to avoid.
+#: Longest first, so `AP6_840E` is rewritten before a bare `840E` is considered.
+MODEL_RENAMES = (
+    ("AP6_840E", "DemoDUT-6E"),
+    ("AP6_420E", "DemoDUT-5G"),
+    ("840E", "DemoDUT6E"),
+    ("420E", "DemoDUT5G"),
+    ("AP6_", "DemoDUT-"),
+)
+
+
+def demo_name(value: str | None) -> str | None:
+    """A captured name with the vendor's model taken out of it.
+
+    Applied to every filename and device name the generator emits, so a
+    regeneration cannot quietly put the model back into a page after somebody
+    has edited it out of the markup.
+    """
+    if not value:
+        return value
+    for real, demo in MODEL_RENAMES:
+        value = value.replace(real, demo)
+    return value
 
 
 def _bucket(value: str, size: int, salt: str) -> int:
@@ -319,7 +352,7 @@ def build_survey(bundle: Path, anon: Anonymiser, survey_bundle: Path | None = No
         ])
 
     return {
-        "generatedFrom": source.name,
+        "generatedFrom": demo_name(source.name),
         "scannedAt": survey.get("captured_at", "")[:16].replace("T", " "),
         "bands": _bands(survey),
         "bandNames": band_names,
@@ -401,7 +434,7 @@ def build_clients(bundle: Path, anon: Anonymiser, survey_bundle: Path | None = N
     # two radios at once. Kept because it is the reason a time axis exists.
     roamer = _dual_radio_client(rows, anon)
     return {
-        "generatedFrom": bundle.name,
+        "generatedFrom": demo_name(bundle.name),
         "capturedAt": last_ts,
         "spanFrom": rows[0]["ts"],
         "clients": clients,
@@ -430,7 +463,7 @@ def build_downloads(bundle: Path, anon: Anonymiser,
 
     def entry(path: Path, **extra) -> dict:
         stat = path.stat()
-        return {"name": path.name, "size": stat.st_size,
+        return {"name": demo_name(path.name), "size": stat.st_size,
                 "modified": _stamp(stat.st_mtime), **extra}
 
     outputs, surveys, context = [], [], []
@@ -457,7 +490,7 @@ def build_downloads(bundle: Path, anon: Anonymiser,
     previews, redrawn, withheld = _plot_previews(bundle, anon)
 
     return {
-        "generatedFrom": bundle.name,
+        "generatedFrom": demo_name(bundle.name),
         "sessionLog": entry(log),
         "outputs": outputs,
         "surveys": surveys,
@@ -1007,8 +1040,8 @@ def build_console(bundle: Path, anon: Anonymiser,
                                     "the console excerpt", known)
 
     return {
-        "generatedFrom": bundle.name,
-        "logName": log.name,
+        "generatedFrom": demo_name(bundle.name),
+        "logName": demo_name(log.name),
         "lines": excerpt.splitlines(),
         "totalLines": len(lines),
     }
@@ -1045,7 +1078,7 @@ def build_cpu(bundle: Path, anon: Anonymiser,
     effective = [int(r["EffectiveAvailable_kB"]) for r in mem_rows]
 
     return {
-        "generatedFrom": bundle.name,
+        "generatedFrom": demo_name(bundle.name),
         "cores": series,
         "busy": busy,
         "cpuLabels": _labels([r["Timestamp"] for r in cpu_rows]),
@@ -1101,7 +1134,7 @@ def build_ssid(bundle: Path, anon: Anonymiser,
     } for s in sorted(ssids, key=lambda s: (s.get("band") or "", s.get("iface") or ""))]
 
     return {
-        "generatedFrom": source.name,
+        "generatedFrom": demo_name(source.name),
         "capturedAt": (payload.get("captured_at") or "")[:16].replace("T", " "),
         "rows": rows,
         "sourceBAvailable": False,
