@@ -92,13 +92,29 @@ VENDORS = [
 #: a hostname, in a firmware image name. `DemoDUT-*` and not `DemoAP-*`: the
 #: latter is the SSID namespace, and a device named like one of the networks it
 #: broadcasts is exactly the confusion these screens exist to avoid.
-#: Longest first, so `AP6_840E` is rewritten before a bare `840E` is considered.
+#:
+#: Case-insensitive, because a capture writes both: `AP6_840E` on the console and
+#: `ap6-420e-notes.txt` in the workspace. A case-sensitive pass missed the second
+#: and was rescued by a one-off grep, which protects today's fixture and nothing
+#: regenerated tomorrow.
+#:
+#: Bounded, because the id alone is short enough to occur inside words that are
+#: not identifiers at all: `sha420Eabcd.txt` and `report-840Errors.csv` must
+#: survive untouched, while `dut-session-420E_110341-…` must not. Neither
+#: character beside the token may be alphanumeric — which in the session log's
+#: name is `-` before and `_` after. The `ap6[_-]` prefix rule is the exception
+#: and needs no trailing boundary: what follows it is the rest of the name, as
+#: in `AP6_lab2`.
+#:
+#: Order matters: the compound forms go first so `AP6_840E` is one rename rather
+#: than a prefix plus a bare id.
+_BOUND = r"(?<![0-9A-Za-z]){}(?![0-9A-Za-z])"
 MODEL_RENAMES = (
-    ("AP6_840E", "DemoDUT-6E"),
-    ("AP6_420E", "DemoDUT-5G"),
-    ("840E", "DemoDUT6E"),
-    ("420E", "DemoDUT5G"),
-    ("AP6_", "DemoDUT-"),
+    (re.compile(_BOUND.format(r"ap6[_-]840e"), re.I), "DemoDUT-6E"),
+    (re.compile(_BOUND.format(r"ap6[_-]420e"), re.I), "DemoDUT-5G"),
+    (re.compile(_BOUND.format(r"840e"), re.I), "DemoDUT6E"),
+    (re.compile(_BOUND.format(r"420e"), re.I), "DemoDUT5G"),
+    (re.compile(r"(?<![0-9A-Za-z])ap6[_-]", re.I), "DemoDUT-"),
 )
 
 
@@ -106,13 +122,15 @@ def demo_name(value: str | None) -> str | None:
     """A captured name with the vendor's model taken out of it.
 
     Applied to every filename and device name the generator emits, so a
-    regeneration cannot quietly put the model back into a page after somebody
-    has edited it out of the markup.
+    regeneration cannot put the model back into a published page after somebody
+    has edited it out of the markup. That promise is the whole point of doing
+    this here rather than by hand, so it has to hold for names this bench has
+    not produced yet — see the casing and boundary notes on `MODEL_RENAMES`.
     """
     if not value:
         return value
-    for real, demo in MODEL_RENAMES:
-        value = value.replace(real, demo)
+    for pattern, demo in MODEL_RENAMES:
+        value = pattern.sub(demo, value)
     return value
 
 

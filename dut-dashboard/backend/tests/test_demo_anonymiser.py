@@ -514,6 +514,54 @@ def test_nothing_aliased_is_still_in_the_identifier_inventory(anon_module, bundl
     assert not leaked, f"aliased snapshot still carries {leaked}"
 
 
+# --- the model rename ----------------------------------------------------
+#
+# Editorial, not confidentiality: the model is public hardware. But the promise
+# is that a *regeneration* cannot put it back into a published page, so it has
+# to hold for names this bench has not produced yet.
+
+
+@pytest.mark.parametrize("captured,expected", [
+    # Both casings a capture actually writes: the console prints one, the
+    # workspace the other. A case-sensitive pass missed the second.
+    ("dut-session-AP6_840E.log", "dut-session-DemoDUT-6E.log"),
+    ("dut-session-ap6_840e.log", "dut-session-DemoDUT-6E.log"),
+    ("ap6-420e-notes.txt", "DemoDUT-5G-notes.txt"),
+    ("AP6_lab2", "DemoDUT-lab2"),          # prefix form: no trailing boundary
+    ("AP6_840E# ", "DemoDUT-6E# "),        # the console prompt
+    ("ubi_kernel_AP6_840E-encrypt_1.10.339.bin",
+     "ubi_kernel_DemoDUT-6E-encrypt_1.10.339.bin"),
+    # The id alone, as the real session log carries it: `-` before, `_` after.
+    ("dut-session-420E_110341-20260806-095724.log",
+     "dut-session-DemoDUT5G_110341-20260806-095724.log"),
+])
+def test_the_model_is_renamed_whatever_the_capture_called_it(
+    anon_module, captured: str, expected: str,
+) -> None:
+    assert anon_module.demo_name(captured) == expected
+
+
+@pytest.mark.parametrize("untouched", [
+    # The id is short enough to fall inside words that identify nothing, and
+    # Downloads says its listing is a real bundle — rewriting these would
+    # falsify a measured filename to solve a naming problem.
+    "sha420Eabcd.txt",
+    "report-840Errors.csv",
+    "08081837_notime_cpu_usage.csv",
+    "capture-report.txt",
+])
+def test_a_name_that_only_looks_like_the_model_is_left_alone(
+    anon_module, untouched: str,
+) -> None:
+    assert anon_module.demo_name(untouched) == untouched
+
+
+def test_renaming_is_idempotent(anon_module) -> None:
+    """Applied twice — regenerating a page already built — nothing shifts."""
+    once = anon_module.demo_name("dut-session-420E_110341-20260806.log")
+    assert anon_module.demo_name(once) == once
+
+
 def test_the_front_door_is_refused_by_name_not_by_a_missing_block(anon_module) -> None:
     """index.html has no data block, so it was never regenerable — say that.
 
