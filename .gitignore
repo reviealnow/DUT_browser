@@ -56,3 +56,6 @@ test_*-signed/
 # today, so nothing existing is affected.)
 /*.png
 /dut-dashboard/*.png
+
+# The demo kit's DOM verifier declares its own single dependency.
+dut-dashboard/demo/verify/node_modules/

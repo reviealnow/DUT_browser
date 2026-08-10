@@ -71,12 +71,35 @@ door, linking the screens and saying which are measured, with no capture behind
 it and no `demo-data` block to fill. Edit it by hand; the generator refuses it by
 name rather than failing on the missing block.
 
-Downloads lists a bundle rather than parsing one, and embeds its smallest plot
-so the inline preview is genuine:
+Downloads lists a bundle rather than parsing one, and embeds **every plot it
+produced**, so each inline preview is the real output rather than a note
+explaining its absence:
 
 ```bash
 python3 build_demo_data.py --page downloads.html --bundle <session-dir>
 ```
+
+**Which images may travel is an allowlist, because a PNG cannot be aliased.**
+`EMBEDDABLE_PLOTS` names the plot kinds whose pixels are known to carry no
+identifier, and that is knowable rather than eyeballed: `analyzer3.py` never
+reads an SSID, BSSID, MAC, IP or hostname field at all, `wifi_timeseries.py`
+labels its series with fixed strings, and `context_render.py`'s band charts plot
+per-channel counts. A kind on neither list is **withheld** and the page says so,
+so a plot added later is not published on the strength of nobody having looked.
+
+Two artifacts are not plots but **tables rendered to pixels** —
+`ssid_capability.png` holds the DUT's VAP names and `wifi_clients_table.png`
+holds associated clients' MACs, SSIDs and vendor OUIs. `Anonymiser` cannot reach
+a PNG and no text scan would ever flag one, so those two are **redrawn from the
+same snapshot by `context_render`'s own renderer** with the identifiers replaced,
+and carry a `◇ redrawn` chip saying so. Row count, columns and order are the
+capture's; only the identifiers differ. That is also why the generator can import
+`tools/context_render.py`: the demo's copy of a product artifact should be drawn
+by the product's code, not by a lookalike maintained here.
+
+The page comes to about 1.8 MB with thirteen images inlined — still one file you
+can email, and the earlier claim that inlining them all would stop it being that
+was simply wrong.
 
 Its "peek" shows the log's real last lines, and Serial Console shows a real
 run of them. A serial log is free text and cannot be aliased field by field, so
@@ -100,6 +123,47 @@ A bundle is any extracted `dut-session-<ts>` directory from the **Download DUT
 Log** flow: `build_demo_data.py` reads `*_cpu_usage.csv` (analyzer3),
 `*_wifi_clients.csv` (`tools/wifi_timeseries.py`) and
 `context/site-survey/*.json`.
+
+## Verifying a page
+
+```bash
+cd dut-dashboard/demo/verify
+npm install          # once; jsdom is its only dependency
+npm test             # behaviour, then navigation
+```
+
+`verify-behaviour.mjs` loads each shipped page into a real DOM and **clicks its
+own controls**: Send on Serial Console, Rehearse on Firmware with each pairing
+the service refuses, the expand controls on Downloads, the table on SSID
+Capability. `verify-navigation.mjs` clicks every sidebar entry on every page and
+checks each one either opens a file that exists or explains why there is none.
+
+Every assertion in there was a review finding first, and each is the kind
+reading the source did not catch — a control that existed but did the wrong
+thing, or one the product has that the demo quietly lacked. A `prompt()` where
+the product has an inline editor, and a Send that appended invented text to a
+view labelled as real output, both survived being read.
+
+**This does not contradict "no dependencies" above.** That rule is about the
+*pages*: they stay one file each, openable anywhere, with nothing to install.
+The verifier is dev tooling that never ships with them, and it is deliberately
+kept out of `frontend/` because what it verifies is this directory. It is also
+the only reason to prefer jsdom over a browser here: these pages are opened from
+disk, and `file://` is refused by both the in-app preview surface and Playwright.
+
+Both verifiers also fail if a page **threw** while they were driving it. That
+was a hole in the harness itself, found by injecting a call to an undefined
+function after boot: a page whose script had died still answered questions about
+its DOM, so all the assertions passed over a half-built page and reported green.
+
+A harness that cannot fail is worth nothing, so check that it can — two ways:
+
+```bash
+# 1. turn one sidebar anchor back into a <button>
+npm run navigation   # "still a button, so it does not navigate", exit 1
+# 2. add a call to an undefined function to any page's script
+npm run behaviour    # "threw nothing while all that ran" fails, exit 1
+```
 
 ## What is real and what is not
 
@@ -201,7 +265,8 @@ that page is measured or synthetic.
 * The kit ships one captured scan per screen, so Re-scan replays it — see
   *What is real and what is not*.
 * No build, no dependencies, and none should be added: the value of a demo file
-  is that it opens anywhere.
+  is that it opens anywhere. (`verify/` is dev tooling, not part of a page —
+  see *Verifying a page*.)
 * `firmware.html` cannot reach anything, and says so — but it keeps one rule
   exactly: the management API takes the **encrypted** image and the web-UI path
   takes the **signed** `.sig`. That rule is a filename *pattern*

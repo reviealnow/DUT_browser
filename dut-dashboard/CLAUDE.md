@@ -101,7 +101,10 @@ dut-dashboard/
                   by line) and the rule that earned it — open the real component
                   and read its JSX first, because a demo can misrepresent the
                   product by showing LESS as easily as more, and only one of
-                  those has a chip
+                  those has a chip · demo/verify/ loads the shipped pages in a
+                  real DOM and clicks their own controls (`npm test`); run it
+                  after touching any page, because reading the source is what
+                  let every past finding through
 ```
 
 When adding a feature, follow the **existing Wi-Fi Clients data flow** as the
