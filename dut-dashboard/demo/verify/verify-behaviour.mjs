@@ -5,7 +5,7 @@
 // thing, or one the product has that the demo quietly lacked. The failure runs
 // both ways — the demo must not accept what the product refuses, and must not
 // show something cruder either — so this file checks outcomes, not markup.
-import { load, click, reporter } from "./harness.mjs";
+import { load, click, reporter, pageErrors } from "./harness.mjs";
 
 const report = reporter();
 
@@ -69,6 +69,9 @@ const report = reporter();
     `${redrawn} disclosed`);
   report.ok("nothing still claims the plots were left out to keep the page small",
     !document.body.textContent.includes("stop the page"));
+
+  report.ok("downloads.html threw nothing while all that ran",
+    pageErrors(window).length === 0, pageErrors(window).join(" | "));
 }
 
 // ----------------------------------------------------------- serial console
@@ -97,6 +100,9 @@ const report = reporter();
     document.getElementById("console").textContent === before);
   report.ok("the offline limit is stated on the send row",
     !!document.querySelector(".sendrow .concept"));
+
+  report.ok("serial-console.html threw nothing while all that ran",
+    pageErrors(window).length === 0, pageErrors(window).join(" | "));
 }
 
 // ----------------------------------------------------------------- firmware
@@ -161,6 +167,9 @@ const report = reporter();
   setAddress("");
   report.ok("no management address stops the rehearsal, as the service does",
     rehearse().includes("Flow stopped"));
+
+  report.ok("firmware.html threw nothing while all that ran",
+    pageErrors(window).length === 0, pageErrors(window).join(" | "));
 }
 
 // --------------------------------------------------------- ssid capability
@@ -180,6 +189,9 @@ const report = reporter();
   click(window, document.querySelector("#tbody button.twist"));
   report.ok("the expanded row spans eleven",
     document.querySelector("tr.cap-expand td").getAttribute("colspan") === "11");
+
+  report.ok("ssid-capability.html threw nothing while all that ran",
+    pageErrors(window).length === 0, pageErrors(window).join(" | "));
 }
 
 report.finish();

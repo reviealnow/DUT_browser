@@ -11,7 +11,7 @@
 // is blocked by both the in-app preview surface (it renders a static snapshot)
 // and Playwright (the scheme is refused outright). jsdom has no such policy, and
 // what these checks need is the DOM and the event loop, not a renderer.
-import { JSDOM } from "jsdom";
+import { JSDOM, VirtualConsole } from "jsdom";
 import { readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -31,12 +31,30 @@ export const SCREEN_FILES = {
 /** Real product screens the kit has no file for; they explain themselves. */
 export const NO_FILE = new Set(["Logs / Crash Events", "Settings"]);
 
+/**
+ * Load a page and record anything it throws.
+ *
+ * Without this the harness is blind to the loudest failure there is: a page
+ * whose script dies on load still answers questions about its DOM, so the
+ * assertions pass over a half-built page and report green. Verified by
+ * injecting a call to an undefined function after boot — 29 assertions passed
+ * and nothing said the page had thrown.
+ *
+ * `jsdomError` carries uncaught exceptions and script-loading failures;
+ * `console.error` catches what a page reports about itself.
+ */
 export async function load(page) {
+  const errors = [];
+  const virtualConsole = new VirtualConsole();
+  virtualConsole.on("jsdomError", error => errors.push(error.message || String(error)));
+  virtualConsole.on("error", (...args) => errors.push(args.join(" ")));
+
   const dom = await JSDOM.fromFile(`${DEMO}${page}`, {
     runScripts: "dangerously", pretendToBeVisual: true,
-    url: `http://localhost/${page}`,
+    url: `http://localhost/${page}`, virtualConsole,
   });
   const { window } = dom;
+  window.__errors = errors;
   // jsdom implements neither, and the pages only need them to exist.
   window.HTMLDialogElement.prototype.showModal = function () { this.open = true; };
   window.HTMLDialogElement.prototype.close = function () { this.open = false; };
@@ -47,6 +65,9 @@ export async function load(page) {
 
 export const click = (window, el) =>
   el.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+
+/** Everything the page threw or logged as an error, load and clicks alike. */
+export const pageErrors = (window) => window.__errors;
 
 export function reporter() {
   let passed = 0;

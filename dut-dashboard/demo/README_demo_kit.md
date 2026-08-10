@@ -151,9 +151,19 @@ kept out of `frontend/` because what it verifies is this directory. It is also
 the only reason to prefer jsdom over a browser here: these pages are opened from
 disk, and `file://` is refused by both the in-app preview surface and Playwright.
 
-A harness that cannot fail is worth nothing, so check that it can: turn one
-sidebar anchor back into a `<button>` and `npm run navigation` reports
-`still a button, so it does not navigate` and exits non-zero.
+Both verifiers also fail if a page **threw** while they were driving it. That
+was a hole in the harness itself, found by injecting a call to an undefined
+function after boot: a page whose script had died still answered questions about
+its DOM, so all the assertions passed over a half-built page and reported green.
+
+A harness that cannot fail is worth nothing, so check that it can — two ways:
+
+```bash
+# 1. turn one sidebar anchor back into a <button>
+npm run navigation   # "still a button, so it does not navigate", exit 1
+# 2. add a call to an undefined function to any page's script
+npm run behaviour    # "threw nothing while all that ran" fails, exit 1
+```
 
 ## What is real and what is not
 

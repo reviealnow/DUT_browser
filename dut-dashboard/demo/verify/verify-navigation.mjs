@@ -5,7 +5,7 @@
 // a note naming the file to open, and each page's map of "what exists" was
 // frozen at the moment that page was written — so a complete kit still answered
 // "not in the kit yet" about a file sitting in the same directory.
-import { DEMO, SCREENS, SCREEN_FILES, NO_FILE, load, click, reporter } from "./harness.mjs";
+import { DEMO, SCREENS, SCREEN_FILES, NO_FILE, load, click, reporter, pageErrors } from "./harness.mjs";
 import { readdirSync } from "node:fs";
 
 const onDisk = new Set(readdirSync(DEMO).filter(f => f.endsWith(".html")));
@@ -46,6 +46,9 @@ for (const page of SCREENS) {
   // No page may still describe the kit as partly built.
   if (/not in the kit yet|shipped so far|the other screen/.test(document.body.textContent))
     problems.push("prose still calls the kit incomplete");
+
+  // A page that threw is not a page whose sidebar was proven to work.
+  for (const error of pageErrors(window)) problems.push(`threw: ${error}`);
 
   report.ok(page, problems.length === 0, problems.join("; "));
 }
