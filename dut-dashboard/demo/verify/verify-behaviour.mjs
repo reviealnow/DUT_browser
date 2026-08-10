@@ -132,7 +132,7 @@ const report = reporter();
   // transport's default.
   setAddress("https://198.51.100.20:9443");
   setTransport("api");
-  setImage("ubi_kernel_AP6_840E-encrypt_");
+  setImage("ubi_kernel_DemoDUT-6E-encrypt_");
   report.ok("an explicit port is kept, not appended to",
     document.getElementById("addrNote").textContent.includes("198.51.100.20:9443/ap/") &&
     !document.getElementById("addrNote").textContent.includes(":9443:10443"));

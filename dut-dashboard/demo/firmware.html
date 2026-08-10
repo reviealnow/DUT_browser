@@ -91,7 +91,7 @@ dialog::backdrop{background:rgba(20,30,55,.4)}
 
 <!-- Workflow configuration, per the repo's inline-data convention. Synthetic —
      but the transport contract is the product's real one. See the provenance. -->
-<script id="demo-data" type="application/json">{"dut":"AP6_840E","mgmtUrl":"https://198.51.100.20","dryRunForced":false,"transports":[{"id":"gui","label":"Web UI upload (signed image)","path":"/submit.cgi","port":443},{"id":"api","label":"Management API (encrypted image)","path":"/ap/systemctl/sysFwUpgrade","port":10443}],"files":[{"id":4,"name":"wifix.tar.gz.sig","size":35763146,"sha256":"0685884c872f4d1e9a3b77c2e0148fbb5c9d2a6e83f04b17ce55901d2a7bf6e3"},{"id":9,"name":"ubi_kernel_AP6_840E-encrypt_1.10.339.bin","size":34117220,"sha256":"c41f9ab0273e5d68118aa4f0b6e2cd7395481a6f0d2e77bb3c1904ae62d5f8a1"},{"id":10,"name":"release-notes-1.10.339.txt","size":4118,"sha256":null}],"hasCredentials":true}</script>
+<script id="demo-data" type="application/json">{"dut":"DemoDUT-6E","mgmtUrl":"https://198.51.100.20","dryRunForced":false,"transports":[{"id":"gui","label":"Web UI upload (signed image)","path":"/submit.cgi","port":443},{"id":"api","label":"Management API (encrypted image)","path":"/ap/systemctl/sysFwUpgrade","port":10443}],"files":[{"id":4,"name":"wifix.tar.gz.sig","size":35763146,"sha256":"0685884c872f4d1e9a3b77c2e0148fbb5c9d2a6e83f04b17ce55901d2a7bf6e3"},{"id":9,"name":"ubi_kernel_DemoDUT-6E-encrypt_1.10.339.bin","size":34117220,"sha256":"c41f9ab0273e5d68118aa4f0b6e2cd7395481a6f0d2e77bb3c1904ae62d5f8a1"},{"id":10,"name":"release-notes-1.10.339.txt","size":4118,"sha256":null}],"hasCredentials":true}</script>
 
 <div class="layout">
   <aside class="sidebar">
@@ -264,7 +264,7 @@ function mgmtUrl(addr, t){
 /* firmware_service.image_kind + check_image_for_transport, field for field.
    Two things this must not get wrong:
    - the vendor's rule is a *pattern*, not a suffix: the API takes
-     ubi_kernel_AP6_*-encrypt_*.bin, so "-encrypt_" has to be looked for inside
+     ubi_kernel_<model>-encrypt_*.bin, so "-encrypt_" has to be looked for inside
      the name. Encoding it as an ending matches no real filename and would
      quietly make that path undemonstrable.
    - an unrecognised name is *allowed through*, deliberately: the heuristic must

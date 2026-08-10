@@ -1,0 +1,61 @@
+# Publish the demo kit so the README's screenshots have something to click.
+#
+# Pages' branch mode can only serve `/` or `/docs`, and these pages live in
+# `dut-dashboard/demo/`. Copying them to `/docs` or to a `gh-pages` branch would
+# make a second copy that drifts, which is the one thing this kit is built to
+# avoid — so this deploys from the real directory instead.
+#
+# Only the pages are published. `build_demo_data.py`, `demo-fixtures.json` and
+# `verify/` stay in the repository where they belong: a visitor is here to see
+# the screens, and a static host has no use for the generator that made them.
+name: Deploy demo kit to Pages
+
+on:
+  push:
+    branches: [CPU_Plots]
+    paths:
+      - "dut-dashboard/demo/*.html"
+      - ".github/workflows/demo-pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time, and never cancel one half-done: a cancelled deploy
+# can leave the site serving a mix of two revisions.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Stage the pages, and nothing else
+        run: |
+          mkdir -p _site
+          cp dut-dashboard/demo/*.html _site/
+          echo "Publishing $(ls _site | wc -l) pages:"
+          ls -lh _site
+
+      # No `enablement:` — `configure-pages` says that option "requires a token
+      # other than GITHUB_TOKEN", so with the default token it cannot turn Pages
+      # on and the first run would fail rather than bootstrap the site. Pages is
+      # enabled once by hand, with Source: GitHub Actions; handing this workflow
+      # a PAT purely to flip a repository setting would buy a credential with
+      # administration scope to save a single click.
+      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
