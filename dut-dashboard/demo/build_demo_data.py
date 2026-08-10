@@ -98,23 +98,26 @@ VENDORS = [
 #: and was rescued by a one-off grep, which protects today's fixture and nothing
 #: regenerated tomorrow.
 #:
-#: Bounded, because the id alone is short enough to occur inside words that are
-#: not identifiers at all: `sha420Eabcd.txt` and `report-840Errors.csv` must
-#: survive untouched, while `dut-session-420E_110341-…` must not. Neither
-#: character beside the token may be alphanumeric — which in the session log's
-#: name is `-` before and `_` after. The `ap6[_-]` prefix rule is the exception
-#: and needs no trailing boundary: what follows it is the rest of the name, as
-#: in `AP6_lab2`.
+#: The **bare id** needs a boundary on both sides, because two digits and a
+#: letter are short enough to land inside words that identify nothing:
+#: `sha420Eabcd.txt` and `report-840Errors.csv` must survive untouched, while
+#: `dut-session-420E_110341-…` must not. In the session log's name the token has
+#: `-` before it and `_` after, so neither neighbour is alphanumeric.
 #:
-#: Order matters: the compound forms go first so `AP6_840E` is one rename rather
+#: Anything containing `ap6_` or `ap6-` needs **no leading boundary**. A
+#: nine-character `ap6_840e` is not going to occur by accident, and requiring one
+#: produced the worst outcome available: `dutAP6_840E.log` renamed the id and
+#: left the `AP6` behind, which reads as deliberate rather than as a miss.
+#:
+#: Order matters: the compound forms go first, so `AP6_840E` is one rename rather
 #: than a prefix plus a bare id.
-_BOUND = r"(?<![0-9A-Za-z]){}(?![0-9A-Za-z])"
+_BARE = r"(?<![0-9A-Za-z]){}(?![0-9A-Za-z])"
 MODEL_RENAMES = (
-    (re.compile(_BOUND.format(r"ap6[_-]840e"), re.I), "DemoDUT-6E"),
-    (re.compile(_BOUND.format(r"ap6[_-]420e"), re.I), "DemoDUT-5G"),
-    (re.compile(_BOUND.format(r"840e"), re.I), "DemoDUT6E"),
-    (re.compile(_BOUND.format(r"420e"), re.I), "DemoDUT5G"),
-    (re.compile(r"(?<![0-9A-Za-z])ap6[_-]", re.I), "DemoDUT-"),
+    (re.compile(r"ap6[_-]840e(?![0-9A-Za-z])", re.I), "DemoDUT-6E"),
+    (re.compile(r"ap6[_-]420e(?![0-9A-Za-z])", re.I), "DemoDUT-5G"),
+    (re.compile(_BARE.format(r"840e"), re.I), "DemoDUT6E"),
+    (re.compile(_BARE.format(r"420e"), re.I), "DemoDUT5G"),
+    (re.compile(r"ap6[_-]", re.I), "DemoDUT-"),
 )
 
 

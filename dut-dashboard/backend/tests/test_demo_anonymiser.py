@@ -534,11 +534,37 @@ def test_nothing_aliased_is_still_in_the_identifier_inventory(anon_module, bundl
     # The id alone, as the real session log carries it: `-` before, `_` after.
     ("dut-session-420E_110341-20260806-095724.log",
      "dut-session-DemoDUT5G_110341-20260806-095724.log"),
+    # Glued to the word before it. Requiring a boundary here produced the worst
+    # result available — the id renamed and the `AP6` left behind, which reads
+    # as deliberate rather than as a miss.
+    ("dutAP6_840E.log", "dutDemoDUT-6E.log"),
 ])
 def test_the_model_is_renamed_whatever_the_capture_called_it(
     anon_module, captured: str, expected: str,
 ) -> None:
     assert anon_module.demo_name(captured) == expected
+
+
+def test_no_rename_ever_leaves_the_model_half_removed(anon_module) -> None:
+    """A partial rename is worse than none: it looks like the intended name.
+
+    Whatever `demo_name` returns must not still contain the vendor prefix. The
+    one shape that survives untouched is pinned separately below — a clean miss
+    is a different failure from a misleading half-result.
+    """
+    for captured in ("AP6_840E", "ap6-420e-notes.txt", "dutAP6_840E.log",
+                     "x_AP6_lab2", "AP6_840E# ", "path/to/AP6_420E/file.csv"):
+        assert "ap6" not in anon_module.demo_name(captured).lower(), captured
+
+
+def test_a_model_name_with_no_separator_is_a_known_miss(anon_module) -> None:
+    """`AP6840E` is not a form any capture writes, and it is not renamed.
+
+    Pinned so the gap is a decision on the record rather than a surprise. It is
+    a clean miss — nothing is half-renamed — and closing it would mean matching
+    `ap6` followed by digits, which starts guessing at names nobody has seen.
+    """
+    assert anon_module.demo_name("AP6840E") == "AP6840E"
 
 
 @pytest.mark.parametrize("untouched", [
