@@ -1,0 +1,57 @@
+# Publish the demo kit so the README's screenshots have something to click.
+#
+# Pages' branch mode can only serve `/` or `/docs`, and these pages live in
+# `dut-dashboard/demo/`. Copying them to `/docs` or to a `gh-pages` branch would
+# make a second copy that drifts, which is the one thing this kit is built to
+# avoid — so this deploys from the real directory instead.
+#
+# Only the pages are published. `build_demo_data.py`, `demo-fixtures.json` and
+# `verify/` stay in the repository where they belong: a visitor is here to see
+# the screens, and a static host has no use for the generator that made them.
+name: Deploy demo kit to Pages
+
+on:
+  push:
+    branches: [CPU_Plots]
+    paths:
+      - "dut-dashboard/demo/*.html"
+      - ".github/workflows/demo-pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time, and never cancel one half-done: a cancelled deploy
+# can leave the site serving a mix of two revisions.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stage the pages, and nothing else
+        run: |
+          mkdir -p _site
+          cp dut-dashboard/demo/*.html _site/
+          echo "Publishing $(ls _site | wc -l) pages:"
+          ls -lh _site
+
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

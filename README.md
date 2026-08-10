@@ -12,12 +12,19 @@ shared lab workspace (files + bulletin).
 
 ## See it without a DUT
 
+### ▶ [Open the live demo](https://reviealnow.github.io/DUT_browser/)
+
 Running the real thing needs an access point on a bench, a free serial port,
 both servers and `sysMon` alive on the device. So the repository also ships a
 **demo kit**: eleven self-contained HTML files in
 [`dut-dashboard/demo/`](dut-dashboard/demo/) — one per screen, markup, styles,
-script and data inlined. Clone or download the folder and **double-click
-`index.html`**. No server, no build, no dependencies, works offline.
+script and data inlined.
+
+The link above is those same files on GitHub Pages. They are equally happy off a
+disk: download the folder and **double-click `index.html`** — no server, no
+build, no dependencies, and it still works with the network off. That is the
+point of them, and it is why they can be emailed to someone who will never clone
+this repository.
 
 ![Overview — fleet strip, KPI row, 40-hour CPU and client trends](docs/screenshots/overview.png)
 
