@@ -10,6 +10,32 @@ shared lab workspace (files + bulletin).
 > no Electron, no Rust, no desktop packaging. It runs as a local web service so
 > a whole test lab can point a browser at one Raspberry Pi / Linux host.
 
+## See it without a DUT
+
+Running the real thing needs an access point on a bench, a free serial port,
+both servers and `sysMon` alive on the device. So the repository also ships a
+**demo kit**: eleven self-contained HTML files in
+[`dut-dashboard/demo/`](dut-dashboard/demo/) — one per screen, markup, styles,
+script and data inlined. Clone or download the folder and **double-click
+`index.html`**. No server, no build, no dependencies, works offline.
+
+![Overview — fleet strip, KPI row, 40-hour CPU and client trends](docs/screenshots/overview.png)
+
+*Overview: the fleet strip, the KPI row, and 40 hours of per-core CPU and
+associated-client history from one session log.*
+
+| ![Site Survey](docs/screenshots/site-survey.png) | ![Downloads](docs/screenshots/downloads.png) |
+|:--|:--|
+| **Site Survey** — per-band channel charts over a real 2,438-observation neighbour scan, with the channel recommendation and the interference score behind it. | **Downloads** — what *Download DUT Log* actually produces, listed as it came off disk, with every analyzer plot embedded in the page. |
+
+The numbers are **measured, from real DUT sessions**; every SSID, BSSID, MAC and
+IP was replaced before commit, because a neighbour scan sweeps up the networks
+of everyone in radio range and none of that may be published. Anything the
+product does not do is marked `◇ concept`, and each page ends with a line
+naming which of its data is measured, which is synthetic, and where it came
+from. [`README_demo_kit.md`](dut-dashboard/demo/README_demo_kit.md) explains
+how that line is kept honest.
+
 ## Ground rules for contributors
 
 These apply to everyone working in this repository, **including AI coding
@@ -187,10 +213,13 @@ flowchart TD
 .
 ├── README.md · LICENSE · requirements.txt
 ├── scripts/                start_lan.sh (one-command dev/prod launcher)
-├── docs/                   architecture / integration notes
+├── docs/                   architecture / integration notes · screenshots/
 └── dut-dashboard/
     ├── backend/app/        FastAPI: api/ · db/ · dut/ · parser/ · serial/ · services/ · websocket/ · main.py · config.py
     ├── frontend/src/        React/Vite: pages/ · components/{shell,charts,…} · monitoring/ · styles/ · api/
+    ├── demo/               the demo kit — one self-contained HTML file per screen,
+    │                       build_demo_data.py to regenerate them from a real
+    │                       bundle, verify/ to drive them in a real DOM
     ├── tools/              analyzer3.py · log_event_detector.py
     ├── scripts/            sysMon.sh (DUT-side telemetry script)
     ├── data/               workspace.db + uploads/ (runtime, gitignored)
@@ -309,3 +338,9 @@ Per-DUT endpoints accept `?dut=<id>` (defaults to the `default` DUT).
 See **[`dut-dashboard/README.md`](dut-dashboard/README.md)** for the WebSocket
 event contracts, the frontend/backend module map, the log-download + CPU/memory
 plot mechanism, and the analyzer / log-event-detector tooling.
+
+See **[`dut-dashboard/demo/README_demo_kit.md`](dut-dashboard/demo/README_demo_kit.md)**
+for the demo kit: how to regenerate its data from a capture, the anonymisation
+the generator refuses to skip, and the parity bar those pages are held to —
+match the product's *observable contract*, on the test that a demo accepting
+what the product refuses has crossed the line.

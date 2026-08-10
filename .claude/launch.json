@@ -16,6 +16,13 @@
       "port": 5173
     },
     {
+      "name": "demo",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "4180"],
+      "cwd": "dut-dashboard/demo",
+      "port": 4180
+    },
+    {
       "name": "backend-8001",
       "runtimeExecutable": "../../.venv/bin/uvicorn",
       "runtimeArgs": ["app.main:app", "--port", "8001"],
