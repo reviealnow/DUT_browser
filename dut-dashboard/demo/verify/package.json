@@ -1,0 +1,15 @@
+{
+  "name": "dut-dashboard-demo-verify",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Loads the demo kit's shipped pages in a real DOM and clicks their own controls.",
+  "scripts": {
+    "test": "node verify-behaviour.mjs && node verify-navigation.mjs",
+    "behaviour": "node verify-behaviour.mjs",
+    "navigation": "node verify-navigation.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "^25.0.1"
+  }
+}

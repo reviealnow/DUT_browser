@@ -124,6 +124,37 @@ Log** flow: `build_demo_data.py` reads `*_cpu_usage.csv` (analyzer3),
 `*_wifi_clients.csv` (`tools/wifi_timeseries.py`) and
 `context/site-survey/*.json`.
 
+## Verifying a page
+
+```bash
+cd dut-dashboard/demo/verify
+npm install          # once; jsdom is its only dependency
+npm test             # behaviour, then navigation
+```
+
+`verify-behaviour.mjs` loads each shipped page into a real DOM and **clicks its
+own controls**: Send on Serial Console, Rehearse on Firmware with each pairing
+the service refuses, the expand controls on Downloads, the table on SSID
+Capability. `verify-navigation.mjs` clicks every sidebar entry on every page and
+checks each one either opens a file that exists or explains why there is none.
+
+Every assertion in there was a review finding first, and each is the kind
+reading the source did not catch — a control that existed but did the wrong
+thing, or one the product has that the demo quietly lacked. A `prompt()` where
+the product has an inline editor, and a Send that appended invented text to a
+view labelled as real output, both survived being read.
+
+**This does not contradict "no dependencies" above.** That rule is about the
+*pages*: they stay one file each, openable anywhere, with nothing to install.
+The verifier is dev tooling that never ships with them, and it is deliberately
+kept out of `frontend/` because what it verifies is this directory. It is also
+the only reason to prefer jsdom over a browser here: these pages are opened from
+disk, and `file://` is refused by both the in-app preview surface and Playwright.
+
+A harness that cannot fail is worth nothing, so check that it can: turn one
+sidebar anchor back into a `<button>` and `npm run navigation` reports
+`still a button, so it does not navigate` and exits non-zero.
+
 ## What is real and what is not
 
 This matters more than the visuals: a demo that quietly overstates the product
@@ -224,7 +255,8 @@ that page is measured or synthetic.
 * The kit ships one captured scan per screen, so Re-scan replays it — see
   *What is real and what is not*.
 * No build, no dependencies, and none should be added: the value of a demo file
-  is that it opens anywhere.
+  is that it opens anywhere. (`verify/` is dev tooling, not part of a page —
+  see *Verifying a page*.)
 * `firmware.html` cannot reach anything, and says so — but it keeps one rule
   exactly: the management API takes the **encrypted** image and the web-UI path
   takes the **signed** `.sig`. That rule is a filename *pattern*
