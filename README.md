@@ -28,20 +28,28 @@ this repository.
 
 ![Overview — fleet strip, KPI row, 40-hour CPU and client trends](docs/screenshots/overview.png)
 
-*Overview: the fleet strip, the KPI row, and 40 hours of per-core CPU and
-associated-client history from one session log.*
+*Overview: the KPI row and the 40-hour per-core CPU and associated-client
+history are **measured**, from one session log. The four-device fleet strip
+above them is **synthetic** — a one-device bench cannot produce a fleet.*
 
 | ![Site Survey](docs/screenshots/site-survey.png) | ![Downloads](docs/screenshots/downloads.png) |
 |:--|:--|
 | **Site Survey** — per-band channel charts over a real 2,438-observation neighbour scan, with the channel recommendation and the interference score behind it. | **Downloads** — what *Download DUT Log* actually produces, listed as it came off disk, with every analyzer plot embedded in the page. |
 
-The numbers are **measured, from real DUT sessions**; every SSID, BSSID, MAC and
-IP was replaced before commit, because a neighbour scan sweeps up the networks
-of everyone in radio range and none of that may be published. Anything the
-product does not do is marked `◇ concept`, and each page ends with a line
-naming which of its data is measured, which is synthetic, and where it came
-from. [`README_demo_kit.md`](dut-dashboard/demo/README_demo_kit.md) explains
-how that line is kept honest.
+**What is measured and what is not.** The CPU and memory trends, the associated
+client counts, the neighbour scan and its channel recommendation, and the file
+listing all come from real DUT sessions. The **fleet is synthetic** — a
+one-device bench cannot produce one, so `AP6_lab2` and `AP6_bench3` and their
+status, crash counts and timestamps are invented, as are the workspace files and
+notes. Every SSID, BSSID, MAC and IP that *was* captured is replaced before
+commit, because a neighbour scan sweeps up the networks of everyone in radio
+range and none of that may be published.
+
+Anything the product does not do is marked `◇ concept`, and every page ends with
+a line naming which of its own data is measured, which is synthetic, and where
+it came from. [`README_demo_kit.md`](dut-dashboard/demo/README_demo_kit.md)
+explains how that line is kept honest — the same standard this paragraph is
+held to.
 
 ## Ground rules for contributors
 
