@@ -4,9 +4,10 @@ This repo is a **browser-based** DUT monitoring dashboard (FastAPI backend +
 React/Vite frontend). Please read the ground rules and the commit conventions
 before opening a PR.
 
-> 繁體中文版：[`CONTRIBUTING.zh-TW.md`](CONTRIBUTING.zh-TW.md). This English
-> document is authoritative — if the two disagree, this one is right, and the
-> translation should be corrected to match.
+> Traditional Chinese translation:
+> [`CONTRIBUTING.zh-TW.md`](CONTRIBUTING.zh-TW.md). This English document is
+> authoritative — if the two disagree, this one is right, and the translation
+> should be corrected to match.
 
 ## Project ground rules (non-negotiable)
 
@@ -18,9 +19,13 @@ before opening a PR.
 - **Don't break existing behavior.** The serial console, Critical Crash panel,
   log download, and replay mode must keep working. Reuse the shared
   `useDutMonitor` WebSocket monitor rather than opening new `/ws` connections.
-- **Never commit runtime data.** Everything under `dut-dashboard/logs/` is
-  gitignored (session logs, `snapshots.jsonl`, analyzer output). `snapshots.jsonl`
-  may hold real captured DUT data — **do not delete it** when testing.
+- **Never commit runtime data.** The known runtime paths under
+  `dut-dashboard/logs/` are gitignored (session logs and directories,
+  `snapshots.jsonl`, analyzer output, context bundles), as is every `*.log`
+  anywhere outside the test fixtures. That is eleven specific patterns plus the
+  captures rule, **not** the whole directory: a new kind of artifact dropped in
+  there is committable until somebody adds it. `snapshots.jsonl` may hold real
+  captured DUT data — **do not delete it** when testing.
 
 ## Branching & pull requests
 

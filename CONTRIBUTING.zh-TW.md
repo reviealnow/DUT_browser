@@ -19,9 +19,12 @@
 - **不要弄壞既有行為。** 序列主控台、Critical Crash 面板、日誌下載、replay 模式
   都必須持續可用。請沿用共用的 `useDutMonitor` WebSocket monitor，不要另開新的
   `/ws` 連線。
-- **絕不 commit 執行期資料。** `dut-dashboard/logs/` 底下全部都被 gitignore
-  （session 日誌、`snapshots.jsonl`、analyzer 輸出）。`snapshots.jsonl` 可能保存
-  著真實擷取到的 DUT 資料 —— 測試時**不要刪除它**。
+- **絕不 commit 執行期資料。** `dut-dashboard/logs/` 底下**已知的**執行期路徑
+  已被 gitignore（session 日誌與目錄、`snapshots.jsonl`、analyzer 輸出、context
+  bundle），測試 fixture 以外的所有 `*.log` 也是。那是十一條特定 pattern 加上
+  捕捉檔規則，**不是整個目錄**：丟進去的新種類產物，在有人補規則之前都是可以被
+  commit 的。`snapshots.jsonl` 可能保存著真實擷取到的 DUT 資料 —— 測試時**不要
+  刪除它**。
 
 ## 分支與 Pull Request
 
@@ -58,8 +61,11 @@ phase 曾經被 squash 整個吃掉，兩天內沒有人發現。
 告訴你那個功能還在。合併後，請針對這次變更引入的東西去檢查合併後的樹：
 
 ```bash
-git grep -c '<這個 PR 新增的某個符號>' CPU_Plots -- <路徑>
+git grep -c '<a symbol the PR added>' CPU_Plots -- <path>
 ```
+
+（把 `<a symbol the PR added>` 換成這個 PR 新增的某個符號，`<path>` 換成要檢查的
+路徑。）
 
 這就是那個能抓到「悄悄消失的 phase」的檢查。改去讀分支自己的 log，正是當初讓它
 沒被發現的原因。
@@ -95,7 +101,7 @@ Co-Authored-By: Name <email>
 | `docs` | 只動文件 |
 | `test` | 只動測試 |
 | `chore` | 不觸及應用行為的維護：設定、`.gitignore`、相依套件、指令稿 |
-| `build` / `ci` | 建置系統／流水線 |
+| `build` / `ci` | 建置系統／CI 管線 |
 
 常見的 scope：`dashboard`、`backend`、`parser`、`serial`。
 
@@ -133,14 +139,17 @@ feat: add backfill and fix gitignore and tweak README   # mixes 3 categories
 ## Commit 之前（本機驗證）
 
 ```bash
-# 前端型別 —— 必須 0 錯誤
+# Frontend types — must be 0 errors
 cd dut-dashboard/frontend && npx tsc --noEmit
 
-# 後端 —— 語法 + 測試
+# Backend — syntax + tests
 cd dut-dashboard/backend
 python3 -m compileall app
-python3 -m pytest                # 如果你動到後端邏輯
+python3 -m pytest                # if you touched backend logic
 ```
+
+依序是：前端型別檢查（必須 0 錯誤）、後端語法檢查，以及後端測試 —— 最後一項在你
+動到後端邏輯時才需要跑。
 
 若變更涉及 UI 或行為，請用 replay 日誌驗證（見 dashboard 的 README）：啟動後端與
 前端，以 replay 模式 `POST /api/serial/open`（`replay_path` 要用**絕對路徑**），
@@ -152,5 +161,7 @@ python3 -m pytest                # 如果你動到後端邏輯
 一行指令啟動區域網路版本：
 
 ```bash
-./scripts/start_lan.sh      # 後端 :8000 + 前端 :5173，兩者都綁 0.0.0.0
+./scripts/start_lan.sh      # backend :8000 + frontend :5173, both on 0.0.0.0
 ```
+
+（後端 :8000、前端 :5173，兩者都綁在 0.0.0.0。）
