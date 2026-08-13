@@ -57,5 +57,17 @@ test_*-signed/
 /*.png
 /dut-dashboard/*.png
 
+# Serial captures, which land in the same two drop points while a phase is in
+# flight -- `p72b-*.log` from the firmware work is the current example. They are
+# not screenshots and the rule above does not cover them, which matters more
+# here: a capture of a flash session carries the DUT's real MAC addresses (34
+# distinct ones in the two large p72b files), and this repository is public.
+#
+# Anchored and non-recursive for the same reason as the PNGs: `dut-dashboard/
+# logs/` is already ignored wholesale, and a bare `*.log` would also swallow a
+# fixture some future test wants to commit under its own directory.
+/*.log
+/dut-dashboard/*.log
+
 # The demo kit's DOM verifier declares its own single dependency.
 dut-dashboard/demo/verify/node_modules/
