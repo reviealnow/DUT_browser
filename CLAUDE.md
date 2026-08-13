@@ -39,6 +39,38 @@ monolingual-English for consistency; speak 繁中 to the user.
   path or symbol names).
 - Do **not** add Chinese comments or Chinese commit messages to this repo.
 
+**One exception: `CONTRIBUTING.zh-TW.md`.** That one file may be written in
+Traditional Chinese, under three conditions that keep it from becoming a second
+source of truth:
+
+1. **`CONTRIBUTING.md` is authoritative.** Where the two disagree, English wins,
+   and the translation says so in its own opening lines.
+2. **It translates, it does not extend.** A rule that exists only in the
+   translation is a rule nobody else in the repository can read. Add it to the
+   English original first.
+3. **Everything around it stays English** — the filename, the commit subject and
+   body, the branch name, the PR description, and **the contents of every code
+   block, including placeholders and shell comments**. A reader who copies a
+   command out of the translation must get the same bytes as from the original;
+   explain it in Chinese outside the fence, not inside it. The English document
+   stays entirely English too — it may name the translation, but in English.
+
+**Keeping them in step is part of changing the original.** A PR that edits
+`CONTRIBUTING.md` updates the translation in the same PR, or says in its
+description why it did not. There is no automated gate for this and the
+structural comparison in that PR's history is a smoke test, not proof of
+equivalence — it counts headings, list items, table rows, blockquotes and code
+fences, so it catches a section that appeared or vanished and says nothing about
+whether a paragraph still means the same thing. Only a reader can tell you that.
+
+Named as one file on purpose, rather than as a `*.zh-TW.md` pattern. A pattern
+would permit a translated `DESIGN.md`, `README.md` or `CLAUDE.md` — anything an
+agent reads as instructions — by meeting the same three conditions, which is not
+the decision that was made. The contribution guide is the one document a new
+colleague reads *before* they can be expected to work in English all day. If a
+second translation is ever wanted, that is a fresh decision and this sentence is
+where it gets recorded.
+
 ---
 
 ## Git / commits / PRs

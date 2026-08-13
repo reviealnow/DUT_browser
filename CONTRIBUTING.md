@@ -4,6 +4,11 @@ This repo is a **browser-based** DUT monitoring dashboard (FastAPI backend +
 React/Vite frontend). Please read the ground rules and the commit conventions
 before opening a PR.
 
+> Traditional Chinese translation:
+> [`CONTRIBUTING.zh-TW.md`](CONTRIBUTING.zh-TW.md). This English document is
+> authoritative — if the two disagree, this one is right, and the translation
+> should be corrected to match.
+
 ## Project ground rules (non-negotiable)
 
 - **Browser-only.** Do **not** introduce Tauri, Rust, `src-tauri`, Electron, or
@@ -14,9 +19,14 @@ before opening a PR.
 - **Don't break existing behavior.** The serial console, Critical Crash panel,
   log download, and replay mode must keep working. Reuse the shared
   `useDutMonitor` WebSocket monitor rather than opening new `/ws` connections.
-- **Never commit runtime data.** Everything under `dut-dashboard/logs/` is
-  gitignored (session logs, `snapshots.jsonl`, analyzer output). `snapshots.jsonl`
-  may hold real captured DUT data — **do not delete it** when testing.
+- **Never commit runtime data.** The known runtime paths under
+  `dut-dashboard/logs/` are gitignored — session logs and directories,
+  `snapshots.jsonl`, analyzer output, context bundles — as is every `*.log`
+  anywhere outside the test fixtures. Those are **named patterns, not the whole
+  directory**: a new kind of artifact dropped in there is committable until
+  somebody adds a rule for it, so check with `git check-ignore <path>` rather
+  than assuming. `snapshots.jsonl` may hold real captured DUT data — **do not
+  delete it** when testing.
 
 ## Branching & pull requests
 
@@ -78,6 +88,13 @@ Optional body explaining WHY (not what). Wrap at ~72 chars.
 Refs #123
 Co-Authored-By: Name <email>
 ```
+
+> Commit-message **prose** is English, without exception: subject and body. Use
+> the standard English trailer keys (`Refs`, `Closes`, `Co-Authored-By`,
+> `Signed-off-by`), and keep trailer **values** exactly as they are — a name, an
+> email address or an issue reference is identity or data, not language, and
+> translating one breaks the attribution it exists to record. See the language
+> rules in [`CLAUDE.md`](CLAUDE.md).
 
 ### Types
 
