@@ -1,6 +1,13 @@
 # CLAUDE.md — DUT_browser (AP6_monitor)
 
-Guidance every agent session must follow in this repo. Read before editing.
+What this subproject is and the constraints its code has to hold. Read before
+editing anything under `dut-dashboard/`.
+
+> **Read [`../CLAUDE.md`](../CLAUDE.md) first.** It carries the rules that hold
+> everywhere in the repository and are not repeated here: the language rules,
+> git and PR conventions, the shared test bench, when to stop and ask, searching
+> before writing a helper, and verifying rather than asserting. This file holds
+> only what is specific to the dashboard.
 
 ## What this is
 
@@ -8,27 +15,6 @@ Browser-based DUT monitoring dashboard for AP / network-device QA.
 **FastAPI** backend (`:8000`) + **React/Vite/TypeScript** frontend (`:5173`),
 served over the LAN. It monitors a QCA/Atheros AP6 DUT over a **serial console**
 (or a replay log) and parses console output into structured telemetry.
-
----
-
-## Language rules (strict)
-
-Two separate channels — do not mix them:
-
-- **Chat with the user:** reply in **Traditional Chinese (繁體中文, Taiwan
-  conventions)**. Never Simplified characters, never Mainland phrasing.
-- **Anything committed to the repo:** **English only.** This covers code,
-  identifiers, file/dir paths, comments, docstrings, log/console strings,
-  commit subjects + bodies, branch names, and PR descriptions.
-
-Rationale: the existing codebase, CONTRIBUTING.md, and Conventional Commits are
-all English, and this is a shared repo (colleagues read it). Keep repo artifacts
-monolingual-English for consistency; speak 繁中 to the user.
-
-- Identifiers and paths stay verbatim English even when explaining them in 繁中
-  chat (e.g. say「在 `services/wifi_clients.py` 新增 parser」, do not translate the
-  path or symbol names).
-- Do **not** add Chinese comments or Chinese commit messages to this repo.
 
 ---
 
@@ -115,22 +101,11 @@ template, do not invent a new pattern:
 
 ---
 
-## Search before you write a helper
+## Shared helpers that already exist here
 
-The cheapest defect in this repo is a second copy of something that already
-exists. A real example: a clipboard-copy helper was added to the bulletin that
-duplicated `copyToClipboard` in `pages/AppShell.tsx`, down to a near-identical
-comment explaining the plain-HTTP fallback. Two copies drift — the next fix for
-Safari's selection behaviour would land in only one of them.
-
-This is a context problem, not a skill problem, so make searching a habit:
-
-```bash
-rg -n 'clipboard|execCommand' src                      # is this already solved?
-rg -n 'export function|export const' src/api/rest.ts   # what shared helpers exist?
-```
-
-Worth knowing before you start:
+`../CLAUDE.md` says to search before writing a helper. These are the ones worth
+knowing about before you start, because they are the ones that have been
+duplicated:
 
 | Where | What |
 |---|---|
@@ -139,59 +114,23 @@ Worth knowing before you start:
 | `frontend/src/pages/AppShell.tsx` | `copyToClipboard`, `downloadTextFile` |
 | `backend/app/db/workspace.py` | `_ensure_column` — the migration idiom; do not hand-write `ALTER TABLE` |
 
-If what you find is buried somewhere awkward to import from, **extract it into a
-shared module and change both call sites** rather than copying it. The
-extraction is itself worthwhile work; say so in the PR.
+Both halves of that rule have been paid for here. A clipboard-copy helper was
+once added to the bulletin that duplicated `copyToClipboard` in
+`pages/AppShell.tsx`, down to a near-identical comment explaining the plain-HTTP
+fallback — two copies, and the next fix for Safari's selection behaviour would
+have landed in only one.
 
-**When you extract, sweep the whole tree for callers that should now use it** —
-not just the two you already knew about. Search by the underlying API, not by
-your own helper's name, or you will only find yourself:
+And when that helper was finally extracted, the sweep missed a caller:
+`SettingsSection.tsx`'s invite-link button was still calling
+`navigator.clipboard?.writeText(...)` directly. On a plain-HTTP LAN origin —
+this project's main deployment — `navigator.clipboard` is `undefined`, so the
+optional chain short-circuited and the button silently did nothing, from the day
+the feature shipped. Search by the underlying API, never by your own helper's
+name, or you will only find yourself:
 
 ```bash
 rg -n 'navigator.clipboard|execCommand' src      # every caller, however written
 ```
-
-A real case: extracting the clipboard helper left
-`SettingsSection.tsx`'s invite-link button still calling
-`navigator.clipboard?.writeText(...)` directly. On a plain-HTTP LAN origin —
-this project's main deployment — `navigator.clipboard` is `undefined`, so the
-optional chain short-circuits and the button silently does nothing. A one-line
-switch to the shared helper fixes a user-visible bug that had been there since
-the feature shipped. Extractions are the cheapest moment to find these, because
-you are already looking at every way the thing is done.
-
-Searching catches duplicates. It will not tell you the existing code is wrong —
-copying a flawed helper faithfully is still a flaw — so this habit reduces
-review load, it does not replace review.
-
----
-
-## Stop and ask
-
-Most decisions here are yours to make. These are not — surface them and wait,
-because the cost of being wrong is paid by someone else, later:
-
-- **A new dependency.** Including a test runner or a linter. Write the case for
-  it (what it buys, what it costs, what it changes about CI) and let a human
-  decide; do not add it as a side effect of another change.
-- **An API shape other code consumes** — a response field, an exported type, a
-  route's status codes. Callers you cannot see may rely on it.
-- **Anything touching auth/roles, the serial worker, or the firmware transport.**
-  The failure modes are asymmetric: a weakened gate, a stolen serial port, or a
-  half-flashed device costs far more than the change was worth.
-- **Anything that needs the DUT or the serial port.** They are single-owner and
-  shared with other sessions — see "Shared hardware" below.
-- **A new architectural shape**: a new top-level directory, a second way of
-  doing something the codebase already does one way.
-- **Existing code that looks wrong.** Do not copy it, and do not quietly fix it
-  inside an unrelated change either. Say what you found; a drive-by fix with no
-  explanation is indistinguishable from a mistake at review time. (If it *is*
-  in scope — an extraction that reveals a broken caller — fix it and list it
-  **separately** in the PR, because a pre-existing user-visible bug is
-  changelog news, not a footnote to a feature.)
-
-Asking is cheap. The expensive version is discovering the answer in review,
-after the work is built on top of it.
 
 ---
 
@@ -208,34 +147,6 @@ occupies the read loop and **briefly pauses sysmon parsing**. Therefore:
 - Wrap each capture in `try/except RuntimeError` (backend) — one VAP/command
   failing must not abort the whole batch. Missing fields parse to `None`, never
   raise.
-
----
-
-## Shared hardware — one bench, several sessions
-
-Sessions (increasingly several agents at once) share **one** physical test bench.
-Check before you take anything:
-
-- **The serial port admits exactly one process.** `lsof /dev/cu.PL2303G-*`
-  before opening it. If the backend holds it, a `minicom` will fail with
-  `Resource busy` — and vice versa, which silently costs the app its console.
-- **Hand the port back for console logins.** The DUT requires a login on its
-  serial console after every reboot, and only a human can do it. Release the
-  port, confirm it is free, and wait for confirmation that the prompt reads
-  `AP6_840E#` before reattaching. Output captured at the bootloader's `cmd>`
-  prompt is empty and must not be read as data.
-- **The DUT is one device.** Firmware upgrades, site surveys and serial captures
-  interfere. After any web-UI submit the DUT answers `/submit.cgi` with
-  `301 → /busy.html` for several minutes, before its CGI even runs.
-- **Never power-cycle a DUT that may be writing flash.** A flash is confirmed by
-  the device's own console output and audit log — not by an HTTP status, and not
-  by the UI's "Connected" label, which survives a backend restart that has
-  already dropped the SerialWorker.
-- **`:8000` / `:5173` belong to whoever started first.** `.claude/launch.json`
-  carries a `backend-8001` profile. For parallel work use
-  `git worktree add -b <branch> ../DUT_browser-<purpose> CPU_Plots`; a fresh
-  worktree inherits none of the gitignored parts (`.venv`, `data/`,
-  `node_modules`).
 
 ---
 
@@ -268,24 +179,12 @@ Keep the tree green (typecheck passes, tests pass) at **every** commit.
 
 ---
 
-## Git / commits / PRs
-
-- Branch from **`CPU_Plots`** (the pre-Tauri line). Open PRs against `CPU_Plots`.
-  **Never** target `main` or `Tauri`.
-- Branch names by type: `feat/...`, `fix/...`, `docs/...`.
-- **Conventional Commits**, **atomic** (one logical change per commit), English:
-  ```
-  type(scope): short imperative subject
-
-  Optional body explaining WHY (not what). Wrap ~72 chars.
-  ```
-  Types: `feat` `fix` `docs` `refactor` `test` `chore` (see CONTRIBUTING.md).
-
----
-
 ## Pre-commit checklist
 
-- [ ] Repo artifacts are **English** (code, comments, commits, paths).
+Repo-wide items — English artifacts, Conventional Commits, branched from
+`CPU_Plots`, nothing staged by `git add -A`, the serial port handed back — are
+in [`../CLAUDE.md`](../CLAUDE.md). These are the dashboard's own:
+
 - [ ] No Tauri/Electron/Rust; no CDN; no chart/UI lib added to render path.
 - [ ] No new `/ws`; on-demand work uses REST + `capture_command`.
 - [ ] No serial background-polling; captures coalesced + DUT-scoped.
@@ -293,5 +192,5 @@ Keep the tree green (typecheck passes, tests pass) at **every** commit.
 - [ ] New endpoints gated in `main.py`; authorship from the session, not the client.
 - [ ] `npm run typecheck` and `pytest` pass, and a reverted fix turns a test red.
 - [ ] Nothing under `dut-dashboard/logs/` or `data/` staged; `snapshots.jsonl` intact.
-- [ ] Serial port released if a human needs the console; no DUT left mid-flash.
-- [ ] Branched from `CPU_Plots`; Conventional Commits; existing features unbroken.
+- [ ] Existing features unbroken: serial console, Critical Crash panel, log
+      download and replay mode all still work.
