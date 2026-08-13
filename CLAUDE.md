@@ -133,9 +133,15 @@ already exists. Two copies drift, and the next fix lands in only one of them.
 
 This is a context problem, not a skill problem, so make searching a habit:
 
+Paths are from the repository root, where this file is, because a command that
+fails silently in the one section meant to prevent duplicate helpers is worse
+than no command at all:
+
 ```bash
-rg -n 'clipboard|execCommand' src                      # is this already solved?
-rg -n 'export function|export const' src/api/rest.ts   # what shared helpers exist?
+# is this already solved?
+rg -n 'clipboard|execCommand' dut-dashboard/frontend/src
+# what shared helpers exist?
+rg -n 'export function|export const' dut-dashboard/frontend/src/api/rest.ts
 ```
 
 If what you find is buried somewhere awkward to import from, **extract it into a

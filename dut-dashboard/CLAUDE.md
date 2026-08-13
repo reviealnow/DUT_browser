@@ -111,14 +111,17 @@ duplicated:
 |---|---|
 | `frontend/src/api/rest.ts` | typed REST client, `humanizeApiError`, `imageKind`, `listQuery` |
 | `frontend/src/monitoring/authorColor.ts` | author colour tags, shared by `TagChip` / `FilesSection` / `AuthorTag` |
-| `frontend/src/pages/AppShell.tsx` | `copyToClipboard`, `downloadTextFile` |
+| `frontend/src/utils/clipboard.ts` | `copyToClipboard` — the plain-HTTP fallback lives here, not at the call sites |
+| `frontend/src/pages/AppShell.tsx` | `downloadTextFile` |
 | `backend/app/db/workspace.py` | `_ensure_column` — the migration idiom; do not hand-write `ALTER TABLE` |
 
 Both halves of that rule have been paid for here. A clipboard-copy helper was
-once added to the bulletin that duplicated `copyToClipboard` in
-`pages/AppShell.tsx`, down to a near-identical comment explaining the plain-HTTP
-fallback — two copies, and the next fix for Safari's selection behaviour would
-have landed in only one.
+once added to the bulletin that duplicated `copyToClipboard` — then still living
+in `pages/AppShell.tsx` — down to a near-identical comment explaining the
+plain-HTTP fallback. Two copies, and the next fix for Safari's selection
+behaviour would have landed in only one. It has since been extracted to
+`utils/clipboard.ts`, which is why the table above points there and this
+paragraph does not.
 
 And when that helper was finally extracted, the sweep missed a caller:
 `SettingsSection.tsx`'s invite-link button was still calling
@@ -129,7 +132,8 @@ the feature shipped. Search by the underlying API, never by your own helper's
 name, or you will only find yourself:
 
 ```bash
-rg -n 'navigator.clipboard|execCommand' src      # every caller, however written
+# from dut-dashboard/ — every caller, however it was written
+rg -n 'navigator.clipboard|execCommand' frontend/src
 ```
 
 ---
