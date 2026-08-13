@@ -4,6 +4,10 @@ This repo is a **browser-based** DUT monitoring dashboard (FastAPI backend +
 React/Vite frontend). Please read the ground rules and the commit conventions
 before opening a PR.
 
+> 繁體中文版：[`CONTRIBUTING.zh-TW.md`](CONTRIBUTING.zh-TW.md). This English
+> document is authoritative — if the two disagree, this one is right, and the
+> translation should be corrected to match.
+
 ## Project ground rules (non-negotiable)
 
 - **Browser-only.** Do **not** introduce Tauri, Rust, `src-tauri`, Electron, or
