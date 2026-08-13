@@ -19,12 +19,12 @@
 - **不要弄壞既有行為。** 序列主控台、Critical Crash 面板、日誌下載、replay 模式
   都必須持續可用。請沿用共用的 `useDutMonitor` WebSocket monitor，不要另開新的
   `/ws` 連線。
-- **絕不 commit 執行期資料。** `dut-dashboard/logs/` 底下**已知的**執行期路徑
-  已被 gitignore（session 日誌與目錄、`snapshots.jsonl`、analyzer 輸出、context
-  bundle），測試 fixture 以外的所有 `*.log` 也是。那是十一條特定 pattern 加上
-  捕捉檔規則，**不是整個目錄**：丟進去的新種類產物，在有人補規則之前都是可以被
-  commit 的。`snapshots.jsonl` 可能保存著真實擷取到的 DUT 資料 —— 測試時**不要
-  刪除它**。
+- **絕不 commit 執行期資料。** `dut-dashboard/logs/` 底下**已知的**執行期路徑已被
+  gitignore —— session 日誌與目錄、`snapshots.jsonl`、analyzer 輸出、context
+  bundle —— 測試 fixture 以外的所有 `*.log` 也是。那些是**逐一指名的 pattern，
+  不是整個目錄**：丟進去的新種類產物，在有人替它補上規則之前都是可以被 commit
+  的，所以請用 `git check-ignore <path>` 確認，不要用猜的。`snapshots.jsonl`
+  可能保存著真實擷取到的 DUT 資料 —— 測試時**不要刪除它**。
 
 ## 分支與 Pull Request
 

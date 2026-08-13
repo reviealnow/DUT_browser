@@ -20,12 +20,13 @@ before opening a PR.
   log download, and replay mode must keep working. Reuse the shared
   `useDutMonitor` WebSocket monitor rather than opening new `/ws` connections.
 - **Never commit runtime data.** The known runtime paths under
-  `dut-dashboard/logs/` are gitignored (session logs and directories,
-  `snapshots.jsonl`, analyzer output, context bundles), as is every `*.log`
-  anywhere outside the test fixtures. That is eleven specific patterns plus the
-  captures rule, **not** the whole directory: a new kind of artifact dropped in
-  there is committable until somebody adds it. `snapshots.jsonl` may hold real
-  captured DUT data — **do not delete it** when testing.
+  `dut-dashboard/logs/` are gitignored — session logs and directories,
+  `snapshots.jsonl`, analyzer output, context bundles — as is every `*.log`
+  anywhere outside the test fixtures. Those are **named patterns, not the whole
+  directory**: a new kind of artifact dropped in there is committable until
+  somebody adds a rule for it, so check with `git check-ignore <path>` rather
+  than assuming. `snapshots.jsonl` may hold real captured DUT data — **do not
+  delete it** when testing.
 
 ## Branching & pull requests
 
