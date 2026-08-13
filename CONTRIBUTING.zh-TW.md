@@ -87,8 +87,11 @@ Refs #123
 Co-Authored-By: Name <email>
 ```
 
-> commit 訊息一律使用**英文**，沒有例外 —— 主旨、內文、trailer 都是。見
-> [`CLAUDE.md`](CLAUDE.md) 的 language rules。
+> commit 訊息的**敘述文字**一律使用英文，沒有例外：主旨與內文。trailer 請用標準
+> 的英文 key（`Refs`、`Closes`、`Co-Authored-By`、`Signed-off-by`），而 trailer
+> 的**值**要原樣保留 —— 姓名、email、issue 編號屬於身分或資料，不是語言，翻譯它
+> 會破壞它存在的目的：attribution。見 [`CLAUDE.md`](CLAUDE.md) 的 language
+> rules。
 
 ### 類型
 

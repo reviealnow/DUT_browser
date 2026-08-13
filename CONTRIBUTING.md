@@ -89,8 +89,12 @@ Refs #123
 Co-Authored-By: Name <email>
 ```
 
-> Commit messages are **English**, without exception — subject, body and trailer
-> alike. See the language rules in [`CLAUDE.md`](CLAUDE.md).
+> Commit-message **prose** is English, without exception: subject and body. Use
+> the standard English trailer keys (`Refs`, `Closes`, `Co-Authored-By`,
+> `Signed-off-by`), and keep trailer **values** exactly as they are — a name, an
+> email address or an issue reference is identity or data, not language, and
+> translating one breaks the attribution it exists to record. See the language
+> rules in [`CLAUDE.md`](CLAUDE.md).
 
 ### Types
 

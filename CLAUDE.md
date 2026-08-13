@@ -55,6 +55,14 @@ source of truth:
    explain it in Chinese outside the fence, not inside it. The English document
    stays entirely English too — it may name the translation, but in English.
 
+**Keeping them in step is part of changing the original.** A PR that edits
+`CONTRIBUTING.md` updates the translation in the same PR, or says in its
+description why it did not. There is no automated gate for this and the
+structural comparison in that PR's history is a smoke test, not proof of
+equivalence — it counts headings, list items, table rows, blockquotes and code
+fences, so it catches a section that appeared or vanished and says nothing about
+whether a paragraph still means the same thing. Only a reader can tell you that.
+
 Named as one file on purpose, rather than as a `*.zh-TW.md` pattern. A pattern
 would permit a translated `DESIGN.md`, `README.md` or `CLAUDE.md` — anything an
 agent reads as instructions — by meeting the same three conditions, which is not
