@@ -57,17 +57,25 @@ test_*-signed/
 /*.png
 /dut-dashboard/*.png
 
-# Serial captures, which land in the same two drop points while a phase is in
-# flight -- `p72b-*.log` from the firmware work is the current example. They are
-# not screenshots and the rule above does not cover them, which matters more
-# here: a capture of a flash session carries the DUT's real MAC addresses (34
-# distinct ones in the two large p72b files), and this repository is public.
+# Serial captures. Unlike the screenshots above, these are ignored EVERYWHERE and
+# legitimate fixtures are allowlisted back in. The two defaults point opposite
+# ways on purpose, because the two mistakes cost different amounts: miss a new
+# fixture and a test fails, which somebody sees within the hour; miss a capture
+# and third-party identifiers are published, which nobody can take back. A
+# capture of a flash session carries the DUT's real MAC addresses -- 34 distinct
+# ones in each of the two large p72b files -- and this repository is public.
 #
-# Anchored and non-recursive for the same reason as the PNGs: `dut-dashboard/
-# logs/` is already ignored wholesale, and a bare `*.log` would also swallow a
-# fixture some future test wants to commit under its own directory.
-/*.log
-/dut-dashboard/*.log
+# Enumerating drop points was tried here first and was wrong. `dut-dashboard/
+# logs/` is NOT ignored wholesale: it lists eleven specific patterns, so
+# `dut-dashboard/logs/p72b-flash.log` stayed committable -- the most natural
+# place of all to save one.
+#
+# The exception is the fixture subtree rather than one filename, because
+# wifi_timeseries already tracks a marked capture and more are plausible.
+# Anything outside it needs `git add -f`, which is friction pointing the right
+# way.
+*.log
+!dut-dashboard/backend/tests/fixtures/**/*.log
 
 # The demo kit's DOM verifier declares its own single dependency.
 dut-dashboard/demo/verify/node_modules/
