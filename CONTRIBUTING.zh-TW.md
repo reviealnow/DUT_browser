@@ -87,8 +87,8 @@ Refs #123
 Co-Authored-By: Name <email>
 ```
 
-> commit 訊息本身一律使用英文，這一點沒有例外 —— 見
-> [`CLAUDE.md`](CLAUDE.md) 的 Language rules。
+> commit 訊息一律使用**英文**，沒有例外 —— 主旨、內文、trailer 都是。見
+> [`CLAUDE.md`](CLAUDE.md) 的 language rules。
 
 ### 類型
 

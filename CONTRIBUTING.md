@@ -89,6 +89,9 @@ Refs #123
 Co-Authored-By: Name <email>
 ```
 
+> Commit messages are **English**, without exception — subject, body and trailer
+> alike. See the language rules in [`CLAUDE.md`](CLAUDE.md).
+
 ### Types
 
 | Type | Use for |
