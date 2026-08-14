@@ -133,10 +133,13 @@ export default function FirmwareSection({ dutId }: { dutId: string }) {
   // the type-the-name confirmation — which is exactly what the removed rehearse
   // button used to offer, kept here instead of dropped.
   const needsDut = !dryRunForced;
+  // Short on purpose. The full explanation is already in the red block beside
+  // the picker, which is where the operator fixes it; repeating the sentence
+  // verbatim at the button reads like a rendering bug.
   const blocker = !chosen
     ? "Choose a firmware image to continue."
     : mismatch
-      ? mismatch
+      ? "This image does not fit the selected upload path — see above."
       : needsDut && !dut?.mgmt_url
         ? "No management address for this DUT — set it under DUT access below."
         : needsDut && !(config?.has_credentials ?? false)

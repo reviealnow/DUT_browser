@@ -167,8 +167,9 @@ const report = reporter();
   setImage("wifix.tar.gz.sig");
   report.ok("API + signed .sig is refused on screen",
     document.getElementById("mismatch").textContent.includes("only the web UI accepts"));
-  report.ok("…and the refusal reaches the action, not just a paragraph above it",
-    !canFlash() && summary().includes("only the web UI accepts"));
+  report.ok("…and the refusal reaches the action, without repeating itself there",
+    !canFlash() && summary().includes("does not fit the selected upload path") &&
+    !summary().includes("only the web UI accepts"));
 
   setTransport("gui");
   setImage("release-notes-1.10.339.txt");

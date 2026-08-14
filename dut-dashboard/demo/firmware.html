@@ -397,7 +397,8 @@ function render(){
      blocking here would teach a stricter rule than ships. It is shown above and
      stops the flow at the confirm dialog, which is where the product stops. */
   const blocker = !file ? "Choose a firmware image to continue."
-    : mismatchReason() ? mismatchReason()
+    // Short on purpose: the full sentence is in the red block beside the picker.
+    : mismatchReason() ? "This image does not fit the selected upload path — see above."
     : !addr ? "No management address for this DUT — set it above."
     : !DATA.hasCredentials ? "No DUT API credentials stored — set them under DUT access."
     : null;
