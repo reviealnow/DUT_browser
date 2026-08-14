@@ -1715,6 +1715,148 @@ body {
   cursor: not-allowed;
 }
 
+/* Firmware upgrade form.
+ *
+ * Laid out as label-left / control-right rows rather than a stack of loose
+ * fields, so the page reads as "these are the four decisions" instead of a
+ * scroll. The two upload paths are radios, not a <select>: there are exactly
+ * two, they are not interchangeable, and each carries a note the operator has
+ * to compare against the image they hold — a dropdown hides the option you did
+ * not pick, which is the one you need to read. */
+.fw-field {
+  display: grid;
+  grid-template-columns: 170px minmax(0, 1fr);
+  gap: var(--space-4);
+  padding: var(--space-4) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.fw-field:first-child {
+  padding-top: 0;
+}
+
+.fw-field-label {
+  font-weight: 600;
+  font-size: 13px;
+  padding-top: 6px;
+}
+
+.fw-field-control {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.fw-choices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.fw-choice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+}
+
+.fw-choice.active {
+  border-color: var(--accent);
+  background: var(--accent-weak);
+}
+
+.fw-choice input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.fw-choice-main {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.fw-choice-note {
+  grid-column: 2;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* The image-source pair is a plain inline radio row: the two labels say
+ * everything, so the boxed treatment above would be noise. */
+.fw-choices.inline {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+.fw-choices.inline .fw-choice,
+.fw-choices.inline .fw-choice.active {
+  border: 0;
+  padding: 0;
+  background: none;
+}
+
+.fw-chosen {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.fw-chosen strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+/* One action, full width, filled — not one of two equal-weight outlines. */
+.fw-action {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-top: var(--space-4);
+}
+
+.fw-action-summary {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.btn.fw-flash {
+  width: 100%;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  padding: var(--space-3) var(--space-4);
+}
+
+.btn.danger-btn.fw-flash:not(:disabled) {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+
+.btn.danger-btn.fw-flash:hover:not(:disabled) {
+  filter: brightness(0.9);
+}
+
+@media (max-width: 720px) {
+  .fw-field {
+    grid-template-columns: 1fr;
+    gap: var(--space-2);
+  }
+
+  .fw-field-label {
+    padding-top: 0;
+  }
+}
+
 .fw-progress {
   display: flex;
   flex-direction: column;

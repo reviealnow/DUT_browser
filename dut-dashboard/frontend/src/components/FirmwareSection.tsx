@@ -8,6 +8,20 @@
  * is shown and can be matched against the customer's published value, and the
  * confirm dialog spells out what a power loss does and stays disabled until the
  * DUT's name is typed back.
+ *
+ * The form is four labelled rows ending in one filled button, because an
+ * operator holding a firmware image is making four decisions and then
+ * committing. Two things are deliberately not here:
+ *
+ * - A "rehearse (dry run)" button beside the real one. Everything a rehearsal
+ *   proved -- the checksum, the image/transport pairing, the target URL -- is
+ *   on screen before you click, so the button bought nothing and cost the
+ *   destructive action its visual primacy. The dry-run *capability* is
+ *   untouched: `DUT_FIRMWARE_DRY_RUN` still makes a deployment unable to flash,
+ *   and this form turns into a rehearse-only form when it is set.
+ * - A <select> for the upload path. Two options that take different, non-
+ *   interchangeable images are a radio group; a dropdown hides the branch you
+ *   did not pick, which is the one you need in order to check you picked right.
  */
 import { FormEvent, useEffect, useState, useSyncExternalStore } from "react";
 
@@ -35,6 +49,7 @@ export default function FirmwareSection({ dutId }: { dutId: string }) {
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
   const [config, setConfig] = useState<FirmwareConfig | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
+  const [source, setSource] = useState<"upload" | "workspace">("upload");
   const [expected, setExpected] = useState("");
   const [confirming, setConfirming] = useState(false);
   const [typed, setTyped] = useState("");
@@ -96,7 +111,6 @@ export default function FirmwareSection({ dutId }: { dutId: string }) {
   const chosen = files.find((f) => f.id === selected) ?? null;
   const dut = config?.duts.find((d) => d.id === dutId) ?? null;
   const dryRunForced = config?.dry_run ?? false;
-  const ready = Boolean(dut?.mgmt_url) && (config?.has_credentials ?? false);
 
   const transports = config?.transports ?? [];
   const activeTransport = transports.find((t) => t.id === transport) ?? transports[0] ?? null;
@@ -108,6 +122,29 @@ export default function FirmwareSection({ dutId }: { dutId: string }) {
     activeTransport && chosenKind !== "unknown" && chosenKind !== activeTransport.image
       ? `${chosen?.filename} is the ${chosenKind} image; “${activeTransport.label}” needs the ${activeTransport.image} one.`
       : null;
+
+  // Split the workspace listing rather than filtering it. Every file in there is
+  // still reachable — the point is that a listing of session logs and CSVs is
+  // not a firmware picker, so the images come first under their own heading.
+  const images = files.filter((f) => imageKind(f.filename) !== "unknown");
+  const others = files.filter((f) => imageKind(f.filename) === "unknown");
+
+  // A forced dry run cannot reach the DUT, so it needs neither credentials nor
+  // the type-the-name confirmation — which is exactly what the removed rehearse
+  // button used to offer, kept here instead of dropped.
+  const needsDut = !dryRunForced;
+  // Short on purpose. The full explanation is already in the red block beside
+  // the picker, which is where the operator fixes it; repeating the sentence
+  // verbatim at the button reads like a rendering bug.
+  const blocker = !chosen
+    ? "Choose a firmware image to continue."
+    : mismatch
+      ? "This image does not fit the selected upload path — see above."
+      : needsDut && !dut?.mgmt_url
+        ? "No management address for this DUT — set it under DUT access below."
+        : needsDut && !(config?.has_credentials ?? false)
+          ? "No DUT API credentials stored — set them under DUT access below."
+          : null;
 
   const flash = async (rehearse: boolean) => {
     if (!chosen) {
@@ -148,117 +185,197 @@ export default function FirmwareSection({ dutId }: { dutId: string }) {
               DRY RUN — this deployment cannot flash
             </div>
           ) : null}
-          {!ready ? (
-            <div className="flash">
-              {!dut?.mgmt_url
-                ? "No management address set for this DUT — set it below before upgrading."
-                : "No DUT API credentials stored — set them below before upgrading."}
-            </div>
-          ) : null}
 
-          <label className="modal-label">
-            Upload path
-            <select
-              className="input"
-              value={transport}
-              onChange={(e) => setTransport(e.target.value)}
-            >
-              {transports.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          {activeTransport ? (
-            <div className="setting-hint">
-              POSTs to <code>{activeTransport.path}</code> on port {activeTransport.port}. The DUT
-              accepts only the <strong>{activeTransport.image}</strong> image here — the other path
-              takes the other type, and they are not interchangeable.
+          <div className="fw-field">
+            <div className="fw-field-label" id="fw-path-label">
+              Upload path
             </div>
-          ) : null}
-
-          <label className="modal-label">
-            Firmware image
-            <input
-              className="input"
-              type="file"
-              accept=".sig,.bin"
-              disabled={uploading || busy}
-              onChange={(e) => {
-                const picked = e.target.files?.[0];
-                // Clear the input so picking the same file twice still fires a
-                // change event, e.g. after a failed upload.
-                e.target.value = "";
-                if (picked) {
-                  void uploadImage(picked);
-                }
-              }}
-            />
-          </label>
-          <div className="setting-hint">
-            {uploading
-              ? "Uploading…"
-              : "Uploads into the shared Files workspace and is selected below. Images already there can be picked directly."}
+            <div className="fw-field-control">
+              <div className="fw-choices" role="radiogroup" aria-labelledby="fw-path-label">
+                {transports.map((t) => (
+                  <label key={t.id} className={`fw-choice ${transport === t.id ? "active" : ""}`}>
+                    <input
+                      type="radio"
+                      name="fw-transport"
+                      value={t.id}
+                      checked={transport === t.id}
+                      onChange={() => setTransport(t.id)}
+                      disabled={busy}
+                    />
+                    <span className="fw-choice-main">{t.label}</span>
+                    <span className="fw-choice-note">
+                      Takes the <strong>{t.image}</strong> image only · POSTs to{" "}
+                      <code>{t.path}</code> on port {t.port}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
           </div>
 
-          <label className="modal-label">
-            Or choose one already uploaded
-            <select
-              className="input"
-              value={selected ?? ""}
-              onChange={(e) => setSelected(e.target.value ? Number(e.target.value) : null)}
-            >
-              <option value="">Select an uploaded file…</option>
-              {files.map((file) => (
-                <option key={file.id} value={file.id}>
-                  {file.filename} ({Math.round(file.size / 1024 / 1024)} MB)
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {mismatch ? (
-            <div className="flash" style={{ color: "var(--danger)" }}>
-              {mismatch}
+          <div className="fw-field">
+            <div className="fw-field-label" id="fw-source-label">
+              Firmware image
             </div>
-          ) : null}
+            <div className="fw-field-control">
+              <div
+                className="fw-choices inline"
+                role="radiogroup"
+                aria-labelledby="fw-source-label"
+              >
+                <label className={`fw-choice ${source === "upload" ? "active" : ""}`}>
+                  <input
+                    type="radio"
+                    name="fw-source"
+                    checked={source === "upload"}
+                    onChange={() => setSource("upload")}
+                    disabled={busy}
+                  />
+                  <span className="fw-choice-main">a file on your PC</span>
+                </label>
+                <label className={`fw-choice ${source === "workspace" ? "active" : ""}`}>
+                  <input
+                    type="radio"
+                    name="fw-source"
+                    checked={source === "workspace"}
+                    onChange={() => setSource("workspace")}
+                    disabled={busy}
+                  />
+                  <span className="fw-choice-main">
+                    already in the Files workspace ({images.length})
+                  </span>
+                </label>
+              </div>
 
-          {chosen ? (
-            <div className="setting-hint">
-              SHA-256:{" "}
-              <code className="invite-url">{chosen.sha256 ?? "not recorded (uploaded before checksums)"}</code>
+              {source === "upload" ? (
+                <>
+                  <input
+                    className="input"
+                    type="file"
+                    accept=".sig,.bin"
+                    aria-label="Firmware image to upload"
+                    disabled={uploading || busy}
+                    onChange={(e) => {
+                      const picked = e.target.files?.[0];
+                      // Clear the input so picking the same file twice still fires a
+                      // change event, e.g. after a failed upload.
+                      e.target.value = "";
+                      if (picked) {
+                        void uploadImage(picked);
+                      }
+                    }}
+                  />
+                  <div className="setting-hint">
+                    {uploading
+                      ? "Uploading…"
+                      : "Lands in the shared Files workspace — checksummed and attributable — and is selected here."}
+                  </div>
+                </>
+              ) : (
+                <select
+                  className="input"
+                  aria-label="Firmware image from the workspace"
+                  value={selected ?? ""}
+                  disabled={busy}
+                  onChange={(e) => setSelected(e.target.value ? Number(e.target.value) : null)}
+                >
+                  <option value="">Select an uploaded file…</option>
+                  {images.length ? (
+                    <optgroup label="Firmware images">
+                      {images.map((file) => (
+                        <option key={file.id} value={file.id}>
+                          {file.filename} · {imageKind(file.filename)} ·{" "}
+                          {Math.round(file.size / 1024 / 1024)} MB
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : null}
+                  {others.length ? (
+                    <optgroup label="Other workspace files (not recognised as firmware)">
+                      {others.map((file) => (
+                        <option key={file.id} value={file.id}>
+                          {file.filename} · {Math.round(file.size / 1024 / 1024)} MB
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : null}
+                </select>
+              )}
+
+              {chosen ? (
+                <div className="fw-chosen">
+                  <strong>{chosen.filename}</strong>
+                  <span>
+                    {Math.round(chosen.size / 1024 / 1024)} MB · {chosenKind} image
+                  </span>
+                </div>
+              ) : null}
+
+              {mismatch ? (
+                <div className="flash" style={{ color: "var(--danger)" }}>
+                  {mismatch}
+                </div>
+              ) : null}
             </div>
-          ) : null}
+          </div>
 
-          <label className="modal-label">
-            Expected SHA-256 (optional — from the customer; mismatch blocks the upload)
-            <input
-              className="input"
-              value={expected}
-              onChange={(e) => setExpected(e.target.value)}
-              placeholder="paste the published checksum to verify against"
-              spellCheck={false}
-            />
-          </label>
+          <div className="fw-field">
+            <div className="fw-field-label">Checksum</div>
+            <div className="fw-field-control">
+              <div className="setting-hint">
+                SHA-256 of the selected image:{" "}
+                <code className="invite-url">
+                  {chosen
+                    ? (chosen.sha256 ?? "not recorded (uploaded before checksums)")
+                    : "— no image selected"}
+                </code>
+              </div>
+              <input
+                className="input"
+                aria-label="Expected SHA-256"
+                value={expected}
+                onChange={(e) => setExpected(e.target.value)}
+                placeholder="optional — paste the customer's published checksum"
+                spellCheck={false}
+                disabled={busy}
+              />
+              <div className="setting-hint">
+                Optional. If filled in, a value that does not match blocks the upload.
+              </div>
+            </div>
+          </div>
 
-          <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
-            {/* Rehearsing needs no confirmation: it cannot reach the DUT. */}
+          <div className="fw-action">
+            <div className="fw-action-summary">
+              {blocker ? (
+                blocker
+              ) : dryRunForced ? (
+                <>
+                  Rehearsal only — this deployment has <code>DUT_FIRMWARE_DRY_RUN</code> set and
+                  nothing will be sent to <strong>{dutId}</strong>.
+                </>
+              ) : (
+                <>
+                  Will flash <strong>{chosen?.filename}</strong> to <strong>{dutId}</strong> at{" "}
+                  <code>
+                    {dut?.mgmt_url}
+                    {activeTransport?.path}
+                  </code>{" "}
+                  via {activeTransport?.label}.
+                </>
+              )}
+            </div>
             <button
               type="button"
-              className="btn"
-              disabled={!chosen || busy}
-              onClick={() => void flash(true)}
+              className="btn danger-btn fw-flash"
+              disabled={Boolean(blocker) || busy}
+              onClick={() => (dryRunForced ? void flash(true) : setConfirming(true))}
             >
-              Rehearse (dry run)
-            </button>
-            <button
-              type="button"
-              className="btn danger-btn"
-              disabled={!chosen || busy || !ready}
-              onClick={() => setConfirming(true)}
-            >
-              Upgrade firmware…
+              {busy
+                ? "Working…"
+                : dryRunForced
+                  ? "Rehearse upgrade (dry run)"
+                  : "Upgrade firmware…"}
             </button>
           </div>
 

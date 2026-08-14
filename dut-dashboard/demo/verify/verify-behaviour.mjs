@@ -112,7 +112,13 @@ const report = reporter();
   const document = window.document;
   const fire = (id, event) => document.getElementById(id)
     .dispatchEvent(new window.Event(event, { bubbles: true }));
-  const setTransport = (value) => { document.getElementById("transport").value = value; fire("transport", "change"); };
+  // The upload path is a radio group, not a <select>: click the option the way
+  // an operator does rather than assigning a value the control no longer has.
+  const setTransport = (value) => {
+    const radio = document.querySelector(`#transport input[value="${value}"]`);
+    radio.checked = true;
+    radio.dispatchEvent(new window.Event("change", { bubbles: true }));
+  };
   const setImage = (prefix) => {
     const option = [...document.getElementById("image").options].find(o => o.textContent.startsWith(prefix));
     document.getElementById("image").value = option.value;
@@ -120,13 +126,26 @@ const report = reporter();
   };
   const setAddress = (value) => { document.getElementById("mgmt").value = value; fire("mgmt", "input"); };
   const setExpected = (value) => { document.getElementById("expected").value = value; fire("expected", "input"); };
-  const rehearse = () => {
-    click(window, document.getElementById("btnRehearse"));
-    return document.getElementById("outcome").textContent;
-  };
+  // What the operator is told and whether the one action is available. This
+  // replaces the old rehearse-button probe: the product has no such button, so
+  // a demo that kept one would be showing a control that does not exist.
+  const summary = () => document.getElementById("actionSummary").textContent;
+  const canFlash = () => !document.getElementById("btnUpgrade").disabled;
 
   report.ok("the capability boundary is stated next to the actions",
     document.querySelector(".bounds")?.textContent.includes("does not upload") === true);
+
+  report.ok("both upload paths are readable at once, not hidden behind a dropdown",
+    document.querySelectorAll("#transport .fw-choice").length === 2 &&
+    document.querySelector("#transport").textContent.includes("signed") &&
+    document.querySelector("#transport").textContent.includes("encrypted"));
+
+  report.ok("the workspace picker groups images apart from everything else",
+    [...document.querySelectorAll("#image optgroup")].map(g => g.label).join("|")
+      === "Firmware images|Other workspace files (not recognised as firmware)");
+
+  report.ok("nothing can be flashed before an image is chosen",
+    !canFlash() && summary().includes("Choose a firmware image"));
 
   // normalise_mgmt_url: an explicit port is always kept; a missing one gets the
   // transport's default.
@@ -140,33 +159,35 @@ const report = reporter();
   report.ok("a bare address gets the transport's own port",
     document.getElementById("addrNote").textContent.includes("https://198.51.100.20:10443/ap/"));
 
-  report.ok("a correct pairing rehearses", rehearse().includes("Dry run complete"));
+  report.ok("a correct pairing names the exact target on the button's own line",
+    canFlash() && summary().includes("198.51.100.20:10443/ap/systemctl/sysFwUpgrade"));
 
   // check_image_for_transport: the API takes the encrypted image, the web UI the
   // signed one — and an unrecognised name is allowed through on purpose.
   setImage("wifix.tar.gz.sig");
   report.ok("API + signed .sig is refused on screen",
     document.getElementById("mismatch").textContent.includes("only the web UI accepts"));
-  report.ok("…and Rehearse reports the stop rather than a dry run",
-    rehearse().includes("Flow stopped") && !rehearse().includes("Dry run complete"));
+  report.ok("…and the refusal reaches the action, without repeating itself there",
+    !canFlash() && summary().includes("does not fit the selected upload path") &&
+    !summary().includes("only the web UI accepts"));
 
   setTransport("gui");
   setImage("release-notes-1.10.339.txt");
   report.ok("an unrecognised filename is allowed, as the backend allows it",
-    document.getElementById("mismatch").textContent === "");
-  report.ok("…and it rehearses rather than being blocked",
-    rehearse().includes("Dry run complete"));
+    document.getElementById("mismatch").textContent === "" && canFlash());
 
-  // The service checks pairing, then checksum, then address. Credentials are
-  // required only when not dry, so a rehearsal without them is allowed.
+  /* The service checks pairing, then checksum, then address. The checksum is the
+     one gate that must NOT disable the button: the product posts and lets
+     firmware_service refuse, so a demo that blocked here would teach a stricter
+     rule than ships. */
   setImage("wifix.tar.gz.sig");
   setExpected("deadbeef");
-  report.ok("a wrong expected checksum stops the rehearsal",
-    rehearse().includes("Flow stopped"));
+  report.ok("a wrong expected checksum is shown but does not pre-empt the service",
+    document.getElementById("mismatch").textContent.includes("does not match") && canFlash());
   setExpected("");
   setAddress("");
-  report.ok("no management address stops the rehearsal, as the service does",
-    rehearse().includes("Flow stopped"));
+  report.ok("no management address blocks the upgrade, as the service does",
+    !canFlash() && summary().includes("No management address"));
 
   report.ok("firmware.html threw nothing while all that ran",
     pageErrors(window).length === 0, pageErrors(window).join(" | "));

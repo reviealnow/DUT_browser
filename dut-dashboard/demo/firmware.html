@@ -58,6 +58,31 @@ button{cursor:pointer}
 label{display:flex; flex-direction:column; gap:5px; font-size:12px; color:var(--muted); font-weight:600}
 select,input[type=text]{border:1px solid var(--border); border-radius:9px; padding:7px 11px; font-size:13px; background:var(--panel); color:var(--ink); font-weight:400; width:100%}
 select:focus,input:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-weak)}
+
+/* Label-left / control-right rows ending in one filled button, mirroring
+   FirmwareSection. The upload path is a radio group and not a <select> for the
+   product's reason: there are two paths, they take different images, and the
+   one you need to read is the one a dropdown hides. */
+.fw-field{display:grid; grid-template-columns:170px minmax(0,1fr); gap:var(--space-4); padding:var(--space-4) 0; border-bottom:1px solid var(--border)}
+.fw-field:first-child{padding-top:0}
+.fw-field-label{font-weight:600; font-size:13px; color:var(--ink); padding-top:6px}
+.fw-field-control{display:flex; flex-direction:column; gap:var(--space-2); min-width:0}
+.fw-choices{display:flex; flex-direction:column; gap:var(--space-2)}
+.fw-choice{display:grid; grid-template-columns:auto minmax(0,1fr); align-items:baseline; gap:0 var(--space-2); border:1px solid var(--border); border-radius:10px; padding:var(--space-2) var(--space-3); cursor:pointer; font-weight:400}
+.fw-choice.active{border-color:var(--accent); background:var(--accent-weak)}
+.fw-choice input{margin:0; accent-color:var(--accent)}
+.fw-choice-main{font-weight:600; font-size:13px; color:var(--ink)}
+.fw-choice-note{grid-column:2; color:var(--muted); font-size:12px}
+.fw-choices.inline{flex-direction:row; flex-wrap:wrap; gap:var(--space-4)}
+.fw-choices.inline .fw-choice,.fw-choices.inline .fw-choice.active{border:0; padding:0; background:none}
+.fw-chosen{display:flex; flex-wrap:wrap; align-items:baseline; gap:var(--space-2); font-size:12px; color:var(--muted)}
+.fw-chosen b{color:var(--ink); font-size:13px}
+.fw-action{display:flex; flex-direction:column; gap:var(--space-3); padding-top:var(--space-4)}
+.fw-action-summary{font-size:12px; color:var(--muted)}
+.btn.fw-flash{width:100%; justify-content:center; text-align:center; font-size:14px; padding:11px var(--space-4)}
+.btn.danger.fw-flash:not([disabled]){background:var(--danger); border-color:var(--danger); color:#fff}
+.btn.danger.fw-flash:hover:not([disabled]){background:var(--danger); border-color:var(--danger); color:#fff; filter:brightness(.9)}
+@media (max-width:720px){ .fw-field{grid-template-columns:1fr; gap:var(--space-2)} .fw-field-label{padding-top:0} }
 .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 .sha{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px; word-break:break-all; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:6px 9px; display:block}
 .row{display:flex; gap:var(--space-3); flex-wrap:wrap}
@@ -71,8 +96,8 @@ select:focus,input:focus{outline:none; border-color:var(--accent); box-shadow:0 
 .note{padding:var(--space-3) var(--space-4); border-radius:10px; background:var(--accent-weak); color:#12467f; font-size:12px; border:1px solid #cfe0f6}
 /* The capability boundary, stated where the actions are rather than only in the
    provenance line at the foot of the page. */
-.bounds{padding:var(--space-3) var(--space-4); border-radius:10px; background:var(--bg); color:var(--muted); font-size:12px; border:1px dashed var(--border)}
-.bounds b{color:var(--ink)}
+.bounds,#pcNote{padding:var(--space-3) var(--space-4); border-radius:10px; background:var(--bg); color:var(--muted); font-size:12px; border:1px dashed var(--border)}
+.bounds b,#pcNote b{color:var(--ink)}
 /* A "concept" chip marks an idea shown for discussion. Everything without one
    mirrors behaviour the product actually ships — a demo must not quietly
    promise features somebody then has to build. */
@@ -132,42 +157,73 @@ dialog::backdrop{background:rgba(20,30,55,.4)}
         </div>
         <div class="card-body">
 
-          <div class="row">
-            <label>Upload path
-              <select id="transport"></select>
-            </label>
-            <label>Management address
+          <div class="fw-field">
+            <div class="fw-field-label" id="lblPath">Upload path</div>
+            <div class="fw-field-control">
+              <div class="fw-choices" id="transport" role="radiogroup" aria-labelledby="lblPath"></div>
+            </div>
+          </div>
+
+          <div class="fw-field">
+            <div class="fw-field-label">Management address</div>
+            <div class="fw-field-control">
               <input type="text" id="mgmt" aria-label="DUT management address"
                      placeholder="https://198.51.100.20">
-            </label>
+              <div id="addrNote"></div>
+            </div>
           </div>
 
-          <div id="addrNote"></div>
+          <div class="fw-field">
+            <div class="fw-field-label" id="lblSource">Firmware image</div>
+            <div class="fw-field-control">
+              <div class="fw-choices inline" role="radiogroup" aria-labelledby="lblSource">
+                <label class="fw-choice" id="srcPcLabel">
+                  <input type="radio" name="fw-source" id="srcPc">
+                  <span class="fw-choice-main">a file on your PC</span>
+                </label>
+                <label class="fw-choice active" id="srcWorkspaceLabel">
+                  <input type="radio" name="fw-source" id="srcWorkspace" checked>
+                  <span class="fw-choice-main">already in the Files workspace</span>
+                </label>
+              </div>
 
-          <label>Image
-            <select id="image"><option value="">Select an uploaded file…</option></select>
-          </label>
-          <div style="font-size:12px;color:var(--muted)">
-            Images already in the shared Files workspace can be picked directly — the same
-            endpoint, so they stay listed, checksummed and attributable.
+              <select id="image" aria-label="Firmware image from the workspace">
+                <option value="">Select an uploaded file…</option>
+              </select>
+              <!-- The product shows a file picker on the other branch. This page
+                   cannot upload, and offering an inert picker would be the demo
+                   promising a capability it does not have. -->
+              <div id="pcNote" hidden>
+                The product shows a file picker here, and what it uploads lands in the shared Files
+                workspace — the same endpoint, so it stays listed, checksummed and attributable.
+                <b>This standalone page cannot upload</b>; pick one already in the workspace instead.
+              </div>
+
+              <div class="fw-chosen" id="chosenLine" hidden></div>
+              <div id="mismatch"></div>
+            </div>
           </div>
 
-          <div id="shaBlock" hidden>
-            <label>Recorded SHA-256
-              <code class="sha" id="shaValue"></code>
-            </label>
+          <div class="fw-field">
+            <div class="fw-field-label">Checksum</div>
+            <div class="fw-field-control">
+              <div style="font-size:12px;color:var(--muted)">SHA-256 of the selected image:</div>
+              <code class="sha" id="shaValue">— no image selected</code>
+              <input type="text" id="expected" aria-label="Expected SHA-256"
+                     placeholder="optional — paste the customer's published checksum">
+              <div style="font-size:12px;color:var(--muted)">
+                Optional. If filled in, a value that does not match blocks the upload.
+              </div>
+            </div>
           </div>
 
-          <label>Expected SHA-256 (optional — from the customer; mismatch blocks the upload)
-            <input type="text" id="expected" placeholder="paste the published checksum to verify against">
-          </label>
-
-          <div id="mismatch"></div>
-
-          <div class="actions">
-            <!-- Rehearsing needs no confirmation: it cannot reach the DUT. -->
-            <button class="btn" id="btnRehearse" disabled>Rehearse (dry run)</button>
-            <button class="btn danger" id="btnUpgrade" disabled>Upgrade firmware…</button>
+          <!-- One action, not two of equal weight. The rehearse button that used
+               to sit beside it is gone from the product: everything it proved --
+               the checksum, the pairing, the target URL -- is on screen before
+               the click, and it cost the destructive action its primacy. -->
+          <div class="fw-action">
+            <div class="fw-action-summary" id="actionSummary"></div>
+            <button class="btn danger fw-flash" id="btnUpgrade" disabled>Upgrade firmware…</button>
           </div>
 
           <!-- Where this page stops. The rules above are the product's; the
@@ -313,26 +369,66 @@ function render(){
       + `otherwise the transport's own is used; empty clears it.</div>`
     : `<div class="flash warn">No management address set for this DUT — set it above before upgrading.</div>`;
 
+  // Radio state, the way FirmwareSection carries it: the checked input plus an
+  // `active` class on the label around it.
+  $("transport").querySelectorAll(".fw-choice").forEach(el => {
+    const on = el.dataset.transport === transportId;
+    el.classList.toggle("active", on);
+    el.querySelector("input").checked = on;
+  });
+
   const file = chosen();
-  $("shaBlock").hidden = !file;
+  $("chosenLine").hidden = !file;
   if (file){
-    $("shaValue").textContent = file.sha256 ?? "not recorded (uploaded before checksums)";
+    $("chosenLine").innerHTML = `<b>${esc(file.name)}</b>`
+      + `<span>${bytes(file.size)} · ${imageKind(file.name)} image</span>`;
   }
+  $("shaValue").textContent = file
+    ? (file.sha256 ?? "not recorded (uploaded before checksums)")
+    : "— no image selected";
 
   const problem = mismatchReason() || expectedMismatch();
   $("mismatch").innerHTML = problem ? `<div class="flash danger">${esc(problem)}</div>` : "";
 
-  const ready = Boolean(file) && !problem && Boolean($("mgmt").value.trim()) && DATA.hasCredentials;
-  $("btnRehearse").disabled = !file;      // rehearsing cannot reach the DUT
-  $("btnUpgrade").disabled = !ready;
+  /* FirmwareSection's `blocker`, in its order and with its scope. The pairing is
+     in it because the product disables the button on a mismatch its backend
+     would refuse anyway. A wrong *expected* checksum is deliberately NOT: the
+     product has no client-side comparison, it posts and the service refuses, so
+     blocking here would teach a stricter rule than ships. It is shown above and
+     stops the flow at the confirm dialog, which is where the product stops. */
+  const blocker = !file ? "Choose a firmware image to continue."
+    // Short on purpose: the full sentence is in the red block beside the picker.
+    : mismatchReason() ? "This image does not fit the selected upload path — see above."
+    : !addr ? "No management address for this DUT — set it above."
+    : !DATA.hasCredentials ? "No DUT API credentials stored — set them under DUT access."
+    : null;
+  $("actionSummary").innerHTML = blocker
+    ? esc(blocker)
+    : `Will flash <b>${esc(file.name)}</b> to <b>${esc(DATA.dut)}</b> at `
+      + `<span class="mono">${esc(mgmtUrl(addr, transport()))}${esc(transport().path)}</span> `
+      + `via ${esc(transport().label)}.`;
+  $("btnUpgrade").disabled = Boolean(blocker);
 }
 
 /* ---------------- boot ---------------- */
 $("transport").innerHTML = DATA.transports.map(t =>
-  `<option value="${esc(t.id)}">${esc(t.label)}</option>`).join("");
+  `<label class="fw-choice" data-transport="${esc(t.id)}">`
+  + `<input type="radio" name="fw-transport" value="${esc(t.id)}">`
+  + `<span class="fw-choice-main">${esc(t.label)}</span>`
+  + `<span class="fw-choice-note">Takes the <b>${esc(t.id === "gui" ? "signed" : "encrypted")}</b> `
+  + `image only · POSTs to <span class="mono">${esc(t.path)}</span> on port ${esc(t.port)}</span>`
+  + `</label>`).join("");
 $("mgmt").value = DATA.mgmtUrl;
+// The workspace listing is split rather than filtered: every file stays
+// reachable, but a list of release notes and logs is not a firmware picker.
+const group = (label, rows) => rows.length
+  ? `<optgroup label="${esc(label)}">` + rows.map(f =>
+      `<option value="${f.id}">${esc(f.name)} · ${bytes(f.size)}</option>`).join("") + `</optgroup>`
+  : "";
 $("image").innerHTML = `<option value="">Select an uploaded file…</option>`
-  + DATA.files.map(f => `<option value="${f.id}">${esc(f.name)} · ${bytes(f.size)}</option>`).join("");
+  + group("Firmware images", DATA.files.filter(f => imageKind(f.name) !== "unknown"))
+  + group("Other workspace files (not recognised as firmware)",
+          DATA.files.filter(f => imageKind(f.name) === "unknown"));
 render();
 
 $("provenance").innerHTML =
@@ -340,45 +436,34 @@ $("provenance").innerHTML =
   + `Image names, checksums and the device address are <b>synthetic</b>. The transport contract `
   + `is <b>not</b>: the management API takes the encrypted image and the web-UI path takes the `
   + `signed <span class="mono">.sig</span>, exactly as <b>firmware_service.py</b> has it, because `
-  + `that is the rule a demo of a flasher must not blur. The checksum gate, the dry run, the `
-  + `power-loss warning and the type-the-name confirm are all the product's. Chips marked `
+  + `that is the rule a demo of a flasher must not blur. The radio-per-path form, the checksum `
+  + `gate, the power-loss warning and the type-the-name confirm are all the product's — as is `
+  + `the absence of a rehearse button beside the real one. Chips marked `
   + `<span class="concept">◇ concept</span> are ideas for discussion; this page has none.`;
 
 /* ---------------- interactions ---------------- */
-$("transport").addEventListener("change", (ev) => { transportId = ev.target.value; render(); });
+$("transport").addEventListener("change", (ev) => {
+  transportId = ev.target.value;
+  $("outcome").innerHTML = "";
+  render();
+});
 $("image").addEventListener("change", (ev) => {
   selectedId = ev.target.value ? Number(ev.target.value) : null;
   $("outcome").innerHTML = "";
   render();
 });
+// The source pair only swaps which control is shown; the workspace branch is the
+// one this page can actually drive.
+const showSource = (fromPc) => {
+  $("srcPcLabel").classList.toggle("active", fromPc);
+  $("srcWorkspaceLabel").classList.toggle("active", !fromPc);
+  $("pcNote").hidden = !fromPc;
+  $("image").hidden = fromPc;
+};
+$("srcPc").addEventListener("change", () => showSource(true));
+$("srcWorkspace").addEventListener("change", () => showSource(false));
 $("expected").addEventListener("input", render);
 $("mgmt").addEventListener("input", render);
-
-/* The button stays enabled whenever a file is chosen, because FirmwareSection's
-   is: `disabled={!chosen || busy}`. There, the click reaches the backend and the
-   backend refuses the pairing — the operator sees the refusal, not a dry run.
-   This page has no backend, but it can already see the same problem on screen,
-   so it reports the stop. Claiming "Dry run complete" over a visible failure
-   would be the demo succeeding where the product fails. */
-$("btnRehearse").addEventListener("click", () => {
-  const file = chosen(), t = transport();
-  // Same order the service checks in: image/transport pairing, then the
-  // checksum, then the address. Credentials are deliberately absent — the
-  // product requires them only when `not dry`, so a rehearsal without them is
-  // allowed there and must be allowed here.
-  const problem = mismatchReason() || expectedMismatch()
-    || ($("mgmt").value.trim() ? null
-        : "No management address configured for this DUT. Set it before upgrading.");
-  if (problem){
-    $("outcome").innerHTML = `<div class="flash danger">Flow stopped by the validation `
-      + `already shown above — nothing was sent, and no dry run was performed.</div>`;
-    return;
-  }
-  $("outcome").innerHTML = `<div class="flash ok">Dry run complete — nothing was sent. `
-    + `Would upload ${file.size.toLocaleString()} bytes to `
-    + `${esc(mgmtUrl($("mgmt").value.trim(), t))}${esc(t.path)} via the ${esc(t.id)} transport `
-    + `(sha256 ${esc((file.sha256 || "—").slice(0, 16))}…).</div>`;
-});
 
 $("btnUpgrade").addEventListener("click", () => {
   const file = chosen(), t = transport();
@@ -396,6 +481,16 @@ $("typed").addEventListener("input", (ev) => {
 $("confirmCancel").addEventListener("click", () => $("confirm").close());
 $("confirmGo").addEventListener("click", () => {
   $("confirm").close();
+  /* The one gate the button does not pre-empt. The product ships no client-side
+     checksum comparison — it posts, and firmware_service refuses — so this is
+     where the demo has to report the stop rather than disabling the button and
+     teaching a stricter rule. */
+  const stopped = expectedMismatch();
+  if (stopped){
+    $("outcome").innerHTML = `<div class="flash danger">Flow stopped by the checksum gate — `
+      + `nothing was sent. ${esc(stopped)}</div>`;
+    return;
+  }
   $("outcome").innerHTML = `<div class="flash warn">No DUT is attached to this page, so nothing `
     + `was sent. Against a real device the product uploads the image, watches the serial console `
     + `for the downloader to start, and reports whether the flash actually began — a missing `
