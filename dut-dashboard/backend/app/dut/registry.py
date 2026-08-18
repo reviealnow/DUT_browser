@@ -54,6 +54,35 @@ def _clean_last_serial(value: object) -> dict | None:
     return {"port": port, "baudrate": baudrate}
 
 
+def _clean_remote(value: object) -> dict | None:
+    """Validate persisted SSH console configuration without inventing a store."""
+    if not isinstance(value, dict):
+        return None
+    required = ("host", "user", "key_path", "device")
+    if any(not isinstance(value.get(key), str) or not value[key].strip() for key in required):
+        return None
+    port = value.get("port", 22)
+    baudrate = value.get("baudrate", 115200)
+    if any(isinstance(item, bool) or not isinstance(item, int) or item <= 0 for item in (port, baudrate)):
+        return None
+    is_mesh = value.get("is_mesh", True)
+    backhaul_iface = value.get("backhaul_iface")
+    if not isinstance(is_mesh, bool):
+        return None
+    if is_mesh and (not isinstance(backhaul_iface, str) or not backhaul_iface.strip()):
+        return None
+    return {
+        "host": value["host"].strip(),
+        "user": value["user"].strip(),
+        "key_path": value["key_path"].strip(),
+        "port": port,
+        "device": value["device"].strip(),
+        "baudrate": baudrate,
+        "is_mesh": is_mesh,
+        "backhaul_iface": backhaul_iface.strip() if isinstance(backhaul_iface, str) else None,
+    }
+
+
 @dataclass
 class DutContext:
     """The live runtime for one DUT."""
@@ -72,6 +101,11 @@ class DutContext:
     # an admin. Empty means the firmware upgrade refuses rather than guessing a
     # host to PUT an image at.
     mgmt_url: str = ""
+    # Server-side SSH configuration. describe() deliberately exposes only the
+    # Pi identity needed by FleetStrip, never the user or private-key path.
+    remote: dict | None = None
+    remote_rssi: int | None = None
+    remote_rssi_band: str | None = None
 
 
 class DutRegistry:
@@ -179,6 +213,18 @@ class DutRegistry:
             ctx.mgmt_url = mgmt_url
             self._save_locked()
 
+    def configure_remote(self, dut_id: str, remote: dict) -> DutContext:
+        cleaned = _clean_remote(remote)
+        if cleaned is None:
+            raise ValueError("Invalid remote SSH console configuration")
+        with self._lock:
+            ctx = self._duts.get(dut_id)
+            if ctx is None:
+                raise KeyError(f"Unknown DUT: {dut_id}")
+            ctx.remote = cleaned
+            self._save_locked()
+            return ctx
+
     def remove_dut(self, dut_id: str) -> None:
         """Stop and drop a DUT (frees its serial port). The default DUT is fixed."""
         if dut_id == DEFAULT_DUT_ID:
@@ -213,6 +259,14 @@ class DutRegistry:
                     "removable": ctx.dut_id != DEFAULT_DUT_ID,
                     "last_serial": ctx.last_serial,
                     "mgmt_url": ctx.mgmt_url,
+                    "remote": None if ctx.remote is None else {
+                        "host": ctx.remote["host"],
+                        "port": ctx.remote["port"],
+                        "device": ctx.remote["device"],
+                        "is_mesh": ctx.remote["is_mesh"],
+                        "rssi": ctx.remote_rssi,
+                        "rssi_band": ctx.remote_rssi_band,
+                    },
                 }
             )
         return out
@@ -224,6 +278,8 @@ class DutRegistry:
             entry["last_serial"] = ctx.last_serial
         if ctx.mgmt_url:
             entry["mgmt_url"] = ctx.mgmt_url
+        if ctx.remote is not None:
+            entry["remote"] = ctx.remote
         return entry
 
     def _save_locked(self) -> None:
@@ -237,7 +293,7 @@ class DutRegistry:
         entries = [
             self._entry_for(ctx)
             for ctx in self._duts.values()
-            if ctx.dut_id != DEFAULT_DUT_ID or ctx.last_serial is not None or ctx.mgmt_url
+            if ctx.dut_id != DEFAULT_DUT_ID or ctx.last_serial is not None or ctx.mgmt_url or ctx.remote
         ]
         try:
             DUTS_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -265,6 +321,7 @@ class DutRegistry:
             if not _DUT_ID_RE.match(str(dut_id)):
                 continue
             last_serial = _clean_last_serial(entry.get("last_serial")) if isinstance(entry, dict) else None
+            remote = _clean_remote(entry.get("remote")) if isinstance(entry, dict) else None
             existing = self._duts.get(dut_id)
             if existing is not None:
                 if last_serial is not None:
@@ -272,9 +329,11 @@ class DutRegistry:
                 mgmt = entry.get("mgmt_url") if isinstance(entry, dict) else None
                 if isinstance(mgmt, str) and mgmt:
                     existing.mgmt_url = mgmt
+                existing.remote = remote
                 continue
             ctx = self.create_dut(dut_id, label=entry.get("label"))
             ctx.last_serial = last_serial
+            ctx.remote = remote
 
 
 def build_default_registry(

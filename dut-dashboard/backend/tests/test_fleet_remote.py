@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import asyncio
+import json
+import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
+import app.dut.registry as registry_mod
+from app.dut.registry import DutRegistry
 from app.parser.sysmon_parser import SysMonParser
 from app.serial.serial_worker import SSH_CAPTURE_TIMEOUT_SEC, SerialWorker
 
@@ -17,6 +23,36 @@ REMOTE = {
     "is_mesh": True,
     "backhaul_iface": "ath16",
 }
+
+
+class _Ws:
+    def emit_from_thread(self, event: dict) -> None:
+        pass
+
+
+class RemoteRegistryTests(unittest.TestCase):
+    def test_remote_round_trip_keeps_secret_server_side(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with (
+                mock.patch.object(registry_mod, "DUTS_FILE", root / "duts.json"),
+                mock.patch.object(registry_mod, "snapshot_file_for", lambda d: root / f"{d}.jsonl"),
+            ):
+                loop = asyncio.new_event_loop()
+                self.addCleanup(loop.close)
+                registry = DutRegistry(_Ws(), loop)
+                registry.register_dut("mesh1", "Mesh 1")
+                registry.configure_remote("mesh1", REMOTE)
+                persisted = json.loads((root / "duts.json").read_text())
+                self.assertEqual(persisted[0]["remote"]["key_path"], REMOTE["key_path"])
+
+                restored = DutRegistry(_Ws(), loop)
+                restored.load_persisted()
+                self.assertEqual(restored.get("mesh1").remote, REMOTE)
+                public = restored.describe()[0]["remote"]
+                self.assertEqual(public["host"], REMOTE["host"])
+                self.assertNotIn("key_path", public)
+                self.assertNotIn("user", public)
 
 
 class SshWorkerTests(unittest.TestCase):
