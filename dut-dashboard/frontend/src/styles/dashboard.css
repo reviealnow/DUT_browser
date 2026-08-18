@@ -1445,6 +1445,7 @@ body {
 .fleet-card--strip {
   flex: 0 0 auto;
   width: 250px;
+  border-top-width: 4px;
 }
 .fleet-card {
   gap: var(--space-4);
@@ -1483,6 +1484,14 @@ body {
 }
 .fleet-card-titles { display: flex; flex-direction: column; min-width: 0; }
 .fleet-card-cpu { display: flex; flex-direction: column; gap: var(--space-1); }
+.fleet-fact-ok { color: var(--ok, #16a34a); }
+.fleet-fact-danger { color: var(--danger, #ef4444); }
+.fleet-rssi-na {
+  color: var(--muted);
+  font-style: italic;
+  background: var(--surface);
+  padding: 0 var(--space-1);
+}
 
 /* SSID Capability Card */
 .cap-body { display: flex; flex-direction: column; gap: var(--space-4); }

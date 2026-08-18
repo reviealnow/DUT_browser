@@ -310,13 +310,50 @@ export async function getWifiClientStats(mac: string, dutId = DEFAULT_DUT_ID): P
 export type DutInfo = {
   id: string;
   label: string;
-  mode: "serial" | "replay" | null;
+  mode: "serial" | "replay" | "ssh" | null;
   serial_open: boolean;
   log_path: string | null;
   removable: boolean;
   /** Last successful serial-open params, remembered for one-click Connect. */
   last_serial: { port: string; baudrate: number } | null;
+  remote: {
+    host: string;
+    port: number;
+    device: string;
+    is_mesh: boolean;
+    rssi: number | null;
+    rssi_band: "near" | "mid" | "far" | null;
+  } | null;
 };
+
+export type RemoteRssiResult = {
+  dut: string;
+  applicable: boolean;
+  rssi: number | null;
+  band: "near" | "mid" | "far" | null;
+};
+
+export async function connectRemoteNode(dutId: string): Promise<void> {
+  await post(`/api/fleet/nodes/${encodeURIComponent(dutId)}/connect`, {});
+}
+
+export async function disconnectRemoteNode(dutId: string): Promise<void> {
+  await post(`/api/fleet/nodes/${encodeURIComponent(dutId)}/disconnect`, {});
+}
+
+const remoteRssiInflight = new Map<string, Promise<RemoteRssiResult>>();
+
+/** Explicit/on-connect capture, coalesced per DUT so one console runs one command. */
+export function captureRemoteRssi(dutId: string): Promise<RemoteRssiResult> {
+  const current = remoteRssiInflight.get(dutId);
+  if (current) return current;
+  const request = post<RemoteRssiResult>(
+    `/api/fleet/nodes/${encodeURIComponent(dutId)}/rssi`,
+    {},
+  ).finally(() => remoteRssiInflight.delete(dutId));
+  remoteRssiInflight.set(dutId, request);
+  return request;
+}
 
 /** List the registered DUTs (for the switcher). */
 export async function getDuts(): Promise<DutInfo[]> {
