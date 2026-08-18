@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest import mock
 
 import app.dut.registry as registry_mod
+from app.api.fleet_api import capture_rssi
 from app.dut.registry import DutRegistry
 from app.parser.sysmon_parser import SysMonParser
 from app.serial.serial_worker import SSH_CAPTURE_TIMEOUT_SEC, SerialWorker
@@ -97,6 +98,31 @@ class SshWorkerTests(unittest.TestCase):
         worker = SerialWorker(SysMonParser(lambda event: None))
         worker._ssh_stderr = [b"sh: socat: command not found\n"]
         self.assertIn("install socat", worker._ssh_error_detail())
+
+
+class RssiCaptureTests(unittest.TestCase):
+    def test_capture_reuses_wifi_client_parser_and_scopes_result(self) -> None:
+        context = mock.Mock()
+        context.remote = REMOTE.copy()
+        context.serial_worker.capture_command.return_value = (
+            "00:11:22:33:44:55 1 36 866M 780M -63 00:01:02 IEEE80211_MODE_11AXA_HE80 2 2\n"
+        )
+        registry = mock.Mock()
+        registry.get.return_value = context
+        request = mock.Mock()
+        request.app.state.dut_registry = registry
+        result = capture_rssi("mesh1", request)
+        self.assertEqual(result, {"dut": "mesh1", "applicable": True, "rssi": -63, "band": "mid"})
+        context.serial_worker.capture_command.assert_called_once_with("wlanconfig ath16 list")
+
+    def test_standalone_ap_is_not_applicable_without_capture(self) -> None:
+        context = mock.Mock()
+        context.remote = {**REMOTE, "is_mesh": False, "backhaul_iface": None}
+        request = mock.Mock()
+        request.app.state.dut_registry.get.return_value = context
+        result = capture_rssi("ap1", request)
+        self.assertEqual(result["applicable"], False)
+        context.serial_worker.capture_command.assert_not_called()
 
 
 if __name__ == "__main__":

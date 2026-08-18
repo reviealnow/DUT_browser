@@ -63,6 +63,17 @@ def signal_pct(rssi: int | None) -> int | None:
     return max(0, min(100, 2 * (rssi + 100)))
 
 
+def signal_band(rssi: int | None) -> str | None:
+    """Coarse proximity wording for a raw RSSI; never imply measured distance."""
+    if rssi is None:
+        return None
+    if rssi >= -55:
+        return "near"
+    if rssi >= -70:
+        return "mid"
+    return "far"
+
+
 def vendor_for_mac(mac: str) -> str:
     """Locally-administered (randomized) MACs have bit 0x2 set in the first octet.
     Full OUI->vendor name lookup is deferred (avoids bundling a multi-MB table)."""

@@ -16,6 +16,7 @@ from app.api.bulletin_api import router as bulletin_router
 from app.api.duts_api import router as duts_router
 from app.api.firmware_api import router as firmware_router
 from app.api.files_api import router as files_router
+from app.api.fleet_api import router as fleet_router
 from app.api.serial_api import router as serial_router
 from app.api.settings_api import router as settings_router
 from app.api.workspace_api import router as workspace_router
@@ -53,6 +54,7 @@ app.include_router(duts_router)
 # firmware_api gates per-route: admin for everything except the image fetch,
 # which the DUT's cookieless curl authorises with a single-use token.
 app.include_router(firmware_router)
+app.include_router(fleet_router)
 app.include_router(files_router, dependencies=[_ENGINEER])
 app.include_router(bulletin_router, dependencies=[_ENGINEER])
 app.include_router(settings_router)
@@ -80,6 +82,16 @@ async def on_startup() -> None:
     # Rebuild the in-memory recommendation cache from persisted survey snapshots
     # so Overview / Fleet band badges survive a restart with no new scan.
     survey_snapshot.restore_cache()
+
+
+@app.on_event("shutdown")
+async def on_shutdown() -> None:
+    """Reap serial transports, including every system-ssh child."""
+    registry = getattr(app.state, "dut_registry", None)
+    if registry is None:
+        return
+    for dut_id in registry.ids():
+        registry.get(dut_id).serial_worker.close()
 
 
 def resolve_dut(app_, dut_id: str) -> DutContext:
