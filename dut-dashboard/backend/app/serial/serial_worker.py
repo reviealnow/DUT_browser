@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import re
+import select
+import subprocess
 import threading
 import time
 from datetime import datetime
@@ -32,6 +34,12 @@ PORT_CLOSED_MESSAGE = "Serial port is not open"
 # re-enumerated). Deliberately tells the operator to reconnect by hand — see
 # _handle_device_lost for why this worker never reconnects on its own.
 PORT_LOST_MESSAGE = "Serial device disconnected; reconnect it and press Connect again"
+SSH_CONNECT_TIMEOUT_SEC = 8
+SSH_STARTUP_GRACE_SEC = 2
+# Network transit and SSH scheduling add latency beyond a local UART capture.
+SSH_CAPTURE_TIMEOUT_SEC = 15.0
+SSH_LOST_MESSAGE = "Remote console disconnected; check Pi reachability and socat, then reconnect"
+_SSH_READY = b"__DUT_FLEET_READY__"
 
 
 def _gate_wait_seconds(timeout: float) -> float:
@@ -59,6 +67,8 @@ class SerialWorker:
         # DUTs don't collide on the timestamp ("" keeps the original naming).
         self._name = name
         self._serial: serial.Serial | None = None
+        self._ssh: subprocess.Popen[bytes] | None = None
+        self._ssh_stderr: list[bytes] = []
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
@@ -101,6 +111,7 @@ class SerialWorker:
         replay_path: str | None = None,
         replay_interval_ms: int = 100,
         session_label: str | None = None,
+        ssh: dict | None = None,
     ) -> None:
         self.close()
         self.parser.reset()
@@ -125,6 +136,22 @@ class SerialWorker:
                 self._thread.start()
                 return
 
+            if mode == "ssh":
+                if not isinstance(ssh, dict):
+                    raise RuntimeError("ssh configuration is required when mode is ssh")
+                self._open_ssh(ssh, baudrate)
+                try:
+                    self._start_log_session(mode=mode, port=port, replay_path=None, label=label)
+                except Exception:
+                    assert self._ssh is not None
+                    self._terminate_ssh(self._ssh)
+                    self._ssh = None
+                    raise
+                self._mode = "ssh"
+                self._thread = threading.Thread(target=self._ssh_read_loop, daemon=True)
+                self._thread.start()
+                return
+
             self._serial = serial.Serial(port=port, baudrate=baudrate, timeout=1)
             self._start_log_session(mode=mode, port=port, replay_path=replay_path, label=label)
             self._mode = "serial"
@@ -141,6 +168,10 @@ class SerialWorker:
                         self._serial.close()
                 finally:
                     self._serial = None
+            ssh = self._ssh
+            self._ssh = None
+            if ssh is not None:
+                self._terminate_ssh(ssh)
             self._mode = None
             self._terminal = False
             old_thread = self._thread
@@ -158,12 +189,100 @@ class SerialWorker:
 
     @property
     def mode(self) -> str | None:
-        """Current source mode: 'serial', 'replay', or None when idle."""
+        """Current source mode: 'serial', 'replay', 'ssh', or None when idle."""
         return self._mode
 
     @property
     def is_open(self) -> bool:
+        if self._mode == "ssh":
+            return self._ssh is not None and self._ssh.poll() is None
         return self._serial is not None and self._serial.is_open
+
+    def _open_ssh(self, config: dict, baudrate: int) -> None:
+        """Start system ssh with a bidirectional socat serial pipe."""
+        host = config["host"]
+        user = config["user"]
+        key_path = config["key_path"]
+        ssh_port = int(config.get("port", 22))
+        device = config["device"]
+        command = [
+            "ssh",
+            "-o", "BatchMode=yes",
+            "-o", f"ConnectTimeout={SSH_CONNECT_TIMEOUT_SEC}",
+            "-o", "ConnectionAttempts=1",
+            "-i", key_path,
+            "-p", str(ssh_port),
+            f"{user}@{host}",
+            "command -v socat >/dev/null 2>&1 || { echo 'socat: command not found' >&2; exit 127; }; "
+            f"echo {_SSH_READY.decode()} >&2; exec socat - {device},b{baudrate},raw,echo=0",
+        ]
+        try:
+            process = subprocess.Popen(
+                command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                bufsize=0,
+            )
+        except (OSError, ValueError) as exc:
+            raise RuntimeError(f"Could not start system ssh: {exc}") from exc
+        self._ssh = process
+        self._ssh_stderr = []
+        assert process.stderr is not None
+        try:
+            deadline = time.monotonic() + SSH_CONNECT_TIMEOUT_SEC + SSH_STARTUP_GRACE_SEC
+            stderr_fd = process.stderr.fileno()
+            pending = b""
+            while time.monotonic() < deadline:
+                ready, _, _ = select.select([stderr_fd], [], [], 0.2)
+                if stderr_fd in ready:
+                    chunk = os.read(stderr_fd, 4096)
+                    if chunk:
+                        pending += chunk
+                        if _SSH_READY in pending:
+                            before, after = pending.split(_SSH_READY, 1)
+                            if before:
+                                self._ssh_stderr.append(before)
+                            if after.strip():
+                                self._ssh_stderr.append(after)
+                            return
+                if process.poll() is not None:
+                    trailing = process.stderr.read()
+                    self._ssh_stderr.append(pending + trailing)
+                    raise RuntimeError(self._ssh_error_detail())
+            raise RuntimeError(
+                f"SSH connection timed out after {SSH_CONNECT_TIMEOUT_SEC} seconds; check Pi reachability"
+            )
+        except Exception:
+            if self._ssh is not None:
+                self._terminate_ssh(process)
+                self._ssh = None
+            raise
+
+    @staticmethod
+    def _terminate_ssh(process: subprocess.Popen[bytes]) -> None:
+        """Close pipes and always reap the SSH child."""
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=1.0)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=1.0)
+        else:
+            process.wait()
+        for pipe in (process.stdin, process.stdout, process.stderr):
+            if pipe is not None:
+                try:
+                    pipe.close()
+                except OSError:
+                    pass
+
+    def _ssh_error_detail(self) -> str:
+        detail = b"".join(self._ssh_stderr).decode("utf-8", errors="ignore").strip()
+        if "socat" in detail and ("not found" in detail or "command not found" in detail):
+            return "Remote Pi is missing socat; install socat on the Pi and reconnect"
+        return detail.splitlines()[-1] if detail else SSH_LOST_MESSAGE
 
     def _handle_device_lost(self, detail: str) -> None:
         """Tear down after the serial device vanished mid-session.
@@ -202,13 +321,19 @@ class SerialWorker:
         """
         lost: Exception | None = None
         with self._lock:
-            if self._mode != "serial" or self._serial is None or not self._serial.is_open:
+            if self._mode not in {"serial", "ssh"} or not self.is_open:
                 raise RuntimeError(PORT_CLOSED_MESSAGE)
             if terminal is True and not self._terminal:
                 raise RuntimeError("Not in terminal mode")
             try:
-                self._serial.write(data)
-                self._serial.flush()
+                if self._mode == "ssh":
+                    assert self._ssh is not None and self._ssh.stdin is not None
+                    self._ssh.stdin.write(data)
+                    self._ssh.stdin.flush()
+                else:
+                    assert self._serial is not None
+                    self._serial.write(data)
+                    self._serial.flush()
             except (OSError, ValueError) as exc:
                 # SerialException subclasses OSError, so an unplugged adapter's
                 # ENXIO lands here instead of escaping as a 500.
@@ -227,7 +352,7 @@ class SerialWorker:
     def enter_terminal(self) -> None:
         """Switch the reader to raw passthrough (sysmon parsing pauses)."""
         with self._lock:
-            if self._mode != "serial" or self._serial is None or not self._serial.is_open:
+            if self._mode not in {"serial", "ssh"} or not self.is_open:
                 raise RuntimeError(PORT_CLOSED_MESSAGE)
             self._terminal = True
         self._write_log_line("\n--- terminal session start ---\n")
@@ -270,6 +395,8 @@ class SerialWorker:
         buffer (not the sysmon parser) until the sentinel line appears, or timeout.
         Mutually exclusive with terminal mode and with another in-flight capture.
         """
+        if self._mode == "ssh":
+            timeout = max(timeout, SSH_CAPTURE_TIMEOUT_SEC)
         sentinel = f"__DUTCAP_{int(time.time() * 1000) % 1_000_000:06d}__"
         # Queue behind any in-flight capture rather than rejecting it: serial is a
         # single channel and these calls arrive on independent request threads.
@@ -278,7 +405,7 @@ class SerialWorker:
         try:
             lost: Exception | None = None
             with self._lock:
-                if self._mode != "serial" or self._serial is None or not self._serial.is_open:
+                if self._mode not in {"serial", "ssh"} or not self.is_open:
                     raise RuntimeError(PORT_CLOSED_MESSAGE)
                 if self._terminal:
                     raise RuntimeError("Cannot capture while in terminal mode")
@@ -287,8 +414,10 @@ class SerialWorker:
                 self._capture_done.clear()
                 self._capture_active = True
                 try:
-                    self._serial.write(f"{cmd}; echo {sentinel}\n".encode("utf-8", errors="ignore"))
-                    self._serial.flush()
+                    target = self._ssh.stdin if self._mode == "ssh" and self._ssh else self._serial
+                    assert target is not None
+                    target.write(f"{cmd}; echo {sentinel}\n".encode("utf-8", errors="ignore"))
+                    target.flush()
                 except (OSError, ValueError) as exc:
                     self._capture_active = False
                     lost = exc
@@ -314,6 +443,61 @@ class SerialWorker:
                 continue
             out.append(line)
         return "".join(out)
+
+    def _consume_line(self, decoded: str) -> None:
+        self._write_log_line(decoded)
+        if self._capture_active:
+            self._capture_lines.append(decoded)
+            sentinel = self._capture_sentinel
+            if sentinel and sentinel in decoded and f"echo {sentinel}" not in decoded:
+                self._capture_done.set()
+            return
+        self.parser.feed(decoded)
+
+    def _ssh_read_loop(self) -> None:
+        process = self._ssh
+        if process is None or process.stdout is None or process.stderr is None:
+            return
+        stdout_fd = process.stdout.fileno()
+        stderr_fd = process.stderr.fileno()
+        pending = b""
+        lost: str | None = None
+        try:
+            while not self._stop_event.is_set():
+                ready, _, _ = select.select([stdout_fd, stderr_fd], [], [], 0.5)
+                if stderr_fd in ready:
+                    chunk = os.read(stderr_fd, 4096)
+                    if chunk:
+                        self._ssh_stderr.append(chunk)
+                if stdout_fd in ready:
+                    chunk = os.read(stdout_fd, 4096)
+                    if not chunk:
+                        lost = self._ssh_error_detail()
+                        break
+                    if self._terminal:
+                        self._write_log_raw(chunk.decode("utf-8", errors="ignore"))
+                        callback = self._terminal_output
+                        if callback is not None:
+                            callback(chunk)
+                        continue
+                    pending += chunk
+                    while b"\n" in pending:
+                        raw, pending = pending.split(b"\n", 1)
+                        self._consume_line(raw.decode("utf-8", errors="ignore") + "\n")
+                if process.poll() is not None:
+                    trailing = process.stderr.read()
+                    if trailing:
+                        self._ssh_stderr.append(trailing)
+                    lost = self._ssh_error_detail()
+                    break
+        except Exception as exc:
+            if not self._stop_event.is_set():
+                lost = str(exc) or type(exc).__name__
+        finally:
+            if pending:
+                self._consume_line(pending.decode("utf-8", errors="ignore"))
+            if lost is not None and not self._stop_event.is_set():
+                self._handle_device_lost(lost)
 
     def read_loop(self) -> None:
         # Why the reader owns disconnect detection: it is the only thread that
