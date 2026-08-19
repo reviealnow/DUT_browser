@@ -13,7 +13,12 @@ from app.dut.registry import (
     REMOTE_TOKEN_RE,
 )
 from app.services import auth_service
-from app.services.wifi_clients import parse_wlanconfig_list, signal_band
+from app.services.wifi_clients import (
+    classify_backhaul,
+    parse_iwconfig_links,
+    parse_wlanconfig_list,
+    signal_band,
+)
 
 router = APIRouter(prefix="/api/fleet", tags=["fleet"])
 _ADMIN = Depends(auth_service.require_role("admin"))
@@ -130,27 +135,61 @@ def disconnect_node(dut_id: str, request: Request, _admin: dict = _ADMIN) -> dic
     return {"ok": True, "dut": dut_id}
 
 
+def _peer(client: dict) -> dict:
+    return {"mac": client["mac"], "rssi": client["rssi"], "rssi_band": signal_band(client["rssi"])}
+
+
 @router.post("/nodes/{dut_id}/rssi")
 def capture_rssi(dut_id: str, request: Request, _admin: dict = _ADMIN) -> dict:
+    """Measure both directions of a node's backhaul, and say which is which.
+
+    `wlanconfig <vap> list` only ever answers the downward question: it lists
+    the stations associated to a Master VAP. A node's own link to its parent
+    lives on its Managed VAP and is only visible through `iwconfig`, so asking
+    wlanconfig for it returns an empty table and no error — which is how a
+    perfectly healthy -37 dBm uplink reads as "not captured" forever.
+    """
     context = _context(request, dut_id)
     remote = context.remote
     if remote is None:
         raise HTTPException(status_code=400, detail="DUT has no remote SSH configuration")
     if not remote["is_mesh"]:
-        return {"dut": dut_id, "applicable": False, "rssi": None, "band": None}
+        return {"dut": dut_id, "applicable": False, "uplink": None, "downlink": None}
+
+    worker = context.serial_worker
     try:
-        output = context.serial_worker.capture_command(
-            f"wlanconfig {remote['backhaul_iface']} list"
-        )
+        links = parse_iwconfig_links(worker.capture_command("iwconfig"))
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    clients = parse_wlanconfig_list(output, remote["backhaul_iface"])
-    rssi = clients[0]["rssi"] if clients else None
-    context.remote_rssi = rssi
-    context.remote_rssi_band = signal_band(rssi)
-    return {
-        "dut": dut_id,
-        "applicable": True,
-        "rssi": rssi,
-        "band": context.remote_rssi_band,
-    }
+    found = classify_backhaul(links)
+
+    uplink = None
+    if found["uplink"] is not None:
+        up = found["uplink"]
+        uplink = {
+            "iface": up["iface"],
+            "rssi": up["rssi"],
+            "snr": up["snr"],
+            "rssi_band": signal_band(up["rssi"]),
+            "radio_band": up["band"],
+            "peer_mac": up["peer_mac"],
+        }
+
+    # A root has no uplink to pair against, so its downward VAP can only come
+    # from configuration. Detection wins where it works: interface numbering
+    # differs between models and firmware renumbers VAPs.
+    downlink_iface = found["downlink"]["iface"] if found["downlink"] else remote.get("backhaul_iface")
+    downlink = None
+    if downlink_iface:
+        try:
+            table = worker.capture_command(f"wlanconfig {downlink_iface} list")
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        downlink = {
+            "iface": downlink_iface,
+            "peers": [_peer(c) for c in parse_wlanconfig_list(table, downlink_iface)],
+        }
+
+    context.remote_uplink = uplink
+    context.remote_downlink = downlink
+    return {"dut": dut_id, "applicable": True, "uplink": uplink, "downlink": downlink}

@@ -100,8 +100,8 @@ function FleetCard({
   const [rssi, setRssi] = useState<RemoteRssiResult | null>(() => entry.remote ? {
     dut: entry.id,
     applicable: entry.remote.isMesh,
-    rssi: entry.remote.rssi,
-    band: entry.remote.rssiBand,
+    uplink: entry.remote.uplink,
+    downlink: entry.remote.downlink,
   } : null);
   const [capturingRssi, setCapturingRssi] = useState(false);
   const meta = STATUS_META[entry.status];
@@ -207,14 +207,31 @@ function FleetCard({
               <dt>Node console</dt>
               <dd>{meta.label}</dd>
             </div>
+            {/* Two directions, two rows, because they answer different
+                questions and come from different commands. One "Backhaul RSSI"
+                number could not say which way it pointed. */}
             <div className="stat-row">
-              <dt>Backhaul RSSI</dt>
+              <dt>Uplink to parent</dt>
               <dd className={rssi && !rssi.applicable ? "fleet-rssi-na" : undefined}>
                 {rssi && !rssi.applicable
                   ? "Not applicable"
-                  : rssi?.rssi === null || !rssi
+                  : !rssi || !rssi.uplink || rssi.uplink.rssi === null
                     ? "Not captured"
-                    : `${rssi.rssi} dBm · ${rssi.band}`}
+                    : `${rssi.uplink.rssi} dBm · ${rssi.uplink.rssi_band}`}
+              </dd>
+            </div>
+            <div className="stat-row">
+              <dt>Children on backhaul</dt>
+              <dd className={rssi && !rssi.applicable ? "fleet-rssi-na" : undefined}>
+                {rssi && !rssi.applicable
+                  ? "Not applicable"
+                  : !rssi || !rssi.downlink
+                    ? "Not captured"
+                    : rssi.downlink.peers.length === 0
+                      ? "None"
+                      : rssi.downlink.peers
+                          .map((p) => `${p.rssi === null ? "—" : `${p.rssi} dBm`}`)
+                          .join(" · ")}
               </dd>
             </div>
           </dl>

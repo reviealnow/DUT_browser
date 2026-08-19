@@ -192,6 +192,129 @@ def parse_apstats(text: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Mesh backhaul link facts (verified on AP6 420 + AP6 840E, 2026-08)
+# ---------------------------------------------------------------------------
+
+# A VAP header from `iwconfig`. Deliberately not anchored to `ath\d+`: the
+# classifier below must not care what the radios are called.
+_IW_HEAD_RE = re.compile(r'^(\S+)\s+IEEE\s+\S+\s+ESSID:"([^"]*)"')
+_IW_SILENT_RE = re.compile(r"^\S+\s+no wireless extensions")
+_IW_FREQ_GHZ_RE = re.compile(r"Frequency[:=]\s*([\d.]+)\s*GHz")
+_IW_PEER_RE = re.compile(r"Access Point:\s*([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}|Not-Associated)")
+_IW_LQ_RE = re.compile(r"Link Quality[:=](\d+)/(\d+)")
+_IW_SIGNAL_RE = re.compile(r"Signal level[:=](-?\d+)\s*dBm")
+_IW_NOISE_RE = re.compile(r"Noise level[:=](-?\d+)\s*dBm")
+
+
+def parse_iwconfig_links(text: str) -> list[dict]:
+    """Per-VAP link facts from `iwconfig`. Missing fields stay ``None``.
+
+    Lines are stripped before matching as cheap normalisation of console
+    output; no captured sample has needed it, so do not read it as a fix for
+    an observed defect.
+
+    ``associated`` is the field the caller should trust, and it is not "does
+    this VAP report a signal". A Master VAP reports one too — the noise floor,
+    at ``Link Quality=0/94`` — so its ``Signal level`` is never a measurement
+    of a link. It also reports an ``Access Point``, which is its own BSSID
+    rather than a peer. Only a Managed VAP with a live link quality and a real
+    peer MAC is hearing anything.
+    """
+    links: list[dict] = []
+    current: dict | None = None
+    for raw in text.splitlines():
+        line = raw.strip()
+        head = _IW_HEAD_RE.match(line)
+        if head is not None:
+            current = {
+                "iface": head.group(1),
+                "essid": head.group(2),
+                "mode": None,
+                "freq_ghz": None,
+                "band": None,
+                "peer_mac": None,
+                "link_quality": None,
+                "link_quality_max": None,
+                "rssi": None,
+                "noise": None,
+                "snr": None,
+                "associated": False,
+            }
+            links.append(current)
+            continue
+        if _IW_SILENT_RE.match(line):
+            current = None  # a non-wireless device ends the block it follows
+            continue
+        if current is None:
+            continue
+        mode = _MODE_RE.search(line)
+        if mode is not None and current["mode"] is None:
+            current["mode"] = mode.group(1)
+        freq = _IW_FREQ_GHZ_RE.search(line)
+        if freq is not None and current["freq_ghz"] is None:
+            current["freq_ghz"] = float(freq.group(1))
+            current["band"] = _band_from_freq(int(current["freq_ghz"] * 1000))
+        peer = _IW_PEER_RE.search(line)
+        if peer is not None and current["peer_mac"] is None:
+            current["peer_mac"] = None if peer.group(1) == "Not-Associated" else peer.group(1).lower()
+        quality = _IW_LQ_RE.search(line)
+        if quality is not None and current["link_quality"] is None:
+            current["link_quality"] = int(quality.group(1))
+            current["link_quality_max"] = int(quality.group(2))
+        signal = _IW_SIGNAL_RE.search(line)
+        if signal is not None and current["rssi"] is None:
+            current["rssi"] = int(signal.group(1))
+        noise = _IW_NOISE_RE.search(line)
+        if noise is not None and current["noise"] is None:
+            current["noise"] = int(noise.group(1))
+
+    for link in links:
+        link["associated"] = bool(
+            link["mode"] == "Managed"
+            and link["peer_mac"]
+            and (link["link_quality"] or 0) > 0
+        )
+        if not link["associated"]:
+            # Refuse to hand back a noise-floor reading dressed as a link.
+            link["rssi"] = None
+            link["snr"] = None
+        elif link["rssi"] is not None and link["noise"] is not None:
+            link["snr"] = link["rssi"] - link["noise"]
+    return links
+
+
+def classify_backhaul(links: list[dict]) -> dict:
+    """Split the backhaul into the link up and the VAP children associate to.
+
+    A mesh backhaul is a pair of VAPs sharing one ESSID on one band: the
+    Managed side carries this node's link to its parent, the Master side is
+    what its own children join. The pairing is what identifies them — not the
+    interface number, which is numbered differently on an AP6 420 than on an
+    AP6 840E, and not the SSID's text, which is operator-chosen and was
+    observed changing between two captures twenty minutes apart.
+
+    A root has no associated Managed VAP, so it has no uplink and its downlink
+    cannot be found by pairing; the caller falls back to the configured
+    interface there.
+    """
+    uplink = next((link for link in links if link["associated"]), None)
+    if uplink is None:
+        return {"uplink": None, "downlink": None}
+    downlink = next(
+        (
+            link
+            for link in links
+            if link["mode"] == "Master"
+            and link["essid"] == uplink["essid"]
+            and link["band"] == uplink["band"]
+            and link["iface"] != uplink["iface"]
+        ),
+        None,
+    )
+    return {"uplink": uplink, "downlink": downlink}
+
+
+# ---------------------------------------------------------------------------
 # SSID capability parsers (verified on AP6 840E, 2026-06)
 # ---------------------------------------------------------------------------
 

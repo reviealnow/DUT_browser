@@ -321,16 +321,33 @@ export type DutInfo = {
     port: number;
     device: string;
     is_mesh: boolean;
-    rssi: number | null;
-    rssi_band: "near" | "mid" | "far" | null;
+    uplink: RemoteUplink | null;
+    downlink: RemoteDownlink | null;
   } | null;
+};
+
+/** How well this node hears its parent. Read from `iwconfig` on the Managed
+ *  VAP: `wlanconfig` only ever answers the downward question. */
+export type RemoteUplink = {
+  iface: string;
+  rssi: number | null;
+  snr: number | null;
+  rssi_band: "near" | "mid" | "far" | null;
+  radio_band: "2.4GHz" | "5GHz" | "6GHz" | null;
+  peer_mac: string | null;
+};
+
+/** How well this node hears each child that joined its backhaul AP. */
+export type RemoteDownlink = {
+  iface: string;
+  peers: { mac: string; rssi: number | null; rssi_band: "near" | "mid" | "far" | null }[];
 };
 
 export type RemoteRssiResult = {
   dut: string;
   applicable: boolean;
-  rssi: number | null;
-  band: "near" | "mid" | "far" | null;
+  uplink: RemoteUplink | null;
+  downlink: RemoteDownlink | null;
 };
 
 export async function connectRemoteNode(dutId: string): Promise<void> {

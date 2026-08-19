@@ -13,6 +13,7 @@ from pydantic import ValidationError
 
 import app.dut.registry as registry_mod
 from app.api.fleet_api import RemoteNodeBody, capture_rssi, configure_node
+from app.services.wifi_clients import classify_backhaul, parse_iwconfig_links
 from app.dut.registry import REMOTE_PORT_MAX, DutRegistry
 from app.parser.sysmon_parser import SysMonParser
 from app.serial.serial_worker import SSH_CAPTURE_TIMEOUT_SEC, SerialWorker
@@ -28,6 +29,38 @@ REMOTE = {
     "is_mesh": True,
     "backhaul_iface": "ath16",
 }
+
+
+# Captured from an AP6 420 mesh node over its own console (2026-08-19). The
+# Master VAPs' noise-floor readings are the trap this parser exists to avoid:
+# every one of them reports a Signal level. ath15/ath14 are the backhaul pair;
+# ath8 shares the band but not the ESSID, and must not be mistaken for it.
+IWCONFIG_AP6420 = (
+    'ath15     IEEE 802.11axa  ESSID:"dutBrowser_Backhaul - PD1005VMG3"  \n'
+    "          Mode:Managed  Frequency:5.22 GHz (Channel 44)  Access Point: CE:4F:86:95:CE:E5   \n"
+    "          Bit Rate:573.5 Mb/s   Tx-Power:24 dBm   \n"
+    "          Link Quality=94/94  Signal level=-37 dBm  Noise level=-92 dBm (BDF averaged NF value in dBm)\n"
+    'ath0      IEEE 802.11axg  ESSID:"!!3290-1"  \n'
+    "          Mode:Master  Frequency:2.462 GHz (Channel 11)  Access Point: CA:4F:86:89:F1:68   \n"
+    "          Link Quality=0/94  Signal level=-95 dBm  Noise level=-95 dBm (BDF averaged NF value in dBm)\n"
+    'ath14     IEEE 802.11axa  ESSID:"dutBrowser_Backhaul - PD1005VMG3"  \n'
+    "          Mode:Master  Frequency:5.22 GHz (Channel 44)  Access Point: CE:4F:86:89:F1:69   \n"
+    "          Link Quality=0/94  Signal level=-92 dBm  Noise level=-92 dBm (BDF averaged NF value in dBm)\n"
+    'ath8      IEEE 802.11axa  ESSID:"!!3290-1"  \n'
+    "          Mode:Master  Frequency:5.22 GHz (Channel 44)  Access Point: C8:4F:86:89:F1:69   \n"
+    "          Link Quality=0/94  Signal level=-92 dBm  Noise level=-92 dBm (BDF averaged NF value in dBm)\n"
+    "soc1      no wireless extensions.\n"
+    "\n"
+    "ifb2      no wireless extensions.\n"
+)
+
+# A root: Master VAPs only, so nothing to pair an uplink against.
+IWCONFIG_ROOT_ONLY = (
+    'ath16     IEEE 802.11axa  ESSID:"dutBrowser_Backhaul - PD1005VMG3"  \n'
+    "          Mode:Master  Frequency:5.22 GHz (Channel 44)  Access Point: CE:4F:86:89:F1:69   \n"
+    "          Link Quality=0/94  Signal level=-92 dBm  Noise level=-92 dBm\n"
+    "soc1      no wireless extensions.\n"
+)
 
 
 class _Ws:
@@ -216,20 +249,80 @@ class RemoteNodeApiTests(unittest.TestCase):
                 self.assertEqual(json.loads((root / "duts.json").read_text()), [])
 
 
+def _worker_answering(replies: dict[str, str]):
+    """A serial worker double that answers each console command in turn."""
+    def capture(cmd: str, *args, **kwargs) -> str:
+        for prefix, reply in replies.items():
+            if cmd.startswith(prefix):
+                return reply
+        return ""
+    worker = mock.Mock()
+    worker.capture_command.side_effect = capture
+    return worker
+
+
 class RssiCaptureTests(unittest.TestCase):
-    def test_capture_reuses_wifi_client_parser_and_scopes_result(self) -> None:
+    def test_the_uplink_comes_from_iwconfig_and_the_peers_from_wlanconfig(self) -> None:
+        """The two directions are different commands; asking wlanconfig for the
+        uplink is what made a healthy -37 dBm link read as nothing at all."""
         context = mock.Mock()
         context.remote = REMOTE.copy()
-        context.serial_worker.capture_command.return_value = (
-            "00:11:22:33:44:55 1 36 866M 780M -63 00:01:02 IEEE80211_MODE_11AXA_HE80 2 2\n"
-        )
-        registry = mock.Mock()
-        registry.get.return_value = context
+        context.serial_worker = _worker_answering({
+            "iwconfig": IWCONFIG_AP6420,
+            "wlanconfig ath14 list": (
+                "ADDR AID CHAN TXRATE RXRATE RSSI\n"
+                "00:11:22:33:44:55 1 44 866M 780M -63 00:01:02 IEEE80211_MODE_11AXA_HE80 2 2\n"
+            ),
+        })
         request = mock.Mock()
-        request.app.state.dut_registry = registry
+        request.app.state.dut_registry.get.return_value = context
+
         result = capture_rssi("mesh1", request)
-        self.assertEqual(result, {"dut": "mesh1", "applicable": True, "rssi": -63, "band": "mid"})
-        context.serial_worker.capture_command.assert_called_once_with("wlanconfig ath16 list")
+
+        self.assertEqual(result["uplink"], {
+            "iface": "ath15", "rssi": -37, "snr": 55, "rssi_band": "near",
+            "radio_band": "5GHz", "peer_mac": "ce:4f:86:95:ce:e5",
+        })
+        self.assertEqual(result["downlink"]["iface"], "ath14")
+        self.assertEqual(result["downlink"]["peers"],
+                         [{"mac": "00:11:22:33:44:55", "rssi": -63, "rssi_band": "mid"}])
+        # The configured ath16 is not consulted: detection found the real pair.
+        commands = [c.args[0] for c in context.serial_worker.capture_command.call_args_list]
+        self.assertEqual(commands, ["iwconfig", "wlanconfig ath14 list"])
+
+    def test_a_root_with_no_uplink_falls_back_to_the_configured_iface(self) -> None:
+        context = mock.Mock()
+        context.remote = REMOTE.copy()
+        context.serial_worker = _worker_answering({
+            "iwconfig": IWCONFIG_ROOT_ONLY,
+            "wlanconfig ath16 list": "ADDR AID CHAN\n",
+        })
+        request = mock.Mock()
+        request.app.state.dut_registry.get.return_value = context
+
+        result = capture_rssi("root1", request)
+
+        self.assertIsNone(result["uplink"])
+        self.assertEqual(result["downlink"], {"iface": "ath16", "peers": []})
+
+    def test_a_master_vaps_noise_floor_is_never_reported_as_an_uplink(self) -> None:
+        """Every Master VAP reports a Signal level — the noise floor, at link
+        quality 0. Reading it would put a confident -92 dBm on the card."""
+        links = parse_iwconfig_links(IWCONFIG_AP6420)
+        masters = [l for l in links if l["mode"] == "Master"]
+        self.assertTrue(masters)
+        for link in masters:
+            with self.subTest(iface=link["iface"]):
+                self.assertFalse(link["associated"])
+                self.assertIsNone(link["rssi"])
+                self.assertIsNone(link["snr"])
+
+    def test_the_backhaul_pair_is_found_by_essid_and_band_not_by_name(self) -> None:
+        found = classify_backhaul(parse_iwconfig_links(IWCONFIG_AP6420))
+        self.assertEqual(found["uplink"]["iface"], "ath15")
+        # ath8 is Master on the same band but a different ESSID; ath0 shares
+        # neither. Only the VAP paired with the uplink's ESSID qualifies.
+        self.assertEqual(found["downlink"]["iface"], "ath14")
 
     def test_standalone_ap_is_not_applicable_without_capture(self) -> None:
         context = mock.Mock()
