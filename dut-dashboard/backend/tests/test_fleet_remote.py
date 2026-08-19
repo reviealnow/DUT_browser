@@ -8,8 +8,11 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from fastapi import HTTPException
+from pydantic import ValidationError
+
 import app.dut.registry as registry_mod
-from app.api.fleet_api import capture_rssi
+from app.api.fleet_api import RemoteNodeBody, capture_rssi, configure_node
 from app.dut.registry import DutRegistry
 from app.parser.sysmon_parser import SysMonParser
 from app.serial.serial_worker import SSH_CAPTURE_TIMEOUT_SEC, SerialWorker
@@ -124,6 +127,37 @@ class SshWorkerTests(unittest.TestCase):
         worker = SerialWorker(SysMonParser(lambda event: None))
         worker._ssh_stderr = [b"sh: socat: command not found\n"]
         self.assertIn("install socat", worker._ssh_error_detail())
+
+
+class RemoteNodeApiTests(unittest.TestCase):
+    def test_blank_key_path_is_refused_by_the_body_model(self) -> None:
+        with self.assertRaises(ValidationError):
+            RemoteNodeBody(id="mesh1", host="pi-node-1.local", user="dut", key_path="   ")
+
+    def test_a_rejected_configuration_leaves_no_dut_behind(self) -> None:
+        """The DUT exists only to carry the config; a 400 must not strand one."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with _registries_under(root) as make_registry:
+                registry = make_registry()
+                request = mock.Mock()
+                request.app.state.dut_registry = registry
+                body = RemoteNodeBody(
+                    id="mesh1",
+                    host=REMOTE["host"],
+                    user=REMOTE["user"],
+                    key_path=REMOTE["key_path"],
+                    backhaul_iface=REMOTE["backhaul_iface"],
+                )
+                with mock.patch.object(
+                    registry, "configure_remote", side_effect=ValueError("Invalid remote")
+                ):
+                    with self.assertRaises(HTTPException) as caught:
+                        configure_node(body, request, _admin={})
+
+                self.assertEqual(caught.exception.status_code, 400)
+                self.assertNotIn("mesh1", registry.ids())
+                self.assertEqual(json.loads((root / "duts.json").read_text()), [])
 
 
 class RssiCaptureTests(unittest.TestCase):

@@ -37,6 +37,16 @@ class RemoteNodeBody(BaseModel):
             raise ValueError("must contain only SSH host/user characters")
         return value
 
+    @field_validator("key_path")
+    @classmethod
+    def present_key_path(cls, value: str) -> str:
+        # The registry rejects a blank key path when it cleans the payload; catch
+        # it here as well so the answer names the field instead of arriving as a
+        # generic "invalid configuration" after the DUT has been created.
+        if not value.strip():
+            raise ValueError("must be a path to the private key")
+        return value
+
     @field_validator("device")
     @classmethod
     def safe_device(cls, value: str) -> str:
@@ -65,6 +75,7 @@ def configure_node(body: RemoteNodeBody, request: Request, _admin: dict = _ADMIN
         raise HTTPException(status_code=400, detail="backhaul_iface is required for a mesh node")
     registry = request.app.state.dut_registry
     remote_count = sum(1 for item in registry.ids() if registry.get(item).remote is not None)
+    created = False
     try:
         context = registry.get(body.id)
     except KeyError:
@@ -74,6 +85,7 @@ def configure_node(body: RemoteNodeBody, request: Request, _admin: dict = _ADMIN
             context = registry.register_dut(body.id, label=body.label)
         except (KeyError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        created = True
     if context.remote is None and remote_count >= MAX_REMOTE_NODES:
         raise HTTPException(status_code=400, detail="Remote node limit reached (4)")
     remote = body.model_dump(include={
@@ -82,6 +94,11 @@ def configure_node(body: RemoteNodeBody, request: Request, _admin: dict = _ADMIN
     try:
         registry.configure_remote(context.dut_id, remote)
     except ValueError as exc:
+        if created:
+            # This DUT existed only to carry the configuration that was just
+            # rejected. Leaving it behind would put a DUT nobody can connect in
+            # the switcher, persist it, and spend one of the MAX_DUTS slots.
+            registry.remove_dut(context.dut_id)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"ok": True, "id": context.dut_id, "label": context.label}
 
