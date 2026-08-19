@@ -348,6 +348,12 @@ export type RemoteUplink = {
 /** How well this node hears each child that joined its backhaul AP. */
 export type RemoteDownlink = {
   iface: string;
+  /** "detected" when the VAP was paired with a live backhaul, "configured"
+   *  when it is only what an admin typed — which may not be a backhaul at
+   *  all, so the card has to say which one it measured. */
+  source: "detected" | "configured";
+  /** The SSID that interface actually serves. */
+  essid: string | null;
   peers: { mac: string; rssi: number | null; rssi_band: "near" | "mid" | "far" | null }[];
 };
 

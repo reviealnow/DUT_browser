@@ -233,11 +233,22 @@ function FleetCard({
                   ? "Not applicable"
                   : !rssi || !rssi.downlink
                     ? "Not captured"
-                    : rssi.downlink.peers.length === 0
-                      ? "None"
-                      : rssi.downlink.peers
-                          .map((p) => `${p.rssi === null ? "—" : `${p.rssi} dBm`}`)
-                          .join(" · ")}
+                    : `${
+                        rssi.downlink.peers.length === 0
+                          ? "None"
+                          : rssi.downlink.peers
+                              .map((p) => (p.rssi === null ? "—" : `${p.rssi} dBm`))
+                              .join(" · ")
+                      }${
+                        // An interface nobody verified is a backhaul gets said
+                        // out loud, with the SSID it serves: on the bench a
+                        // configured VAP was carrying an ordinary laptop.
+                        rssi.downlink.source === "configured"
+                          ? ` · ${rssi.downlink.iface} configured${
+                              rssi.downlink.essid ? ` (${rssi.downlink.essid})` : ""
+                            }`
+                          : ""
+                      }`}
               </dd>
             </div>
           </dl>

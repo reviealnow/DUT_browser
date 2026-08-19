@@ -325,7 +325,12 @@ class RssiCaptureTests(unittest.TestCase):
         result = capture_rssi("root1", request)
 
         self.assertIsNone(result["uplink"])
-        self.assertEqual(result["downlink"], {"iface": "ath16", "peers": []})
+        # Named as configured, with the SSID it actually serves, so a wrong
+        # interface cannot pass itself off as a measured backhaul.
+        self.assertEqual(result["downlink"], {
+            "iface": "ath16", "source": "configured",
+            "essid": "dutBrowser_Backhaul - PD1005VMG3", "peers": [],
+        })
 
     def test_a_master_vaps_noise_floor_is_never_reported_as_an_uplink(self) -> None:
         """Every Master VAP reports a Signal level — the noise floor, at link
@@ -375,6 +380,7 @@ class RssiCaptureTests(unittest.TestCase):
         self.assertIsNone(result["uplink"])
         self.assertEqual(result["role"], "root")
         self.assertEqual(result["downlink"]["iface"], "ath22")   # not the configured ath16
+        self.assertEqual(result["downlink"]["source"], "detected")
         self.assertEqual(result["downlink"]["peers"],
                          [{"mac": "d2:4f:86:89:f1:69", "rssi": -36, "rssi_band": "near"}])
 
@@ -437,6 +443,52 @@ class RssiCaptureTests(unittest.TestCase):
         request.app.state.dut_registry.ids.return_value = ["mesh1"]
 
         self.assertEqual(capture_rssi("mesh1", request)["role"], "node")
+
+    def test_a_configured_client_vap_is_not_passed_off_as_a_backhaul(self) -> None:
+        """The bench had exactly this: the root's configured ath16 served an
+        ordinary SSID, and one of its neighbours had a laptop on it. Reporting
+        that laptop as a mesh child with no provenance is what `source` ends."""
+        context = mock.Mock()
+        context.remote = {**REMOTE, "backhaul_iface": "ath32"}
+        context.serial_worker = _worker_answering({
+            "iwconfig": IWCONFIG_ROOT_AP6840E,
+            "wlanconfig ath32 list": (
+                "ADDR AID CHAN TXRATE RXRATE RSSI\n"
+                "f4:3b:d8:d6:98:8b 1 161 1201M 1201M -42 00:01:02 IEEE80211_MODE_11AXA_HE80 2 2\n"
+            ),
+        })
+        request = mock.Mock()
+        request.app.state.dut_registry.get.return_value = context
+        request.app.state.dut_registry.ids.return_value = ["root1"]
+
+        downlink = capture_rssi("root1", request)["downlink"]
+
+        self.assertEqual(downlink["source"], "configured")
+        self.assertEqual(downlink["essid"], "!!3290-1")     # visibly not a backhaul
+        self.assertEqual(len(downlink["peers"]), 1)
+
+    def test_a_dead_console_does_not_cost_the_uplink_it_already_measured(self) -> None:
+        """The uplink command succeeded; only the peer table failed. Losing the
+        first result means the card sits on a stale number after a retry."""
+        def capture(cmd, *a, **k):
+            if cmd.startswith("iwconfig"):
+                return IWCONFIG_AP6420
+            raise RuntimeError("Serial port is not open")
+        context = mock.Mock()
+        context.remote = REMOTE.copy()
+        context.remote_uplink = None
+        context.serial_worker = mock.Mock()
+        context.serial_worker.capture_command.side_effect = capture
+        request = mock.Mock()
+        request.app.state.dut_registry.get.return_value = context
+        request.app.state.dut_registry.ids.return_value = ["mesh1"]
+
+        with self.assertRaises(HTTPException) as caught:
+            capture_rssi("mesh1", request)
+
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertEqual(context.remote_uplink["rssi"], -37)   # kept, not discarded
+        self.assertEqual(context.remote_role, "node")
 
     def test_standalone_ap_is_not_applicable_without_capture(self) -> None:
         context = mock.Mock()

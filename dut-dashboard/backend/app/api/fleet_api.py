@@ -214,26 +214,42 @@ def capture_rssi(dut_id: str, request: Request, _admin: dict = _ADMIN) -> dict:
     # A root has no uplink to pair against, so its downward VAP can only come
     # from configuration. Detection wins where it works: interface numbering
     # differs between models and firmware renumbers VAPs.
-    downlink_iface = found["downlink"]["iface"] if found["downlink"] else remote.get("backhaul_iface")
-    downlink = None
-    if downlink_iface:
-        try:
-            table = worker.capture_command(f"wlanconfig {downlink_iface} list")
-        except RuntimeError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        downlink = {
-            "iface": downlink_iface,
-            "peers": [_peer(c) for c in parse_wlanconfig_list(table, downlink_iface)],
-        }
+    detected = found["downlink"]
+    downlink_iface = detected["iface"] if detected else remote.get("backhaul_iface")
 
     # The capture parsed real VAPs, so an absent uplink is an answer rather
     # than a gap: this DUT has no parent. The card must be able to tell those
     # apart, and only the side that read the VAPs can.
     role = "node" if uplink is not None else "root"
 
+    # Stored before the second capture. The uplink is already measured, and a
+    # console that dies between the two commands must not cost a reading that
+    # succeeded — the request still fails, but the fresh value is kept rather
+    # than the card being left on a stale one.
     context.remote_uplink = uplink
-    context.remote_downlink = downlink
     context.remote_role = role
+
+    downlink = None
+    if downlink_iface:
+        try:
+            table = worker.capture_command(f"wlanconfig {downlink_iface} list")
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        configured = next((link for link in links if link["iface"] == downlink_iface), None)
+        downlink = {
+            "iface": downlink_iface,
+            # Where the interface came from, and what SSID it actually serves.
+            # The two sources are not equally trustworthy: a detected VAP is
+            # paired with a live backhaul, a configured one is whatever an
+            # admin typed. On this bench the configured value pointed at a
+            # client VAP, whose ordinary laptop would otherwise have been
+            # rendered as a mesh child with no way to tell.
+            "source": "detected" if detected else "configured",
+            "essid": (detected or configured or {}).get("essid"),
+            "peers": [_peer(c) for c in parse_wlanconfig_list(table, downlink_iface)],
+        }
+
+    context.remote_downlink = downlink
     return {
         "dut": dut_id,
         "applicable": True,
