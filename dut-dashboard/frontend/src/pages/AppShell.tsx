@@ -30,6 +30,7 @@ const BulletinSection = lazy(() => import("../components/BulletinSection"));
 const WorkspaceSearchResults = lazy(() => import("../components/WorkspaceSearchResults"));
 const FleetStrip = lazy(() => import("../components/FleetStrip"));
 const DownloadsSection = lazy(() => import("../components/DownloadsSection"));
+const OfflineAnalyzerSection = lazy(() => import("../components/OfflineAnalyzerSection"));
 const FilesSection = lazy(() => import("../components/FilesSection"));
 const SettingsSection = lazy(() => import("../components/SettingsSection"));
 const WifiClientsCard = lazy(() => import("../components/WifiClientsCard"));
@@ -336,6 +337,8 @@ function renderSection(
       );
     case "downloads":
       return <DownloadsSection query={search} />;
+    case "offline":
+      return <OfflineAnalyzerSection />;
     case "files":
       return <FilesSection query={search} onTagClick={onTagSearch} />;
     case "bulletin":

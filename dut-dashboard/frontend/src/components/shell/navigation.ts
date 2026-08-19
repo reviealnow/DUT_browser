@@ -10,6 +10,7 @@ export type SectionId =
   | "logs"
   | "console"
   | "downloads"
+  | "offline"
   | "files"
   | "bulletin"
   | "settings"
@@ -41,6 +42,7 @@ export const NAV_ITEMS: NavItem[] = [
   { id: "logs", label: "Logs / Crash Events", icon: "⚠", title: "Logs / Crash Events", subtitle: "Critical crash and log event detection", group: "Monitoring", minRole: "guest" },
   { id: "console", label: "Serial Console", icon: "⌨", title: "Serial Console", subtitle: "DUT serial / replay console", group: "Monitoring", minRole: "engineer" },
   { id: "downloads", label: "Downloads", icon: "⬇", title: "Downloads", subtitle: "Log bundles and analyzer artifacts", group: "Monitoring", minRole: "engineer" },
+  { id: "offline", label: "Offline Analyzer", icon: "⌁", title: "Offline Analyzer", subtitle: "Local log comparison and charts", group: "Monitoring", minRole: "guest" },
   { id: "files", label: "Files", icon: "🗂", title: "Files", subtitle: "Shared file workspace", group: "Workspace", minRole: "engineer" },
   { id: "bulletin", label: "Bulletin", icon: "📌", title: "Bulletin", subtitle: "Team notes and replies", group: "Workspace", minRole: "engineer" },
   { id: "settings", label: "Settings", icon: "⚙", title: "Settings", subtitle: "Dashboard configuration", group: "System", minRole: "engineer" },
