@@ -1485,7 +1485,7 @@ body {
 .fleet-card-titles { display: flex; flex-direction: column; min-width: 0; }
 .fleet-card-cpu { display: flex; flex-direction: column; gap: var(--space-1); }
 .fleet-fact-ok { color: var(--ok, #16a34a); }
-.fleet-fact-danger { color: var(--danger, #ef4444); }
+.fleet-fact-idle { color: var(--muted); }
 .fleet-rssi-na {
   color: var(--muted);
   font-style: italic;

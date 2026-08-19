@@ -193,9 +193,14 @@ function FleetCard({
         {entry.remote ? (
           <dl className="stat-list fleet-remote-facts">
             <div className="stat-row">
-              <dt>Pi reachability</dt>
-              <dd className={entry.serialOpen ? "fleet-fact-ok" : "fleet-fact-danger"}>
-                {entry.serialOpen ? "Reachable" : "Unreachable"}
+              {/* Nothing here probes the Pi: this is whether the backend is
+                  holding an SSH console open, so it must not be worded as
+                  reachability, and "not connected" is a resting state rather
+                  than a fault. Whether bytes are actually arriving is the
+                  console row below. */}
+              <dt>SSH session</dt>
+              <dd className={entry.serialOpen ? "fleet-fact-ok" : "fleet-fact-idle"}>
+                {entry.serialOpen ? "Connected" : "Not connected"}
               </dd>
             </div>
             <div className="stat-row">
