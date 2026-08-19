@@ -34,13 +34,19 @@ DEFAULT_DUT_ID = "default"
 MAX_DUTS = 16
 _DUT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 
-# A remote node's device path and backhaul interface both end up inside a
-# command string a shell runs — on the Pi for the console, on the DUT for the
-# RSSI capture. Defined here because this is where the persisted entry is
-# cleaned; fleet_api imports them so the API body and the file on disk cannot
+# Every part of a remote node's configuration ends up as an argument to ssh or
+# inside a command string a shell runs — on the Pi for the console, on the DUT
+# for the RSSI capture. Defined here because this is where the persisted entry
+# is cleaned; fleet_api imports them so the API body and the file on disk cannot
 # drift into disagreeing about what is acceptable.
+#
+# The leading character of a host or user is deliberately alphanumeric: a value
+# starting with "-" would reach ssh as an option rather than a name.
+REMOTE_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@%+-]*$")
 REMOTE_DEVICE_RE = re.compile(r"^/dev/[A-Za-z0-9._/-]+$")
 REMOTE_IFACE_RE = re.compile(r"^ath\d+$")
+REMOTE_PORT_MIN = 1
+REMOTE_PORT_MAX = 65535
 
 
 def _clean_last_serial(value: object) -> dict | None:
@@ -69,9 +75,15 @@ def _clean_remote(value: object) -> dict | None:
     required = ("host", "user", "key_path", "device")
     if any(not isinstance(value.get(key), str) or not value[key].strip() for key in required):
         return None
+    host = value["host"].strip()
+    user = value["user"].strip()
+    if not REMOTE_TOKEN_RE.fullmatch(host) or not REMOTE_TOKEN_RE.fullmatch(user):
+        return None
     port = value.get("port", 22)
     baudrate = value.get("baudrate", 115200)
     if any(isinstance(item, bool) or not isinstance(item, int) or item <= 0 for item in (port, baudrate)):
+        return None
+    if not REMOTE_PORT_MIN <= port <= REMOTE_PORT_MAX:
         return None
     device = value["device"].strip()
     if not REMOTE_DEVICE_RE.fullmatch(device) or ".." in device:
@@ -85,8 +97,8 @@ def _clean_remote(value: object) -> dict | None:
     if is_mesh and not isinstance(backhaul_iface, str):
         return None
     return {
-        "host": value["host"].strip(),
-        "user": value["user"].strip(),
+        "host": host,
+        "user": user,
         "key_path": value["key_path"].strip(),
         "port": port,
         "device": device,

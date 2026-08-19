@@ -2,19 +2,22 @@
 
 from __future__ import annotations
 
-import re
-
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
-from app.dut.registry import REMOTE_DEVICE_RE, REMOTE_IFACE_RE
+from app.dut.registry import (
+    REMOTE_DEVICE_RE,
+    REMOTE_IFACE_RE,
+    REMOTE_PORT_MAX,
+    REMOTE_PORT_MIN,
+    REMOTE_TOKEN_RE,
+)
 from app.services import auth_service
 from app.services.wifi_clients import parse_wlanconfig_list, signal_band
 
 router = APIRouter(prefix="/api/fleet", tags=["fleet"])
 _ADMIN = Depends(auth_service.require_role("admin"))
 
-_REMOTE_TOKEN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@%+-]*$")
 MAX_REMOTE_NODES = 4
 
 
@@ -24,7 +27,7 @@ class RemoteNodeBody(BaseModel):
     host: str
     user: str
     key_path: str
-    port: int = Field(default=22, ge=1, le=65535)
+    port: int = Field(default=22, ge=REMOTE_PORT_MIN, le=REMOTE_PORT_MAX)
     device: str = "/dev/ttyUSB0"
     baudrate: int = Field(default=115200, ge=1)
     is_mesh: bool = True
@@ -33,7 +36,7 @@ class RemoteNodeBody(BaseModel):
     @field_validator("host", "user")
     @classmethod
     def safe_ssh_token(cls, value: str) -> str:
-        if not _REMOTE_TOKEN.fullmatch(value):
+        if not REMOTE_TOKEN_RE.fullmatch(value):
             raise ValueError("must contain only SSH host/user characters")
         return value
 
