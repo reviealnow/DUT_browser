@@ -10,7 +10,6 @@ import {
   openSerial,
   RemoteRssiResult,
 } from "../api/rest";
-import { hashHue } from "../monitoring/authorColor";
 import { runConnectCaptures } from "../monitoring/siteSurveyStore";
 import { DutStatus } from "../monitoring/useDutMonitor";
 import { FleetEntry, useFleetMonitor } from "../monitoring/useFleetMonitor";
@@ -161,9 +160,19 @@ function FleetCard({
       .finally(() => setCapturingRssi(false));
   }, [entry.id]);
 
+  // Where a DUT's console is attached — this machine, or a remote Pi over SSH —
+  // is the one distinction this strip exists to make, so the two get the
+  // palette's two furthest-apart colours rather than a hue per id. A hashed hue
+  // put "mesh1" and "ap2" on neighbouring purples; telling them apart at a
+  // glance is the whole job, and it was not doing it.
+  //
+  // Note this is not a DUT's mesh role. Console location and mesh role are
+  // independent: a mesh root can hang off a Pi and a mesh node can be cabled to
+  // this machine. Whether a DUT has an uplink is measured, not inferred from
+  // which card it is.
   const cardStyle = entry.remote
-    ? { borderTopColor: `hsl(${hashHue(entry.id)} 58% 46%)` }
-    : { borderTopColor: "var(--ok, #22c55e)" };
+    ? { borderTopColor: "var(--ok, #0c7a43)" }
+    : { borderTopColor: "var(--accent, #1565c0)" };
 
   return (
     <div className="card fleet-card fleet-card--strip" style={cardStyle}>
