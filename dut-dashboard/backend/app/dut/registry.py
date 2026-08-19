@@ -129,8 +129,17 @@ class DutContext:
     # Server-side SSH configuration. describe() deliberately exposes only the
     # Pi identity needed by FleetStrip, never the user or private-key path.
     remote: dict | None = None
-    remote_rssi: int | None = None
-    remote_rssi_band: str | None = None
+    # The two halves of a mesh backhaul are different measurements and are kept
+    # apart on purpose: uplink is how well this node hears its parent (iwconfig
+    # on the Managed VAP), downlink is how well it hears each child (wlanconfig
+    # on the Master VAP). Collapsing them into one "RSSI" makes the number on
+    # the card unreadable — you cannot tell which direction it describes.
+    remote_uplink: dict | None = None
+    remote_downlink: dict | None = None
+    # "root" once a capture has parsed this DUT's VAPs and found no uplink,
+    # "node" when it found one, None while nothing has been captured. Without
+    # it the card cannot tell a root from a DUT nobody has measured yet.
+    remote_role: str | None = None
 
 
 class DutRegistry:
@@ -289,8 +298,9 @@ class DutRegistry:
                         "port": ctx.remote["port"],
                         "device": ctx.remote["device"],
                         "is_mesh": ctx.remote["is_mesh"],
-                        "rssi": ctx.remote_rssi,
-                        "rssi_band": ctx.remote_rssi_band,
+                        "role": ctx.remote_role,
+                        "uplink": ctx.remote_uplink,
+                        "downlink": ctx.remote_downlink,
                     },
                 }
             )

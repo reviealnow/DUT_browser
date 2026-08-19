@@ -99,8 +99,9 @@ function FleetCard({
   const [rssi, setRssi] = useState<RemoteRssiResult | null>(() => entry.remote ? {
     dut: entry.id,
     applicable: entry.remote.isMesh,
-    rssi: entry.remote.rssi,
-    band: entry.remote.rssiBand,
+    role: entry.remote.role,
+    uplink: entry.remote.uplink,
+    downlink: entry.remote.downlink,
   } : null);
   const [capturingRssi, setCapturingRssi] = useState(false);
   const meta = STATUS_META[entry.status];
@@ -216,14 +217,47 @@ function FleetCard({
               <dt>Node console</dt>
               <dd>{meta.label}</dd>
             </div>
+            {/* Two directions, two rows, because they answer different
+                questions and come from different commands. One "Backhaul RSSI"
+                number could not say which way it pointed. */}
             <div className="stat-row">
-              <dt>Backhaul RSSI</dt>
+              <dt>Uplink to parent</dt>
+              {/* A root has no parent, and a capture that parsed its VAPs
+                  established that. Saying "Not captured" there would report a
+                  known state as a missing one. */}
+              <dd className={rssi && (!rssi.applicable || rssi.role === "root") ? "fleet-rssi-na" : undefined}>
+                {rssi && !rssi.applicable
+                  ? "Not applicable"
+                  : rssi && rssi.role === "root"
+                    ? "None — this is the root"
+                    : !rssi || !rssi.uplink || rssi.uplink.rssi === null
+                      ? "Not captured"
+                      : `${rssi.uplink.rssi} dBm · ${rssi.uplink.rssi_band}`}
+              </dd>
+            </div>
+            <div className="stat-row">
+              <dt>Children on backhaul</dt>
               <dd className={rssi && !rssi.applicable ? "fleet-rssi-na" : undefined}>
                 {rssi && !rssi.applicable
                   ? "Not applicable"
-                  : rssi?.rssi === null || !rssi
+                  : !rssi || !rssi.downlink
                     ? "Not captured"
-                    : `${rssi.rssi} dBm · ${rssi.band}`}
+                    : `${
+                        rssi.downlink.peers.length === 0
+                          ? "None"
+                          : rssi.downlink.peers
+                              .map((p) => (p.rssi === null ? "—" : `${p.rssi} dBm`))
+                              .join(" · ")
+                      }${
+                        // An interface nobody verified is a backhaul gets said
+                        // out loud, with the SSID it serves: on the bench a
+                        // configured VAP was carrying an ordinary laptop.
+                        rssi.downlink.source === "configured"
+                          ? ` · ${rssi.downlink.iface} configured${
+                              rssi.downlink.essid ? ` (${rssi.downlink.essid})` : ""
+                            }`
+                          : ""
+                      }`}
               </dd>
             </div>
           </dl>

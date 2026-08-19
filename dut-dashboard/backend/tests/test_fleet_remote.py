@@ -13,6 +13,7 @@ from pydantic import ValidationError
 
 import app.dut.registry as registry_mod
 from app.api.fleet_api import RemoteNodeBody, capture_rssi, configure_node
+from app.services.wifi_clients import classify_backhaul, parse_iwconfig_links
 from app.dut.registry import REMOTE_PORT_MAX, DutRegistry
 from app.parser.sysmon_parser import SysMonParser
 from app.serial.serial_worker import SSH_CAPTURE_TIMEOUT_SEC, SerialWorker
@@ -28,6 +29,57 @@ REMOTE = {
     "is_mesh": True,
     "backhaul_iface": "ath16",
 }
+
+
+# Captured from an AP6 420 mesh node over its own console (2026-08-19). The
+# Master VAPs' noise-floor readings are the trap this parser exists to avoid:
+# every one of them reports a Signal level. ath15/ath14 are the backhaul pair;
+# ath8 shares the band but not the ESSID, and must not be mistaken for it.
+IWCONFIG_AP6420 = (
+    'ath15     IEEE 802.11axa  ESSID:"dutBrowser_Backhaul - PD1005VMG3"  \n'
+    "          Mode:Managed  Frequency:5.22 GHz (Channel 44)  Access Point: CE:4F:86:95:CE:E5   \n"
+    "          Bit Rate:573.5 Mb/s   Tx-Power:24 dBm   \n"
+    "          Link Quality=94/94  Signal level=-37 dBm  Noise level=-92 dBm (BDF averaged NF value in dBm)\n"
+    'ath0      IEEE 802.11axg  ESSID:"!!3290-1"  \n'
+    "          Mode:Master  Frequency:2.462 GHz (Channel 11)  Access Point: CA:4F:86:89:F1:68   \n"
+    "          Link Quality=0/94  Signal level=-95 dBm  Noise level=-95 dBm (BDF averaged NF value in dBm)\n"
+    'ath14     IEEE 802.11axa  ESSID:"dutBrowser_Backhaul - PD1005VMG3"  \n'
+    "          Mode:Master  Frequency:5.22 GHz (Channel 44)  Access Point: CE:4F:86:89:F1:69   \n"
+    "          Link Quality=0/94  Signal level=-92 dBm  Noise level=-92 dBm (BDF averaged NF value in dBm)\n"
+    'ath8      IEEE 802.11axa  ESSID:"!!3290-1"  \n'
+    "          Mode:Master  Frequency:5.22 GHz (Channel 44)  Access Point: C8:4F:86:89:F1:69   \n"
+    "          Link Quality=0/94  Signal level=-92 dBm  Noise level=-92 dBm (BDF averaged NF value in dBm)\n"
+    "soc1      no wireless extensions.\n"
+    "\n"
+    "ifb2      no wireless extensions.\n"
+)
+
+# A root: Master VAPs only, so nothing to pair an uplink against.
+IWCONFIG_ROOT_ONLY = (
+    'ath16     IEEE 802.11axa  ESSID:"dutBrowser_Backhaul - PD1005VMG3"  \n'
+    "          Mode:Master  Frequency:5.22 GHz (Channel 44)  Access Point: CE:4F:86:89:F1:69   \n"
+    "          Link Quality=0/94  Signal level=-92 dBm  Noise level=-92 dBm\n"
+    "soc1      no wireless extensions.\n"
+)
+
+# Captured from the AP6 840E acting as mesh root (2026-08-19). Nothing here
+# marks ath22 as the backhaul: it is Master like the other three, and its
+# "!!3290-1" neighbours are ordinary client VAPs. Only another DUT can name it
+# — ath22's BSSID is what the node reports as its uplink peer.
+IWCONFIG_ROOT_AP6840E = (
+    'ath22     IEEE 802.11axa  ESSID:"dutBrowser_Backhaul - PD1005VMG3"  \n'
+    "          Mode:Master  Frequency:5.22 GHz (Channel 44)  Access Point: CE:4F:86:95:CE:E5   \n"
+    "          Link Quality=0/94  Signal level=-91 dBm  Noise level=-91 dBm (BDF averaged NF value in dBm)\n"
+    'ath0      IEEE 802.11axg  ESSID:"!!3290-1"  \n'
+    "          Mode:Master  Frequency:2.437 GHz (Channel 6)  Access Point: C8:4F:86:95:CE:E4   \n"
+    "          Link Quality=0/94  Signal level=-93 dBm  Noise level=-93 dBm (BDF averaged NF value in dBm)\n"
+    'ath32     IEEE 802.11axa  ESSID:"!!3290-1"  \n'
+    "          Mode:Master  Frequency:6.755 GHz (Channel 161)  Access Point: CA:4F:86:66:2F:A0   \n"
+    "          Link Quality=0/94  Signal level=-90 dBm  Noise level=-90 dBm (BDF averaged NF value in dBm)\n"
+    'ath16     IEEE 802.11axa  ESSID:"!!3290-1"  \n'
+    "          Mode:Master  Frequency:5.22 GHz (Channel 44)  Access Point: C8:4F:86:95:CE:E5   \n"
+    "          Link Quality=0/94  Signal level=-91 dBm  Noise level=-91 dBm (BDF averaged NF value in dBm)\n"
+)
 
 
 class _Ws:
@@ -216,20 +268,227 @@ class RemoteNodeApiTests(unittest.TestCase):
                 self.assertEqual(json.loads((root / "duts.json").read_text()), [])
 
 
+def _worker_answering(replies: dict[str, str]):
+    """A serial worker double that answers each console command in turn."""
+    def capture(cmd: str, *args, **kwargs) -> str:
+        for prefix, reply in replies.items():
+            if cmd.startswith(prefix):
+                return reply
+        return ""
+    worker = mock.Mock()
+    worker.capture_command.side_effect = capture
+    return worker
+
+
 class RssiCaptureTests(unittest.TestCase):
-    def test_capture_reuses_wifi_client_parser_and_scopes_result(self) -> None:
+    def test_the_uplink_comes_from_iwconfig_and_the_peers_from_wlanconfig(self) -> None:
+        """The two directions are different commands; asking wlanconfig for the
+        uplink is what made a healthy -37 dBm link read as nothing at all."""
         context = mock.Mock()
         context.remote = REMOTE.copy()
-        context.serial_worker.capture_command.return_value = (
-            "00:11:22:33:44:55 1 36 866M 780M -63 00:01:02 IEEE80211_MODE_11AXA_HE80 2 2\n"
-        )
+        context.serial_worker = _worker_answering({
+            "iwconfig": IWCONFIG_AP6420,
+            "wlanconfig ath14 list": (
+                "ADDR AID CHAN TXRATE RXRATE RSSI\n"
+                "00:11:22:33:44:55 1 44 866M 780M -63 00:01:02 IEEE80211_MODE_11AXA_HE80 2 2\n"
+            ),
+        })
+        request = mock.Mock()
+        request.app.state.dut_registry.get.return_value = context
+        request.app.state.dut_registry.ids.return_value = ["mesh1"]
+
+        result = capture_rssi("mesh1", request)
+
+        self.assertEqual(result["uplink"], {
+            "iface": "ath15", "rssi": -37, "snr": 55, "rssi_band": "near",
+            "radio_band": "5GHz", "essid": "dutBrowser_Backhaul - PD1005VMG3",
+            "peer_mac": "ce:4f:86:95:ce:e5",
+        })
+        self.assertEqual(result["downlink"]["iface"], "ath14")
+        self.assertEqual(result["downlink"]["peers"],
+                         [{"mac": "00:11:22:33:44:55", "rssi": -63, "rssi_band": "mid"}])
+        # The configured ath16 is not consulted: detection found the real pair.
+        commands = [c.args[0] for c in context.serial_worker.capture_command.call_args_list]
+        self.assertEqual(commands, ["iwconfig", "wlanconfig ath14 list"])
+
+    def test_a_root_with_no_uplink_falls_back_to_the_configured_iface(self) -> None:
+        context = mock.Mock()
+        context.remote = REMOTE.copy()
+        context.serial_worker = _worker_answering({
+            "iwconfig": IWCONFIG_ROOT_ONLY,
+            "wlanconfig ath16 list": "ADDR AID CHAN\n",
+        })
+        request = mock.Mock()
+        request.app.state.dut_registry.get.return_value = context
+        request.app.state.dut_registry.ids.return_value = ["root1"]
+
+        result = capture_rssi("root1", request)
+
+        self.assertIsNone(result["uplink"])
+        # Named as configured, with the SSID it actually serves, so a wrong
+        # interface cannot pass itself off as a measured backhaul.
+        self.assertEqual(result["downlink"], {
+            "iface": "ath16", "source": "configured",
+            "essid": "dutBrowser_Backhaul - PD1005VMG3", "peers": [],
+        })
+
+    def test_a_master_vaps_noise_floor_is_never_reported_as_an_uplink(self) -> None:
+        """Every Master VAP reports a Signal level — the noise floor, at link
+        quality 0. Reading it would put a confident -92 dBm on the card."""
+        links = parse_iwconfig_links(IWCONFIG_AP6420)
+        masters = [l for l in links if l["mode"] == "Master"]
+        self.assertTrue(masters)
+        for link in masters:
+            with self.subTest(iface=link["iface"]):
+                self.assertFalse(link["associated"])
+                self.assertIsNone(link["rssi"])
+                self.assertIsNone(link["snr"])
+
+    def test_the_backhaul_pair_is_found_by_essid_and_band_not_by_name(self) -> None:
+        found = classify_backhaul(parse_iwconfig_links(IWCONFIG_AP6420))
+        self.assertEqual(found["uplink"]["iface"], "ath15")
+        # ath8 is Master on the same band but a different ESSID; ath0 shares
+        # neither. Only the VAP paired with the uplink's ESSID qualifies.
+        self.assertEqual(found["downlink"]["iface"], "ath14")
+
+    def test_a_root_names_its_backhaul_from_a_node_it_already_captured(self) -> None:
+        """The root cannot identify ath22 alone — it is Master like the rest.
+        The node's uplink peer BSSID is what picks it out, exactly."""
+        node = mock.Mock()
+        node.remote_uplink = {
+            "peer_mac": "ce:4f:86:95:ce:e5",
+            "essid": "dutBrowser_Backhaul - PD1005VMG3",
+            "radio_band": "5GHz",
+        }
+        root = mock.Mock()
+        root.remote = REMOTE.copy()
+        root.serial_worker = _worker_answering({
+            "iwconfig": IWCONFIG_ROOT_AP6840E,
+            "wlanconfig ath22 list": (
+                "ADDR AID CHAN TXRATE RXRATE RSSI\n"
+                "d2:4f:86:89:f1:69 1 44 516M 516M -36 00:05:11 IEEE80211_MODE_11AXA_HE40 2 2\n"
+            ),
+        })
         registry = mock.Mock()
-        registry.get.return_value = context
+        registry.ids.return_value = ["root1", "mesh1"]
+        registry.get.side_effect = lambda d: root if d == "root1" else node
         request = mock.Mock()
         request.app.state.dut_registry = registry
-        result = capture_rssi("mesh1", request)
-        self.assertEqual(result, {"dut": "mesh1", "applicable": True, "rssi": -63, "band": "mid"})
-        context.serial_worker.capture_command.assert_called_once_with("wlanconfig ath16 list")
+
+        result = capture_rssi("root1", request)
+
+        self.assertIsNone(result["uplink"])
+        self.assertEqual(result["role"], "root")
+        self.assertEqual(result["downlink"]["iface"], "ath22")   # not the configured ath16
+        self.assertEqual(result["downlink"]["source"], "detected")
+        self.assertEqual(result["downlink"]["peers"],
+                         [{"mac": "d2:4f:86:89:f1:69", "rssi": -36, "rssi_band": "near"}])
+
+    def test_the_bssid_wins_when_two_vaps_share_the_backhaul_ssid(self) -> None:
+        """The reason the peer BSSID is the primary key. A root advertising the
+        backhaul SSID on two radios gives ESSID matching nothing to choose by;
+        the BSSID names one VAP and only one."""
+        two_radios = IWCONFIG_ROOT_AP6840E.replace('ath16     IEEE 802.11axa  ESSID:"!!3290-1"',
+                                                   'ath16     IEEE 802.11axa  ESSID:"dutBrowser_Backhaul - PD1005VMG3"')
+        links = parse_iwconfig_links(two_radios)
+        essid = "dutBrowser_Backhaul - PD1005VMG3"
+        self.assertEqual(len([l for l in links if l["essid"] == essid]), 2)
+
+        by_bssid = classify_backhaul(links, peer_bssids={"ce:4f:86:95:ce:e5"})
+        self.assertEqual(by_bssid["downlink"]["iface"], "ath22")
+
+        # Without a peer MAC the (ESSID, band) pair still names one VAP. Both
+        # candidates here are 5 GHz, so this is the case the band cannot split
+        # and the BSSID must: assert what it does rather than pretend it chose.
+        both_5ghz = classify_backhaul(links, peer_networks={(essid, "5GHz")})
+        self.assertIn(both_5ghz["downlink"]["iface"], {"ath22", "ath16"})
+
+        # When the radios differ, the band decides and the wrong one is refused.
+        self.assertIsNone(classify_backhaul(links, peer_networks={(essid, "2.4GHz")})["downlink"])
+
+    def test_an_uncaptured_fleet_leaves_the_root_on_its_configured_iface(self) -> None:
+        """The correlation reads what earlier captures stored, so a root asked
+        first has nothing to go on. Stated rather than hidden."""
+        found = classify_backhaul(parse_iwconfig_links(IWCONFIG_ROOT_AP6840E))
+        self.assertIsNone(found["uplink"])
+        self.assertIsNone(found["downlink"])
+
+    def test_an_empty_capture_refuses_rather_than_blanking_a_live_reading(self) -> None:
+        """A console mid-reconfiguration answers iwconfig with no VAPs at all.
+        Storing None there blanks a live card and strips the key a root needs
+        to name its backhaul VAP, so it must not be mistaken for an answer."""
+        context = mock.Mock()
+        context.remote = REMOTE.copy()
+        context.remote_uplink = {"iface": "ath15", "rssi": -37, "peer_mac": "ce:4f:86:95:ce:e5"}
+        context.serial_worker = _worker_answering({"iwconfig": "soc1      no wireless extensions.\n"})
+        request = mock.Mock()
+        request.app.state.dut_registry.get.return_value = context
+        request.app.state.dut_registry.ids.return_value = ["mesh1"]
+
+        with self.assertRaises(HTTPException) as caught:
+            capture_rssi("mesh1", request)
+
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertEqual(context.remote_uplink["rssi"], -37)   # untouched
+
+    def test_a_measured_node_is_labelled_a_node(self) -> None:
+        context = mock.Mock()
+        context.remote = REMOTE.copy()
+        context.serial_worker = _worker_answering({
+            "iwconfig": IWCONFIG_AP6420,
+            "wlanconfig ath14 list": "ADDR AID CHAN\n",
+        })
+        request = mock.Mock()
+        request.app.state.dut_registry.get.return_value = context
+        request.app.state.dut_registry.ids.return_value = ["mesh1"]
+
+        self.assertEqual(capture_rssi("mesh1", request)["role"], "node")
+
+    def test_a_configured_client_vap_is_not_passed_off_as_a_backhaul(self) -> None:
+        """The bench had exactly this: the root's configured ath16 served an
+        ordinary SSID, and one of its neighbours had a laptop on it. Reporting
+        that laptop as a mesh child with no provenance is what `source` ends."""
+        context = mock.Mock()
+        context.remote = {**REMOTE, "backhaul_iface": "ath32"}
+        context.serial_worker = _worker_answering({
+            "iwconfig": IWCONFIG_ROOT_AP6840E,
+            "wlanconfig ath32 list": (
+                "ADDR AID CHAN TXRATE RXRATE RSSI\n"
+                "f4:3b:d8:d6:98:8b 1 161 1201M 1201M -42 00:01:02 IEEE80211_MODE_11AXA_HE80 2 2\n"
+            ),
+        })
+        request = mock.Mock()
+        request.app.state.dut_registry.get.return_value = context
+        request.app.state.dut_registry.ids.return_value = ["root1"]
+
+        downlink = capture_rssi("root1", request)["downlink"]
+
+        self.assertEqual(downlink["source"], "configured")
+        self.assertEqual(downlink["essid"], "!!3290-1")     # visibly not a backhaul
+        self.assertEqual(len(downlink["peers"]), 1)
+
+    def test_a_dead_console_does_not_cost_the_uplink_it_already_measured(self) -> None:
+        """The uplink command succeeded; only the peer table failed. Losing the
+        first result means the card sits on a stale number after a retry."""
+        def capture(cmd, *a, **k):
+            if cmd.startswith("iwconfig"):
+                return IWCONFIG_AP6420
+            raise RuntimeError("Serial port is not open")
+        context = mock.Mock()
+        context.remote = REMOTE.copy()
+        context.remote_uplink = None
+        context.serial_worker = mock.Mock()
+        context.serial_worker.capture_command.side_effect = capture
+        request = mock.Mock()
+        request.app.state.dut_registry.get.return_value = context
+        request.app.state.dut_registry.ids.return_value = ["mesh1"]
+
+        with self.assertRaises(HTTPException) as caught:
+            capture_rssi("mesh1", request)
+
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertEqual(context.remote_uplink["rssi"], -37)   # kept, not discarded
+        self.assertEqual(context.remote_role, "node")
 
     def test_standalone_ap_is_not_applicable_without_capture(self) -> None:
         context = mock.Mock()

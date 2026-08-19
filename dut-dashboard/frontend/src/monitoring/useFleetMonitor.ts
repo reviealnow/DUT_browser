@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { getDuts, getSnapshots } from "../api/rest";
+import { getDuts, getSnapshots, RemoteDownlink, RemoteUplink } from "../api/rest";
 import { applySnapshotDelta, connectFleetWebSocket, SnapshotPayload } from "../api/websocket";
 import { useCrashKeywords } from "./useCrashKeywords";
 import { cpuFromSnapshot, DutStatus } from "./useDutMonitor";
@@ -25,8 +25,11 @@ export type FleetEntry = {
     port: number;
     device: string;
     isMesh: boolean;
-    rssi: number | null;
-    rssiBand: "near" | "mid" | "far" | null;
+    /** Up to the parent and down to the children are separate measurements
+     *  from separate commands; the card must not blur them into one number. */
+    role: "root" | "node" | null;
+    uplink: RemoteUplink | null;
+    downlink: RemoteDownlink | null;
   } | null;
   /** 100 − mean idle across cores from the latest (reconstructed) snapshot. */
   cpuBusyPct: number | null;
@@ -80,7 +83,7 @@ export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () =>
         label: d.label,
         serialOpen: d.serial_open,
         lastSerial: d.last_serial,
-        remote: d.remote ? { host: d.remote.host, port: d.remote.port, device: d.remote.device, isMesh: d.remote.is_mesh, rssi: d.remote.rssi, rssiBand: d.remote.rssi_band } : null,
+        remote: d.remote ? { host: d.remote.host, port: d.remote.port, device: d.remote.device, isMesh: d.remote.is_mesh, role: d.remote.role, uplink: d.remote.uplink, downlink: d.remote.downlink } : null,
       }));
       setDuts(list);
     } catch {
@@ -101,7 +104,7 @@ export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () =>
           label: d.label,
           serialOpen: d.serial_open,
           lastSerial: d.last_serial,
-          remote: d.remote ? { host: d.remote.host, port: d.remote.port, device: d.remote.device, isMesh: d.remote.is_mesh, rssi: d.remote.rssi, rssiBand: d.remote.rssi_band } : null,
+          remote: d.remote ? { host: d.remote.host, port: d.remote.port, device: d.remote.device, isMesh: d.remote.is_mesh, role: d.remote.role, uplink: d.remote.uplink, downlink: d.remote.downlink } : null,
         }));
       } catch {
         return; // backend unreachable: nothing to show

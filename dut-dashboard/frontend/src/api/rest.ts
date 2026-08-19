@@ -321,16 +321,48 @@ export type DutInfo = {
     port: number;
     device: string;
     is_mesh: boolean;
-    rssi: number | null;
-    rssi_band: "near" | "mid" | "far" | null;
+    /** "root" once a capture found no uplink, "node" when it found one, null
+     *  while nothing has been captured — an absent uplink is an answer, and
+     *  the card must not show it as a missing measurement. */
+    role: "root" | "node" | null;
+    uplink: RemoteUplink | null;
+    downlink: RemoteDownlink | null;
   } | null;
+};
+
+/** How well this node hears its parent. Read from `iwconfig` on the Managed
+ *  VAP: `wlanconfig` only ever answers the downward question. */
+export type RemoteUplink = {
+  iface: string;
+  rssi: number | null;
+  snr: number | null;
+  rssi_band: "near" | "mid" | "far" | null;
+  radio_band: "2.4GHz" | "5GHz" | "6GHz" | null;
+  /** The backhaul SSID, and the BSSID this node associates to. Together they
+   *  are what lets a root — which cannot name its own backhaul VAP — be told
+   *  which of its Master VAPs the fleet actually meshes on. */
+  essid: string | null;
+  peer_mac: string | null;
+};
+
+/** How well this node hears each child that joined its backhaul AP. */
+export type RemoteDownlink = {
+  iface: string;
+  /** "detected" when the VAP was paired with a live backhaul, "configured"
+   *  when it is only what an admin typed — which may not be a backhaul at
+   *  all, so the card has to say which one it measured. */
+  source: "detected" | "configured";
+  /** The SSID that interface actually serves. */
+  essid: string | null;
+  peers: { mac: string; rssi: number | null; rssi_band: "near" | "mid" | "far" | null }[];
 };
 
 export type RemoteRssiResult = {
   dut: string;
   applicable: boolean;
-  rssi: number | null;
-  band: "near" | "mid" | "far" | null;
+  role: "root" | "node" | null;
+  uplink: RemoteUplink | null;
+  downlink: RemoteDownlink | null;
 };
 
 export async function connectRemoteNode(dutId: string): Promise<void> {
