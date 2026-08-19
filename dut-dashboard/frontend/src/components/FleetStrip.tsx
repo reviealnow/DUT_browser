@@ -159,10 +159,16 @@ function FleetCard({
       .finally(() => setCapturingRssi(false));
   }, [entry.id]);
 
-  // Root vs node is the one distinction this strip exists to make, so the two
-  // get the palette's two furthest-apart colours rather than a hue per id. A
-  // hashed hue put "mesh1" and "ap2" on neighbouring purples — telling a reader
-  // apart at a glance is the whole job, and it was not doing it.
+  // Where a DUT's console is attached — this machine, or a remote Pi over SSH —
+  // is the one distinction this strip exists to make, so the two get the
+  // palette's two furthest-apart colours rather than a hue per id. A hashed hue
+  // put "mesh1" and "ap2" on neighbouring purples; telling them apart at a
+  // glance is the whole job, and it was not doing it.
+  //
+  // Note this is not a DUT's mesh role. Console location and mesh role are
+  // independent: a mesh root can hang off a Pi and a mesh node can be cabled to
+  // this machine. Whether a DUT has an uplink is measured, not inferred from
+  // which card it is.
   const cardStyle = entry.remote
     ? { borderTopColor: "var(--ok, #0c7a43)" }
     : { borderTopColor: "var(--accent, #1565c0)" };
