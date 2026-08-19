@@ -123,6 +123,42 @@ class SshWorkerTests(unittest.TestCase):
             worker.capture_command("iwconfig", timeout=0.1)
         wait.assert_called_once_with(timeout=SSH_CAPTURE_TIMEOUT_SEC)
 
+    def test_ssh_pipes_close_only_after_the_reader_thread_is_joined(self) -> None:
+        """Closing a descriptor the reader may still be selecting on frees the
+        number for reuse, and the next transport opened here can be handed it."""
+        order: list[str] = []
+        worker = SerialWorker(SysMonParser(lambda event: None))
+        process = mock.Mock()
+        process.poll.return_value = None
+        for pipe in ("stdin", "stdout", "stderr"):
+            getattr(process, pipe).close.side_effect = lambda name=pipe: order.append(f"close {name}")
+        thread = mock.Mock()
+        thread.is_alive.return_value = True
+        thread.join.side_effect = lambda timeout=None: order.append("join")
+        worker._mode = "ssh"
+        worker._ssh = process
+        worker._thread = thread
+
+        worker.close()
+
+        self.assertEqual(order[0], "join")
+        self.assertEqual(set(order[1:]), {"close stdin", "close stdout", "close stderr"})
+
+    def test_a_failed_open_still_releases_the_pipes(self) -> None:
+        """No reader exists on that path, so nothing may hold the descriptors."""
+        worker = SerialWorker(SysMonParser(lambda event: None))
+        process = mock.Mock()
+        process.poll.return_value = 255
+        process.stderr.fileno.return_value = 12
+        process.stderr.read.return_value = b"ssh: connect to host pi-node-1.local port 22: No route\n"
+        with mock.patch("app.serial.serial_worker.subprocess.Popen", return_value=process):
+            with mock.patch("app.serial.serial_worker.select.select", return_value=([], [], [])):
+                with self.assertRaises(RuntimeError):
+                    worker._open_ssh(REMOTE, 115200)
+        process.stdin.close.assert_called_once()
+        process.stdout.close.assert_called_once()
+        process.stderr.close.assert_called_once()
+
     def test_missing_socat_error_is_actionable(self) -> None:
         worker = SerialWorker(SysMonParser(lambda event: None))
         worker._ssh_stderr = [b"sh: socat: command not found\n"]

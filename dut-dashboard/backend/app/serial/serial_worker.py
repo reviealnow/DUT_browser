@@ -144,7 +144,9 @@ class SerialWorker:
                     self._start_log_session(mode=mode, port=port, replay_path=None, label=label)
                 except Exception:
                     assert self._ssh is not None
+                    # No reader thread exists yet, so the pipes can go now.
                     self._terminate_ssh(self._ssh)
+                    self._close_ssh_pipes(self._ssh)
                     self._ssh = None
                     raise
                 self._mode = "ssh"
@@ -179,6 +181,12 @@ class SerialWorker:
 
         if old_thread is not None and old_thread.is_alive() and old_thread is not threading.current_thread():
             old_thread.join(timeout=1.5)
+
+        if ssh is not None:
+            # Deliberately after the join: see _close_ssh_pipes. A join that
+            # timed out leaves the original window open, but holding the
+            # descriptors forever would be worse than a narrow race.
+            self._close_ssh_pipes(ssh)
 
         self.parser.flush()
         self._close_log_session()
@@ -255,13 +263,15 @@ class SerialWorker:
             )
         except Exception:
             if self._ssh is not None:
+                # Same as the caller's rollback: nothing is reading these yet.
                 self._terminate_ssh(process)
+                self._close_ssh_pipes(process)
                 self._ssh = None
             raise
 
     @staticmethod
     def _terminate_ssh(process: subprocess.Popen[bytes]) -> None:
-        """Close pipes and always reap the SSH child."""
+        """Always reap the SSH child. Its pipes are closed separately, later."""
         if process.poll() is None:
             process.terminate()
             try:
@@ -271,6 +281,17 @@ class SerialWorker:
                 process.wait(timeout=1.0)
         else:
             process.wait()
+
+    @staticmethod
+    def _close_ssh_pipes(process: subprocess.Popen[bytes]) -> None:
+        """Release the child's pipes.
+
+        Separate from :meth:`_terminate_ssh`, and called only once the reader
+        thread has stopped: closing a descriptor another thread is still
+        selecting on frees the number for reuse, and the next transport opened
+        anywhere in this process can be handed it. The reader would then be
+        reading a different DUT's console into this one's parser and log.
+        """
         for pipe in (process.stdin, process.stdout, process.stderr):
             if pipe is not None:
                 try:
