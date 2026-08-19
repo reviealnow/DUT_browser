@@ -95,6 +95,90 @@ export type DashboardSocketHandlers = {
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 10_000;
 
+export type FleetSocketHandlers = {
+  onEvent: (event: DashboardEvent & { dut_id?: string }) => void;
+  onOpen?: () => void;
+  onClose?: () => void;
+};
+
+const subscribers = new Set<FleetSocketHandlers>();
+let sharedSocket: WebSocket | null = null;
+let sharedReconnectTimer: number | null = null;
+let sharedAttempt = 0;
+let sharedConnected = false;
+
+function scheduleSharedReconnect(): void {
+  if (subscribers.size === 0 || sharedReconnectTimer !== null) return;
+  const delay = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** sharedAttempt);
+  const jitter = Math.random() * 0.3 * delay;
+  sharedAttempt += 1;
+  sharedReconnectTimer = window.setTimeout(() => {
+    sharedReconnectTimer = null;
+    openSharedSocket();
+  }, delay + jitter);
+}
+
+function openSharedSocket(): void {
+  if (subscribers.size === 0 || sharedSocket !== null) return;
+  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+  const socket = new WebSocket(`${protocol}://${window.location.host}/ws`);
+  sharedSocket = socket;
+  // Every handler below starts with the same guard. A socket stays able to fire
+  // after it has been superseded — a close is a handshake, not an instant — and
+  // a superseded one must neither touch the shared state nor speak for the
+  // transport: nulling `sharedSocket` would strand the live socket and schedule
+  // a reconnect on top of it, and forwarding a frame that arrived during its
+  // closing handshake delivers that event to every subscriber twice, since the
+  // backend is broadcasting to the live socket as well.
+  socket.onopen = () => {
+    if (sharedSocket !== socket) return;
+    sharedAttempt = 0;
+    sharedConnected = true;
+    subscribers.forEach((subscriber) => subscriber.onOpen?.());
+  };
+  socket.onmessage = (message: MessageEvent<string>) => {
+    if (sharedSocket !== socket) return;
+    try {
+      const event = JSON.parse(message.data) as DashboardEvent & { dut_id?: string };
+      if (event && typeof event === "object" && "type" in event) {
+        subscribers.forEach((subscriber) => subscriber.onEvent(event));
+      }
+    } catch {
+      // Ignore malformed messages.
+    }
+  };
+  socket.onclose = () => {
+    if (sharedSocket !== socket) return;
+    sharedSocket = null;
+    if (sharedConnected) {
+      sharedConnected = false;
+      subscribers.forEach((subscriber) => subscriber.onClose?.());
+    }
+    scheduleSharedReconnect();
+  };
+  socket.onerror = () => socket.close();
+}
+
+function subscribeSharedSocket(handlers: FleetSocketHandlers): DashboardSocket {
+  subscribers.add(handlers);
+  if (sharedConnected) handlers.onOpen?.();
+  openSharedSocket();
+  return {
+    close: () => {
+      subscribers.delete(handlers);
+      if (subscribers.size !== 0) return;
+      if (sharedReconnectTimer !== null) {
+        window.clearTimeout(sharedReconnectTimer);
+        sharedReconnectTimer = null;
+      }
+      const socket = sharedSocket;
+      sharedSocket = null;
+      sharedConnected = false;
+      socket?.close();
+    },
+  };
+}
+
 /**
  * Self-reconnecting dashboard WebSocket. Reconnects with exponential backoff
  * (1s → cap 10s, + jitter) until close() is called, so a backend restart is
@@ -105,164 +189,41 @@ export function connectDashboardWebSocket(
   handlers: DashboardSocketHandlers,
   dutId = DEFAULT_DUT_ID,
 ): DashboardSocket {
-  const { onEvent, onOpen, onClose } = handlers;
-  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  const url = `${protocol}://${window.location.host}/ws?dut=${dutId}`;
-
-  let ws: WebSocket | null = null;
-  let closedByCaller = false;
-  let reconnectTimer: number | null = null;
-  let attempt = 0;
-
-  const scheduleReconnect = () => {
-    if (closedByCaller) {
-      return;
-    }
-    const delay = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** attempt);
-    const jitter = Math.random() * 0.3 * delay;
-    attempt += 1;
-    reconnectTimer = window.setTimeout(open, delay + jitter);
-  };
-
-  function open() {
-    let latestSnapshot: SnapshotPayload | null = null;
-    const socket = new WebSocket(url);
-    ws = socket;
-
-    socket.onopen = () => {
-      attempt = 0;
-      onOpen?.();
-    };
-
-    socket.onmessage = (message: MessageEvent<string>) => {
-      try {
-        const event = JSON.parse(message.data) as DashboardEvent;
-        if (event && typeof event === "object" && "type" in event) {
-          // The shared /ws carries every DUT's events tagged with dut_id; keep
-          // only this connection's DUT so the delta-base below stays single-DUT.
-          // (Events without a dut_id are treated as a match for back-compat.)
-          const eventDut = (event as { dut_id?: string }).dut_id;
-          if (eventDut && eventDut !== dutId) {
-            return;
-          }
-          if (event.type === "snapshot_update") {
-            latestSnapshot = event.snapshot;
-            onEvent(event);
-            return;
-          }
-          if (event.type === "snapshot_delta") {
-            if (!latestSnapshot) {
-              return;
-            }
-            latestSnapshot = applySnapshotDelta(latestSnapshot, event.delta);
-            onEvent({ type: "snapshot_update", snapshot: latestSnapshot });
-            return;
-          }
-          onEvent(event);
-        }
-      } catch {
-        // Ignore malformed messages.
+  let latestSnapshot: SnapshotPayload | null = null;
+  return subscribeSharedSocket({
+    onEvent: (event) => {
+      const eventDut = event.dut_id;
+      if (eventDut && eventDut !== dutId) return;
+      if (event.type === "snapshot_update") {
+        latestSnapshot = event.snapshot;
+        handlers.onEvent(event);
+        return;
       }
-    };
-
-    socket.onclose = () => {
-      onClose?.();
-      scheduleReconnect();
-    };
-
-    socket.onerror = () => {
-      socket.close(); // triggers onclose -> reconnect
-    };
-  }
-
-  open();
-
-  return {
-    close: () => {
-      closedByCaller = true;
-      if (reconnectTimer !== null) {
-        window.clearTimeout(reconnectTimer);
+      if (event.type === "snapshot_delta") {
+        if (!latestSnapshot) return;
+        latestSnapshot = applySnapshotDelta(latestSnapshot, event.delta);
+        handlers.onEvent({ type: "snapshot_update", snapshot: latestSnapshot });
+        return;
       }
-      ws?.close();
+      handlers.onEvent(event);
     },
-  };
+    onOpen: () => {
+      latestSnapshot = null;
+      handlers.onOpen?.();
+    },
+    onClose: handlers.onClose,
+  });
 }
 
 /**
- * Fleet variant: a single self-reconnecting socket that does NOT filter by
+ * Fleet subscription that does NOT filter by
  * dut_id and forwards every event raw (including `snapshot_delta`). The shared
  * `/ws` already broadcasts every DUT's events tagged with `dut_id`, so one
- * connection feeds the whole fleet; the caller demuxes by `dut_id` and keeps a
- * per-DUT delta base (see useFleetMonitor). The single-DUT
- * `connectDashboardWebSocket` above is intentionally left untouched.
+ * connection feeds the whole fleet and the selected-DUT monitor. The caller
+ * demuxes by `dut_id` and keeps a per-DUT delta base (see useFleetMonitor).
  */
-export type FleetSocketHandlers = {
-  onEvent: (event: DashboardEvent & { dut_id?: string }) => void;
-  onOpen?: () => void;
-  onClose?: () => void;
-};
-
 export function connectFleetWebSocket(handlers: FleetSocketHandlers): DashboardSocket {
-  const { onEvent, onOpen, onClose } = handlers;
-  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  const url = `${protocol}://${window.location.host}/ws`;
-
-  let ws: WebSocket | null = null;
-  let closedByCaller = false;
-  let reconnectTimer: number | null = null;
-  let attempt = 0;
-
-  const scheduleReconnect = () => {
-    if (closedByCaller) {
-      return;
-    }
-    const delay = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** attempt);
-    const jitter = Math.random() * 0.3 * delay;
-    attempt += 1;
-    reconnectTimer = window.setTimeout(open, delay + jitter);
-  };
-
-  function open() {
-    const socket = new WebSocket(url);
-    ws = socket;
-
-    socket.onopen = () => {
-      attempt = 0;
-      onOpen?.();
-    };
-
-    socket.onmessage = (message: MessageEvent<string>) => {
-      try {
-        const event = JSON.parse(message.data) as DashboardEvent & { dut_id?: string };
-        if (event && typeof event === "object" && "type" in event) {
-          onEvent(event);
-        }
-      } catch {
-        // Ignore malformed messages.
-      }
-    };
-
-    socket.onclose = () => {
-      onClose?.();
-      scheduleReconnect();
-    };
-
-    socket.onerror = () => {
-      socket.close(); // triggers onclose -> reconnect
-    };
-  }
-
-  open();
-
-  return {
-    close: () => {
-      closedByCaller = true;
-      if (reconnectTimer !== null) {
-        window.clearTimeout(reconnectTimer);
-      }
-      ws?.close();
-    },
-  };
+  return subscribeSharedSocket(handlers);
 }
 
 export function applySnapshotDelta(base: SnapshotPayload, delta: SnapshotDelta): SnapshotPayload {

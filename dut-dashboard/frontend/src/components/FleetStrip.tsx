@@ -1,6 +1,16 @@
 import { useCallback, useState } from "react";
 
-import { closeSerial, humanizeApiError, LastChannelRecommendationResult, openSerial } from "../api/rest";
+import {
+  captureRemoteRssi,
+  closeSerial,
+  connectRemoteNode,
+  disconnectRemoteNode,
+  humanizeApiError,
+  LastChannelRecommendationResult,
+  openSerial,
+  RemoteRssiResult,
+} from "../api/rest";
+import { hashHue } from "../monitoring/authorColor";
 import { runConnectCaptures } from "../monitoring/siteSurveyStore";
 import { DutStatus } from "../monitoring/useDutMonitor";
 import { FleetEntry, useFleetMonitor } from "../monitoring/useFleetMonitor";
@@ -87,6 +97,13 @@ function FleetCard({
   const [closing, setClosing] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [rssi, setRssi] = useState<RemoteRssiResult | null>(() => entry.remote ? {
+    dut: entry.id,
+    applicable: entry.remote.isMesh,
+    rssi: entry.remote.rssi,
+    band: entry.remote.rssiBand,
+  } : null);
+  const [capturingRssi, setCapturingRssi] = useState(false);
   const meta = STATUS_META[entry.status];
   const cpu = entry.cpuBusyPct === null ? "—" : `${entry.cpuBusyPct}%`;
   const cpuSub =
@@ -100,7 +117,7 @@ function FleetCard({
     }
     setClosing(true);
     setError(null);
-    closeSerial(entry.id)
+    (entry.remote ? disconnectRemoteNode(entry.id) : closeSerial(entry.id))
       .then(() => onClosed())
       .catch((e) => setError(humanizeApiError(e)))
       .finally(() => setClosing(false));
@@ -108,7 +125,7 @@ function FleetCard({
 
   const lastSerial = entry.lastSerial;
   const onConnect = useCallback(() => {
-    if (!lastSerial) {
+    if (!lastSerial && !entry.remote) {
       return;
     }
     setConnecting(true);
@@ -116,15 +133,39 @@ function FleetCard({
     // Reopen with the remembered params. On success refresh the registry (so the
     // card flips to the open/Close state) and kick the connect-time captures
     // (P58 prescan + P73 context), exactly like a console-driven open.
-    openSerial({ port: lastSerial.port, baudrate: lastSerial.baudrate, mode: "serial" }, entry.id)
+    const connect = entry.remote
+      ? connectRemoteNode(entry.id)
+      : openSerial({ port: lastSerial!.port, baudrate: lastSerial!.baudrate, mode: "serial" }, entry.id).then(() => undefined);
+    connect
       .then(() => onClosed())
-      .then(() => void runConnectCaptures(entry.id))
+      .then(() => {
+        if (entry.remote) {
+          setCapturingRssi(true);
+          return captureRemoteRssi(entry.id)
+            .then((result) => { if (result.dut === entry.id) setRssi(result); })
+            .finally(() => setCapturingRssi(false));
+        }
+        void runConnectCaptures(entry.id);
+      })
       .catch((e) => setError(humanizeApiError(e)))
       .finally(() => setConnecting(false));
-  }, [entry.id, lastSerial, onClosed]);
+  }, [entry.id, entry.remote, lastSerial, onClosed]);
+
+  const onRefreshRssi = useCallback(() => {
+    setCapturingRssi(true);
+    setError(null);
+    captureRemoteRssi(entry.id)
+      .then((result) => { if (result.dut === entry.id) setRssi(result); })
+      .catch((e) => setError(humanizeApiError(e)))
+      .finally(() => setCapturingRssi(false));
+  }, [entry.id]);
+
+  const cardStyle = entry.remote
+    ? { borderTopColor: `hsl(${hashHue(entry.id)} 58% 46%)` }
+    : { borderTopColor: "var(--ok, #22c55e)" };
 
   return (
-    <div className="card fleet-card fleet-card--strip">
+    <div className="card fleet-card fleet-card--strip" style={cardStyle}>
       <button
         type="button"
         className="fleet-card-main"
@@ -135,6 +176,9 @@ function FleetCard({
           <div className="fleet-card-titles">
             <div className="card-title">{entry.label}</div>
             <div className="card-sub">{entry.id}</div>
+            <div className="card-sub">
+              {entry.remote ? `Remote via ${entry.remote.host}:${entry.remote.port}` : "Mother server"}
+            </div>
           </div>
           <span className={`pill ${meta.pill}`}>
             <span className="dot" />
@@ -146,6 +190,35 @@ function FleetCard({
           <div className="kpi-sub">{cpuSub}</div>
         </div>
         <FleetBandBadge reco={reco} />
+        {entry.remote ? (
+          <dl className="stat-list fleet-remote-facts">
+            <div className="stat-row">
+              {/* Nothing here probes the Pi: this is whether the backend is
+                  holding an SSH console open, so it must not be worded as
+                  reachability, and "not connected" is a resting state rather
+                  than a fault. Whether bytes are actually arriving is the
+                  console row below. */}
+              <dt>SSH session</dt>
+              <dd className={entry.serialOpen ? "fleet-fact-ok" : "fleet-fact-idle"}>
+                {entry.serialOpen ? "Connected" : "Not connected"}
+              </dd>
+            </div>
+            <div className="stat-row">
+              <dt>Node console</dt>
+              <dd>{meta.label}</dd>
+            </div>
+            <div className="stat-row">
+              <dt>Backhaul RSSI</dt>
+              <dd className={rssi && !rssi.applicable ? "fleet-rssi-na" : undefined}>
+                {rssi && !rssi.applicable
+                  ? "Not applicable"
+                  : rssi?.rssi === null || !rssi
+                    ? "Not captured"
+                    : `${rssi.rssi} dBm · ${rssi.band}`}
+              </dd>
+            </div>
+          </dl>
+        ) : null}
         <dl className="stat-list">
           <div className="stat-row">
             <dt>Crash events</dt>
@@ -180,12 +253,14 @@ function FleetCard({
           >
             {closing ? "Closing…" : "Close serial"}
           </button>
-        ) : lastSerial ? (
+        ) : lastSerial || entry.remote ? (
           <button
             type="button"
             className="btn"
             disabled={connecting}
-            title={`Connect ${entry.label} on ${lastSerial.port} @ ${lastSerial.baudrate}`}
+            title={entry.remote
+              ? `Connect ${entry.label} through ${entry.remote.host}`
+              : `Connect ${entry.label} on ${lastSerial!.port} @ ${lastSerial!.baudrate}`}
             onClick={onConnect}
           >
             {connecting ? "Connecting…" : "Connect"}
@@ -200,6 +275,17 @@ function FleetCard({
             Connect
           </button>
         )}
+        {entry.remote ? (
+          <button
+            type="button"
+            className="btn"
+            disabled={!entry.serialOpen || capturingRssi || !entry.remote.isMesh}
+            onClick={onRefreshRssi}
+            title={entry.remote.isMesh ? "Capture backhaul RSSI now" : "Standalone AP has no mesh backhaul RSSI"}
+          >
+            {capturingRssi ? "Reading…" : "Refresh RSSI"}
+          </button>
+        ) : null}
         {error ? <span className="flash" style={{ color: "var(--danger)" }}>{error}</span> : null}
       </div>
     </div>

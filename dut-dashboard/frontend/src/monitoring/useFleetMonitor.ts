@@ -20,6 +20,14 @@ export type FleetEntry = {
   serialOpen: boolean;
   /** Last successful serial-open params, or null. Enables one-click Connect. */
   lastSerial: { port: string; baudrate: number } | null;
+  remote: {
+    host: string;
+    port: number;
+    device: string;
+    isMesh: boolean;
+    rssi: number | null;
+    rssiBand: "near" | "mid" | "far" | null;
+  } | null;
   /** 100 − mean idle across cores from the latest (reconstructed) snapshot. */
   cpuBusyPct: number | null;
   coreCount: number;
@@ -40,7 +48,7 @@ export type FleetEntry = {
  * full single-DUT `useDutMonitor`.
  *
  * Phase 69: mounted by the Fleet strip at the top of Overview (its own nav
- * section was removed), so this second socket lives whenever Overview is shown.
+ * section was removed). Its subscription shares the app-wide `/ws` transport.
  */
 export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () => Promise<void> } {
   const { pattern: crashPattern } = useCrashKeywords();
@@ -52,7 +60,7 @@ export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () =>
   // Registry order + labels + open-state for every registered DUT (cards show
   // even with no stream).
   const [duts, setDuts] = useState<
-    { id: string; label: string; serialOpen: boolean; lastSerial: FleetEntry["lastSerial"] }[]
+    { id: string; label: string; serialOpen: boolean; lastSerial: FleetEntry["lastSerial"]; remote: FleetEntry["remote"] }[]
   >([]);
   const [connected, setConnected] = useState(false);
   const [nowTick, setNowTick] = useState(() => Date.now());
@@ -72,6 +80,7 @@ export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () =>
         label: d.label,
         serialOpen: d.serial_open,
         lastSerial: d.last_serial,
+        remote: d.remote ? { host: d.remote.host, port: d.remote.port, device: d.remote.device, isMesh: d.remote.is_mesh, rssi: d.remote.rssi, rssiBand: d.remote.rssi_band } : null,
       }));
       setDuts(list);
     } catch {
@@ -85,13 +94,14 @@ export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () =>
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      let list: { id: string; label: string; serialOpen: boolean; lastSerial: FleetEntry["lastSerial"] }[] = [];
+      let list: { id: string; label: string; serialOpen: boolean; lastSerial: FleetEntry["lastSerial"]; remote: FleetEntry["remote"] }[] = [];
       try {
         list = (await getDuts()).map((d) => ({
           id: d.id,
           label: d.label,
           serialOpen: d.serial_open,
           lastSerial: d.last_serial,
+          remote: d.remote ? { host: d.remote.host, port: d.remote.port, device: d.remote.device, isMesh: d.remote.is_mesh, rssi: d.remote.rssi, rssiBand: d.remote.rssi_band } : null,
         }));
       } catch {
         return; // backend unreachable: nothing to show
@@ -132,6 +142,12 @@ export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () =>
         const dutId = event.dut_id;
         if (!dutId) {
           return; // every real DUT event is tagged; ignore anything untagged
+        }
+        if (event.type === "serial_disconnected") {
+          setDuts((current) => current.map((dut) =>
+            dut.id === dutId ? { ...dut, serialOpen: false } : dut
+          ));
+          return;
         }
         if (event.type === "snapshot_update") {
           baseRef.current.set(dutId, event.snapshot);
@@ -179,7 +195,7 @@ export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () =>
   }, []);
 
   // Derive the view rows on each tick from the registry order + live refs.
-  const fleet = duts.map(({ id, label, serialOpen, lastSerial }) => {
+  const fleet = duts.map(({ id, label, serialOpen, lastSerial, remote }) => {
     const base = baseRef.current.get(id) ?? null;
     const cpu = cpuFromSnapshot(base);
     const lastActivity = lastActivityRef.current.get(id) ?? 0;
@@ -196,6 +212,7 @@ export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () =>
       status,
       serialOpen,
       lastSerial,
+      remote,
       cpuBusyPct: cpu.cpuBusyPct,
       coreCount: cpu.coreCount,
       crashCount: crashRef.current.get(id) ?? 0,
