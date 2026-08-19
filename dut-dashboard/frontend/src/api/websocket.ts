@@ -139,6 +139,10 @@ function openSharedSocket(): void {
     }
   };
   socket.onclose = () => {
+    // A socket that has already been superseded must not touch shared state:
+    // nulling `sharedSocket` here would strand the live socket and schedule a
+    // reconnect on top of it, leaving two connections fanning out to everyone.
+    if (sharedSocket !== socket) return;
     sharedSocket = null;
     if (sharedConnected) {
       sharedConnected = false;
