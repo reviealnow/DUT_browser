@@ -321,6 +321,10 @@ export type DutInfo = {
     port: number;
     device: string;
     is_mesh: boolean;
+    /** "root" once a capture found no uplink, "node" when it found one, null
+     *  while nothing has been captured — an absent uplink is an answer, and
+     *  the card must not show it as a missing measurement. */
+    role: "root" | "node" | null;
     uplink: RemoteUplink | null;
     downlink: RemoteDownlink | null;
   } | null;
@@ -350,6 +354,7 @@ export type RemoteDownlink = {
 export type RemoteRssiResult = {
   dut: string;
   applicable: boolean;
+  role: "root" | "node" | null;
   uplink: RemoteUplink | null;
   downlink: RemoteDownlink | null;
 };

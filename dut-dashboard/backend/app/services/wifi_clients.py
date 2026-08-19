@@ -290,7 +290,7 @@ def parse_iwconfig_links(text: str) -> list[dict]:
 def classify_backhaul(
     links: list[dict],
     peer_bssids: "set[str] | frozenset[str]" = frozenset(),
-    peer_essids: "set[str] | frozenset[str]" = frozenset(),
+    peer_networks: "set[tuple[str, str | None]] | frozenset[tuple[str, str | None]]" = frozenset(),
 ) -> dict:
     """Split the backhaul into the link up and the VAP children associate to.
 
@@ -305,9 +305,12 @@ def classify_backhaul(
     "the Master VAP that has stations" does not identify one either — an
     ordinary client VAP has those too. What does identify it is another DUT:
     the BSSID a node reports as its uplink peer is this root's backhaul VAP,
-    exactly. `peer_bssids` carries those, and `peer_essids` is the fallback
-    for firmware that does not report a peer MAC. Both are supplied by the
-    caller, which is where knowledge of other DUTs belongs.
+    exactly. `peer_bssids` carries those, and `peer_networks` — (ESSID, band)
+    pairs — is the fallback for firmware that does not report a peer MAC. The
+    band is part of that key because an SSID is not unique across radios: a
+    root advertising the backhaul SSID on 2.4 and 5 GHz would otherwise be
+    matched by whichever VAP iwconfig happened to list first. Both are
+    supplied by the caller, which is where knowledge of other DUTs belongs.
     """
     uplink = next((link for link in links if link["associated"]), None)
     if uplink is None:
@@ -315,7 +318,7 @@ def classify_backhaul(
         downlink = next(
             (link for link in masters if link["access_point"] in peer_bssids), None
         ) or next(
-            (link for link in masters if link["essid"] in peer_essids), None
+            (link for link in masters if (link["essid"], link["band"]) in peer_networks), None
         )
         return {"uplink": None, "downlink": downlink}
     downlink = next(

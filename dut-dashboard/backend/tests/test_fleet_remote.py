@@ -350,7 +350,11 @@ class RssiCaptureTests(unittest.TestCase):
         """The root cannot identify ath22 alone — it is Master like the rest.
         The node's uplink peer BSSID is what picks it out, exactly."""
         node = mock.Mock()
-        node.remote_uplink = {"peer_mac": "ce:4f:86:95:ce:e5", "essid": "dutBrowser_Backhaul - PD1005VMG3"}
+        node.remote_uplink = {
+            "peer_mac": "ce:4f:86:95:ce:e5",
+            "essid": "dutBrowser_Backhaul - PD1005VMG3",
+            "radio_band": "5GHz",
+        }
         root = mock.Mock()
         root.remote = REMOTE.copy()
         root.serial_worker = _worker_answering({
@@ -369,6 +373,7 @@ class RssiCaptureTests(unittest.TestCase):
         result = capture_rssi("root1", request)
 
         self.assertIsNone(result["uplink"])
+        self.assertEqual(result["role"], "root")
         self.assertEqual(result["downlink"]["iface"], "ath22")   # not the configured ath16
         self.assertEqual(result["downlink"]["peers"],
                          [{"mac": "d2:4f:86:89:f1:69", "rssi": -36, "rssi_band": "near"}])
@@ -383,13 +388,17 @@ class RssiCaptureTests(unittest.TestCase):
         essid = "dutBrowser_Backhaul - PD1005VMG3"
         self.assertEqual(len([l for l in links if l["essid"] == essid]), 2)
 
-        by_bssid = classify_backhaul(links, peer_bssids={"ce:4f:86:95:ce:e5"}, peer_essids={essid})
+        by_bssid = classify_backhaul(links, peer_bssids={"ce:4f:86:95:ce:e5"})
         self.assertEqual(by_bssid["downlink"]["iface"], "ath22")
 
-        # With only the ESSID, the answer is whichever VAP came first — the
-        # fallback is for firmware that reports no peer MAC, not a substitute.
-        by_essid = classify_backhaul(links, peer_essids={essid})
-        self.assertEqual(by_essid["downlink"]["iface"], "ath22")
+        # Without a peer MAC the (ESSID, band) pair still names one VAP. Both
+        # candidates here are 5 GHz, so this is the case the band cannot split
+        # and the BSSID must: assert what it does rather than pretend it chose.
+        both_5ghz = classify_backhaul(links, peer_networks={(essid, "5GHz")})
+        self.assertIn(both_5ghz["downlink"]["iface"], {"ath22", "ath16"})
+
+        # When the radios differ, the band decides and the wrong one is refused.
+        self.assertIsNone(classify_backhaul(links, peer_networks={(essid, "2.4GHz")})["downlink"])
 
     def test_an_uncaptured_fleet_leaves_the_root_on_its_configured_iface(self) -> None:
         """The correlation reads what earlier captures stored, so a root asked
@@ -397,6 +406,37 @@ class RssiCaptureTests(unittest.TestCase):
         found = classify_backhaul(parse_iwconfig_links(IWCONFIG_ROOT_AP6840E))
         self.assertIsNone(found["uplink"])
         self.assertIsNone(found["downlink"])
+
+    def test_an_empty_capture_refuses_rather_than_blanking_a_live_reading(self) -> None:
+        """A console mid-reconfiguration answers iwconfig with no VAPs at all.
+        Storing None there blanks a live card and strips the key a root needs
+        to name its backhaul VAP, so it must not be mistaken for an answer."""
+        context = mock.Mock()
+        context.remote = REMOTE.copy()
+        context.remote_uplink = {"iface": "ath15", "rssi": -37, "peer_mac": "ce:4f:86:95:ce:e5"}
+        context.serial_worker = _worker_answering({"iwconfig": "soc1      no wireless extensions.\n"})
+        request = mock.Mock()
+        request.app.state.dut_registry.get.return_value = context
+        request.app.state.dut_registry.ids.return_value = ["mesh1"]
+
+        with self.assertRaises(HTTPException) as caught:
+            capture_rssi("mesh1", request)
+
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertEqual(context.remote_uplink["rssi"], -37)   # untouched
+
+    def test_a_measured_node_is_labelled_a_node(self) -> None:
+        context = mock.Mock()
+        context.remote = REMOTE.copy()
+        context.serial_worker = _worker_answering({
+            "iwconfig": IWCONFIG_AP6420,
+            "wlanconfig ath14 list": "ADDR AID CHAN\n",
+        })
+        request = mock.Mock()
+        request.app.state.dut_registry.get.return_value = context
+        request.app.state.dut_registry.ids.return_value = ["mesh1"]
+
+        self.assertEqual(capture_rssi("mesh1", request)["role"], "node")
 
     def test_standalone_ap_is_not_applicable_without_capture(self) -> None:
         context = mock.Mock()

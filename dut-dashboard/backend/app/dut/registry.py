@@ -136,6 +136,10 @@ class DutContext:
     # the card unreadable — you cannot tell which direction it describes.
     remote_uplink: dict | None = None
     remote_downlink: dict | None = None
+    # "root" once a capture has parsed this DUT's VAPs and found no uplink,
+    # "node" when it found one, None while nothing has been captured. Without
+    # it the card cannot tell a root from a DUT nobody has measured yet.
+    remote_role: str | None = None
 
 
 class DutRegistry:
@@ -294,6 +298,7 @@ class DutRegistry:
                         "port": ctx.remote["port"],
                         "device": ctx.remote["device"],
                         "is_mesh": ctx.remote["is_mesh"],
+                        "role": ctx.remote_role,
                         "uplink": ctx.remote_uplink,
                         "downlink": ctx.remote_downlink,
                     },

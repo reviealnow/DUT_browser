@@ -139,7 +139,7 @@ def _peer(client: dict) -> dict:
     return {"mac": client["mac"], "rssi": client["rssi"], "rssi_band": signal_band(client["rssi"])}
 
 
-def _known_uplinks(registry, exclude_dut_id: str) -> tuple[set[str], set[str]]:
+def _known_uplinks(registry, exclude_dut_id: str) -> tuple[set[str], set[tuple]]:
     """What every other DUT reported as its uplink, for identifying a root.
 
     A root cannot name its own backhaul VAP from its own console, but a node
@@ -148,18 +148,19 @@ def _known_uplinks(registry, exclude_dut_id: str) -> tuple[set[str], set[str]]:
     until some node has been captured, which is the ordering this depends on.
     """
     bssids: set[str] = set()
-    essids: set[str] = set()
+    networks: set[tuple] = set()
     for other_id in registry.ids():
         if other_id == exclude_dut_id:
             continue
-        uplink = getattr(registry.get(other_id), "remote_uplink", None)
+        uplink = registry.get(other_id).remote_uplink
         if not uplink:
             continue
         if uplink.get("peer_mac"):
             bssids.add(uplink["peer_mac"])
         if uplink.get("essid"):
-            essids.add(uplink["essid"])
-    return bssids, essids
+            # Banded on purpose: an SSID alone does not name one VAP.
+            networks.add((uplink["essid"], uplink.get("radio_band")))
+    return bssids, networks
 
 
 @router.post("/nodes/{dut_id}/rssi")
@@ -177,15 +178,25 @@ def capture_rssi(dut_id: str, request: Request, _admin: dict = _ADMIN) -> dict:
     if remote is None:
         raise HTTPException(status_code=400, detail="DUT has no remote SSH configuration")
     if not remote["is_mesh"]:
-        return {"dut": dut_id, "applicable": False, "uplink": None, "downlink": None}
+        return {"dut": dut_id, "applicable": False, "role": None, "uplink": None, "downlink": None}
 
     worker = context.serial_worker
     try:
         links = parse_iwconfig_links(worker.capture_command("iwconfig"))
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    peer_bssids, peer_essids = _known_uplinks(request.app.state.dut_registry, dut_id)
-    found = classify_backhaul(links, peer_bssids, peer_essids)
+    if not links:
+        # The console answered without a single wireless VAP, which happens
+        # while the radios are being reconfigured. That is not "this DUT has
+        # no uplink" — it is "we learned nothing" — so say so and leave the
+        # last good reading alone. Storing None here would blank a live card
+        # and, worse, strip the key a root needs to name its backhaul VAP.
+        raise HTTPException(
+            status_code=400,
+            detail="Console reported no wireless interfaces; try again in a moment",
+        )
+    peer_bssids, peer_networks = _known_uplinks(request.app.state.dut_registry, dut_id)
+    found = classify_backhaul(links, peer_bssids, peer_networks)
 
     uplink = None
     if found["uplink"] is not None:
@@ -215,6 +226,18 @@ def capture_rssi(dut_id: str, request: Request, _admin: dict = _ADMIN) -> dict:
             "peers": [_peer(c) for c in parse_wlanconfig_list(table, downlink_iface)],
         }
 
+    # The capture parsed real VAPs, so an absent uplink is an answer rather
+    # than a gap: this DUT has no parent. The card must be able to tell those
+    # apart, and only the side that read the VAPs can.
+    role = "node" if uplink is not None else "root"
+
     context.remote_uplink = uplink
     context.remote_downlink = downlink
-    return {"dut": dut_id, "applicable": True, "uplink": uplink, "downlink": downlink}
+    context.remote_role = role
+    return {
+        "dut": dut_id,
+        "applicable": True,
+        "role": role,
+        "uplink": uplink,
+        "downlink": downlink,
+    }

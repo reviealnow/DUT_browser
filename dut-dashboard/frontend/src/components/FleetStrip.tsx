@@ -100,6 +100,7 @@ function FleetCard({
   const [rssi, setRssi] = useState<RemoteRssiResult | null>(() => entry.remote ? {
     dut: entry.id,
     applicable: entry.remote.isMesh,
+    role: entry.remote.role,
     uplink: entry.remote.uplink,
     downlink: entry.remote.downlink,
   } : null);
@@ -212,12 +213,17 @@ function FleetCard({
                 number could not say which way it pointed. */}
             <div className="stat-row">
               <dt>Uplink to parent</dt>
-              <dd className={rssi && !rssi.applicable ? "fleet-rssi-na" : undefined}>
+              {/* A root has no parent, and a capture that parsed its VAPs
+                  established that. Saying "Not captured" there would report a
+                  known state as a missing one. */}
+              <dd className={rssi && (!rssi.applicable || rssi.role === "root") ? "fleet-rssi-na" : undefined}>
                 {rssi && !rssi.applicable
                   ? "Not applicable"
-                  : !rssi || !rssi.uplink || rssi.uplink.rssi === null
-                    ? "Not captured"
-                    : `${rssi.uplink.rssi} dBm · ${rssi.uplink.rssi_band}`}
+                  : rssi && rssi.role === "root"
+                    ? "None — this is the root"
+                    : !rssi || !rssi.uplink || rssi.uplink.rssi === null
+                      ? "Not captured"
+                      : `${rssi.uplink.rssi} dBm · ${rssi.uplink.rssi_band}`}
               </dd>
             </div>
             <div className="stat-row">
