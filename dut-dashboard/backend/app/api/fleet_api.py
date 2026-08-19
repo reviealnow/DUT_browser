@@ -7,6 +7,7 @@ import re
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
+from app.dut.registry import REMOTE_DEVICE_RE, REMOTE_IFACE_RE
 from app.services import auth_service
 from app.services.wifi_clients import parse_wlanconfig_list, signal_band
 
@@ -14,7 +15,6 @@ router = APIRouter(prefix="/api/fleet", tags=["fleet"])
 _ADMIN = Depends(auth_service.require_role("admin"))
 
 _REMOTE_TOKEN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@%+-]*$")
-_DEVICE = re.compile(r"^/dev/[A-Za-z0-9._/-]+$")
 MAX_REMOTE_NODES = 4
 
 
@@ -50,14 +50,14 @@ class RemoteNodeBody(BaseModel):
     @field_validator("device")
     @classmethod
     def safe_device(cls, value: str) -> str:
-        if not _DEVICE.fullmatch(value) or ".." in value:
+        if not REMOTE_DEVICE_RE.fullmatch(value) or ".." in value:
             raise ValueError("must be an absolute /dev path")
         return value
 
     @field_validator("backhaul_iface")
     @classmethod
     def safe_iface(cls, value: str | None) -> str | None:
-        if value is not None and not re.fullmatch(r"ath\d+", value):
+        if value is not None and not REMOTE_IFACE_RE.fullmatch(value):
             raise ValueError("must be an ath interface")
         return value
 

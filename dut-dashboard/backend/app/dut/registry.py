@@ -34,6 +34,14 @@ DEFAULT_DUT_ID = "default"
 MAX_DUTS = 16
 _DUT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 
+# A remote node's device path and backhaul interface both end up inside a
+# command string a shell runs — on the Pi for the console, on the DUT for the
+# RSSI capture. Defined here because this is where the persisted entry is
+# cleaned; fleet_api imports them so the API body and the file on disk cannot
+# drift into disagreeing about what is acceptable.
+REMOTE_DEVICE_RE = re.compile(r"^/dev/[A-Za-z0-9._/-]+$")
+REMOTE_IFACE_RE = re.compile(r"^ath\d+$")
+
 
 def _clean_last_serial(value: object) -> dict | None:
     """Validate a persisted/recorded ``last_serial`` payload; ``None`` if malformed.
@@ -65,18 +73,23 @@ def _clean_remote(value: object) -> dict | None:
     baudrate = value.get("baudrate", 115200)
     if any(isinstance(item, bool) or not isinstance(item, int) or item <= 0 for item in (port, baudrate)):
         return None
+    device = value["device"].strip()
+    if not REMOTE_DEVICE_RE.fullmatch(device) or ".." in device:
+        return None
     is_mesh = value.get("is_mesh", True)
     backhaul_iface = value.get("backhaul_iface")
     if not isinstance(is_mesh, bool):
         return None
-    if is_mesh and (not isinstance(backhaul_iface, str) or not backhaul_iface.strip()):
+    if isinstance(backhaul_iface, str) and not REMOTE_IFACE_RE.fullmatch(backhaul_iface.strip()):
+        return None
+    if is_mesh and not isinstance(backhaul_iface, str):
         return None
     return {
         "host": value["host"].strip(),
         "user": value["user"].strip(),
         "key_path": value["key_path"].strip(),
         "port": port,
-        "device": value["device"].strip(),
+        "device": device,
         "baudrate": baudrate,
         "is_mesh": is_mesh,
         "backhaul_iface": backhaul_iface.strip() if isinstance(backhaul_iface, str) else None,

