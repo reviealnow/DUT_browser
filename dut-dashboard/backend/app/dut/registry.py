@@ -329,7 +329,12 @@ class DutRegistry:
                 mgmt = entry.get("mgmt_url") if isinstance(entry, dict) else None
                 if isinstance(mgmt, str) and mgmt:
                     existing.mgmt_url = mgmt
-                existing.remote = remote
+                if remote is not None:
+                    # Merge, never clear: an entry written before the DUT was
+                    # given an SSH console — or one this version rejects — must
+                    # not silently strip a live configuration, which the next
+                    # save would then erase from disk too.
+                    existing.remote = remote
                 continue
             ctx = self.create_dut(dut_id, label=entry.get("label"))
             ctx.last_serial = last_serial

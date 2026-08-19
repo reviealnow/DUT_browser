@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import tempfile
 import unittest
@@ -31,29 +32,54 @@ class _Ws:
         pass
 
 
+@contextlib.contextmanager
+def _registries_under(root: Path):
+    """Yield a factory for registries whose duts.json and snapshots live in `root`."""
+    loop = asyncio.new_event_loop()
+    with (
+        mock.patch.object(registry_mod, "DUTS_FILE", root / "duts.json"),
+        mock.patch.object(registry_mod, "snapshot_file_for", lambda d: root / f"{d}.jsonl"),
+    ):
+        try:
+            yield lambda: DutRegistry(_Ws(), loop)
+        finally:
+            loop.close()
+
+
 class RemoteRegistryTests(unittest.TestCase):
     def test_remote_round_trip_keeps_secret_server_side(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            with (
-                mock.patch.object(registry_mod, "DUTS_FILE", root / "duts.json"),
-                mock.patch.object(registry_mod, "snapshot_file_for", lambda d: root / f"{d}.jsonl"),
-            ):
-                loop = asyncio.new_event_loop()
-                self.addCleanup(loop.close)
-                registry = DutRegistry(_Ws(), loop)
+            with _registries_under(root) as make_registry:
+                registry = make_registry()
                 registry.register_dut("mesh1", "Mesh 1")
                 registry.configure_remote("mesh1", REMOTE)
                 persisted = json.loads((root / "duts.json").read_text())
                 self.assertEqual(persisted[0]["remote"]["key_path"], REMOTE["key_path"])
 
-                restored = DutRegistry(_Ws(), loop)
+                restored = make_registry()
                 restored.load_persisted()
                 self.assertEqual(restored.get("mesh1").remote, REMOTE)
                 public = restored.describe()[0]["remote"]
                 self.assertEqual(public["host"], REMOTE["host"])
                 self.assertNotIn("key_path", public)
                 self.assertNotIn("user", public)
+
+    def test_load_persisted_merges_and_never_clears_a_live_remote(self) -> None:
+        """A saved entry from before the node had an SSH console must not wipe it."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with _registries_under(root) as make_registry:
+                registry = make_registry()
+                registry.register_dut("mesh1", "Mesh 1")
+                registry.configure_remote("mesh1", REMOTE)
+
+                (root / "duts.json").write_text(
+                    json.dumps([{"id": "mesh1", "label": "Mesh 1"}]), encoding="utf-8"
+                )
+                registry.load_persisted()
+
+                self.assertEqual(registry.get("mesh1").remote, REMOTE)
 
 
 class SshWorkerTests(unittest.TestCase):
