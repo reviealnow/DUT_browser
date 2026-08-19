@@ -123,12 +123,21 @@ function openSharedSocket(): void {
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
   const socket = new WebSocket(`${protocol}://${window.location.host}/ws`);
   sharedSocket = socket;
+  // Every handler below starts with the same guard. A socket stays able to fire
+  // after it has been superseded — a close is a handshake, not an instant — and
+  // a superseded one must neither touch the shared state nor speak for the
+  // transport: nulling `sharedSocket` would strand the live socket and schedule
+  // a reconnect on top of it, and forwarding a frame that arrived during its
+  // closing handshake delivers that event to every subscriber twice, since the
+  // backend is broadcasting to the live socket as well.
   socket.onopen = () => {
+    if (sharedSocket !== socket) return;
     sharedAttempt = 0;
     sharedConnected = true;
     subscribers.forEach((subscriber) => subscriber.onOpen?.());
   };
   socket.onmessage = (message: MessageEvent<string>) => {
+    if (sharedSocket !== socket) return;
     try {
       const event = JSON.parse(message.data) as DashboardEvent & { dut_id?: string };
       if (event && typeof event === "object" && "type" in event) {
@@ -139,9 +148,6 @@ function openSharedSocket(): void {
     }
   };
   socket.onclose = () => {
-    // A socket that has already been superseded must not touch shared state:
-    // nulling `sharedSocket` here would strand the live socket and schedule a
-    // reconnect on top of it, leaving two connections fanning out to everyone.
     if (sharedSocket !== socket) return;
     sharedSocket = null;
     if (sharedConnected) {
