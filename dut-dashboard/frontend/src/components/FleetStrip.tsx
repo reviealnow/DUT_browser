@@ -10,7 +10,6 @@ import {
   openSerial,
   RemoteRssiResult,
 } from "../api/rest";
-import { hashHue } from "../monitoring/authorColor";
 import { runConnectCaptures } from "../monitoring/siteSurveyStore";
 import { DutStatus } from "../monitoring/useDutMonitor";
 import { FleetEntry, useFleetMonitor } from "../monitoring/useFleetMonitor";
@@ -160,9 +159,13 @@ function FleetCard({
       .finally(() => setCapturingRssi(false));
   }, [entry.id]);
 
+  // Root vs node is the one distinction this strip exists to make, so the two
+  // get the palette's two furthest-apart colours rather than a hue per id. A
+  // hashed hue put "mesh1" and "ap2" on neighbouring purples — telling a reader
+  // apart at a glance is the whole job, and it was not doing it.
   const cardStyle = entry.remote
-    ? { borderTopColor: `hsl(${hashHue(entry.id)} 58% 46%)` }
-    : { borderTopColor: "var(--ok, #22c55e)" };
+    ? { borderTopColor: "var(--ok, #0c7a43)" }
+    : { borderTopColor: "var(--accent, #1565c0)" };
 
   return (
     <div className="card fleet-card fleet-card--strip" style={cardStyle}>
