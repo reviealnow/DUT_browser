@@ -445,9 +445,19 @@ class SerialWorker:
         return "".join(out)
 
     def _consume_line(self, decoded: str) -> None:
+        """Log one line, then either divert it to an in-flight capture or parse it.
+
+        Both readers land here, so the sentinel rule below has one definition.
+        """
         self._write_log_line(decoded)
         if self._capture_active:
+            # Divert to the capture buffer instead of the parser (avoid
+            # polluting CPU/crash data with the captured command's output).
             self._capture_lines.append(decoded)
+            # Done when the echoed sentinel appears — tolerate a shell prompt
+            # prefix ("root@AP:/# __DUTCAP__") so a prefixed marker still ends
+            # the capture instead of waiting out the full timeout. Exclude the
+            # echoed command line itself ("<cmd>; echo <sentinel>").
             sentinel = self._capture_sentinel
             if sentinel and sentinel in decoded and f"echo {sentinel}" not in decoded:
                 self._capture_done.set()
@@ -540,21 +550,7 @@ class SerialWorker:
                     break
                 if not line:
                     continue
-                decoded = line.decode("utf-8", errors="ignore")
-                self._write_log_line(decoded)
-                if self._capture_active:
-                    # Divert to the capture buffer instead of the parser (avoid
-                    # polluting CPU/crash data with the captured command's output).
-                    self._capture_lines.append(decoded)
-                    # Done when the echoed sentinel appears — tolerate a shell prompt
-                    # prefix ("root@AP:/# __DUTCAP__") so a prefixed marker still ends
-                    # the capture instead of waiting out the full timeout. Exclude the
-                    # echoed command line itself ("<cmd>; echo <sentinel>").
-                    sentinel = self._capture_sentinel
-                    if sentinel and sentinel in decoded and f"echo {sentinel}" not in decoded:
-                        self._capture_done.set()
-                    continue
-                self.parser.feed(decoded)
+                self._consume_line(line.decode("utf-8", errors="ignore"))
         finally:
             # A requested close() sets _stop_event first, so only an unrequested
             # exit counts as the device going away.

@@ -187,6 +187,25 @@ class _AutoFakeSerial(FakeSerial):
             self.feed(b"vap-output-line\n" + m.group(1).encode() + b"\n")
 
 
+class _CommandEchoFakeSerial(FakeSerial):
+    """A console that echoes the command line back before running it, as a real
+    shell does, and only then produces output. The echoed `<cmd>; echo <sentinel>`
+    carries the sentinel text, so mistaking it for the sentinel ends the capture
+    while the real output is still on its way — which is why the output arrives
+    on a delay here rather than in the same feed."""
+
+    def write(self, data: bytes) -> None:
+        super().write(data)
+        text = data.decode("utf-8", errors="ignore")
+        m = re.search(r"echo (\S+)", text)
+        if m:
+            self.feed(text.encode())  # the shell echoing the command line back
+            sentinel = m.group(1).encode()
+            threading.Timer(
+                0.3, lambda: self.feed(b"cmd-output-line\n" + sentinel + b"\n")
+            ).start()
+
+
 class _PromptPrefixFakeSerial(FakeSerial):
     """Like _AutoFakeSerial but echoes the sentinel behind a shell prompt, e.g.
     `root@AP:/# __DUTCAP__`, to exercise prompt-prefixed sentinel detection."""
@@ -280,6 +299,21 @@ class CaptureCommandTests(unittest.TestCase):
             self.assertIn("vap-output-line", results["a"])  # type: ignore[arg-type]
             self.assertIn("vap-output-line", results["b"])  # type: ignore[arg-type]
             self.assertFalse(worker._capture_active)
+        finally:
+            worker._stop_event.set()  # type: ignore[attr-defined]
+            fake.close()
+            t.join(timeout=1.0)
+
+    def test_the_echoed_command_line_does_not_end_the_capture(self) -> None:
+        # The command line the shell echoes back contains "echo <sentinel>". Ending
+        # the capture there would return an empty result while the real output was
+        # still arriving — so the sentinel rule excludes it, for both readers.
+        fake = _CommandEchoFakeSerial()
+        worker, _parser, t = self._running_worker(fake)
+        try:
+            out = worker.capture_command("iwconfig", timeout=2.0)
+            self.assertIn("cmd-output-line", out)
+            self.assertNotIn("__DUTCAP", out)
         finally:
             worker._stop_event.set()  # type: ignore[attr-defined]
             fake.close()
