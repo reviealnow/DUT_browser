@@ -200,7 +200,7 @@ def parse_apstats(text: str) -> dict:
 _IW_HEAD_RE = re.compile(r'^(\S+)\s+IEEE\s+\S+\s+ESSID:"([^"]*)"')
 _IW_SILENT_RE = re.compile(r"^\S+\s+no wireless extensions")
 _IW_FREQ_GHZ_RE = re.compile(r"Frequency[:=]\s*([\d.]+)\s*GHz")
-_IW_PEER_RE = re.compile(r"Access Point:\s*([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}|Not-Associated)")
+_IW_AP_RE = re.compile(r"Access Point:\s*([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}|Not-Associated)")
 _IW_LQ_RE = re.compile(r"Link Quality[:=](\d+)/(\d+)")
 _IW_SIGNAL_RE = re.compile(r"Signal level[:=](-?\d+)\s*dBm")
 _IW_NOISE_RE = re.compile(r"Noise level[:=](-?\d+)\s*dBm")
@@ -232,7 +232,10 @@ def parse_iwconfig_links(text: str) -> list[dict]:
                 "mode": None,
                 "freq_ghz": None,
                 "band": None,
-                "peer_mac": None,
+                # iwconfig's "Access Point": the peer's BSSID on a Managed
+                # VAP, the VAP's own BSSID on a Master one. Named after the
+                # field rather than after either meaning.
+                "access_point": None,
                 "link_quality": None,
                 "link_quality_max": None,
                 "rssi": None,
@@ -254,9 +257,10 @@ def parse_iwconfig_links(text: str) -> list[dict]:
         if freq is not None and current["freq_ghz"] is None:
             current["freq_ghz"] = float(freq.group(1))
             current["band"] = _band_from_freq(int(current["freq_ghz"] * 1000))
-        peer = _IW_PEER_RE.search(line)
-        if peer is not None and current["peer_mac"] is None:
-            current["peer_mac"] = None if peer.group(1) == "Not-Associated" else peer.group(1).lower()
+        access_point = _IW_AP_RE.search(line)
+        if access_point is not None and current["access_point"] is None:
+            value = access_point.group(1)
+            current["access_point"] = None if value == "Not-Associated" else value.lower()
         quality = _IW_LQ_RE.search(line)
         if quality is not None and current["link_quality"] is None:
             current["link_quality"] = int(quality.group(1))
@@ -271,7 +275,7 @@ def parse_iwconfig_links(text: str) -> list[dict]:
     for link in links:
         link["associated"] = bool(
             link["mode"] == "Managed"
-            and link["peer_mac"]
+            and link["access_point"]
             and (link["link_quality"] or 0) > 0
         )
         if not link["associated"]:
@@ -283,7 +287,11 @@ def parse_iwconfig_links(text: str) -> list[dict]:
     return links
 
 
-def classify_backhaul(links: list[dict]) -> dict:
+def classify_backhaul(
+    links: list[dict],
+    peer_bssids: "set[str] | frozenset[str]" = frozenset(),
+    peer_essids: "set[str] | frozenset[str]" = frozenset(),
+) -> dict:
     """Split the backhaul into the link up and the VAP children associate to.
 
     A mesh backhaul is a pair of VAPs sharing one ESSID on one band: the
@@ -293,13 +301,23 @@ def classify_backhaul(links: list[dict]) -> dict:
     AP6 840E, and not the SSID's text, which is operator-chosen and was
     observed changing between two captures twenty minutes apart.
 
-    A root has no associated Managed VAP, so it has no uplink and its downlink
-    cannot be found by pairing; the caller falls back to the configured
-    interface there.
+    A root has no Managed VAP, so it has nothing local to pair against, and
+    "the Master VAP that has stations" does not identify one either — an
+    ordinary client VAP has those too. What does identify it is another DUT:
+    the BSSID a node reports as its uplink peer is this root's backhaul VAP,
+    exactly. `peer_bssids` carries those, and `peer_essids` is the fallback
+    for firmware that does not report a peer MAC. Both are supplied by the
+    caller, which is where knowledge of other DUTs belongs.
     """
     uplink = next((link for link in links if link["associated"]), None)
     if uplink is None:
-        return {"uplink": None, "downlink": None}
+        masters = [link for link in links if link["mode"] == "Master"]
+        downlink = next(
+            (link for link in masters if link["access_point"] in peer_bssids), None
+        ) or next(
+            (link for link in masters if link["essid"] in peer_essids), None
+        )
+        return {"uplink": None, "downlink": downlink}
     downlink = next(
         (
             link

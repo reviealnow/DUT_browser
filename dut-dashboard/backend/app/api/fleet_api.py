@@ -139,6 +139,29 @@ def _peer(client: dict) -> dict:
     return {"mac": client["mac"], "rssi": client["rssi"], "rssi_band": signal_band(client["rssi"])}
 
 
+def _known_uplinks(registry, exclude_dut_id: str) -> tuple[set[str], set[str]]:
+    """What every other DUT reported as its uplink, for identifying a root.
+
+    A root cannot name its own backhaul VAP from its own console, but a node
+    can: the BSSID it associates to is that VAP. This reads what previous
+    captures already stored, so it costs no console time — and it stays empty
+    until some node has been captured, which is the ordering this depends on.
+    """
+    bssids: set[str] = set()
+    essids: set[str] = set()
+    for other_id in registry.ids():
+        if other_id == exclude_dut_id:
+            continue
+        uplink = getattr(registry.get(other_id), "remote_uplink", None)
+        if not uplink:
+            continue
+        if uplink.get("peer_mac"):
+            bssids.add(uplink["peer_mac"])
+        if uplink.get("essid"):
+            essids.add(uplink["essid"])
+    return bssids, essids
+
+
 @router.post("/nodes/{dut_id}/rssi")
 def capture_rssi(dut_id: str, request: Request, _admin: dict = _ADMIN) -> dict:
     """Measure both directions of a node's backhaul, and say which is which.
@@ -161,7 +184,8 @@ def capture_rssi(dut_id: str, request: Request, _admin: dict = _ADMIN) -> dict:
         links = parse_iwconfig_links(worker.capture_command("iwconfig"))
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    found = classify_backhaul(links)
+    peer_bssids, peer_essids = _known_uplinks(request.app.state.dut_registry, dut_id)
+    found = classify_backhaul(links, peer_bssids, peer_essids)
 
     uplink = None
     if found["uplink"] is not None:
@@ -172,7 +196,8 @@ def capture_rssi(dut_id: str, request: Request, _admin: dict = _ADMIN) -> dict:
             "snr": up["snr"],
             "rssi_band": signal_band(up["rssi"]),
             "radio_band": up["band"],
-            "peer_mac": up["peer_mac"],
+            "essid": up["essid"],
+            "peer_mac": up["access_point"],
         }
 
     # A root has no uplink to pair against, so its downward VAP can only come

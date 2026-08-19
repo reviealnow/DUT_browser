@@ -334,6 +334,10 @@ export type RemoteUplink = {
   snr: number | null;
   rssi_band: "near" | "mid" | "far" | null;
   radio_band: "2.4GHz" | "5GHz" | "6GHz" | null;
+  /** The backhaul SSID, and the BSSID this node associates to. Together they
+   *  are what lets a root — which cannot name its own backhaul VAP — be told
+   *  which of its Master VAPs the fleet actually meshes on. */
+  essid: string | null;
   peer_mac: string | null;
 };
 
