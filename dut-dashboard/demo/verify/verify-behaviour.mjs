@@ -260,32 +260,79 @@ const report = reporter();
   report.ok("and the reading survives the re-read",
     !!after && rowsOf(after)["Uplink to parent"].includes("dBm"));
 
+  // Everything below reads `live`, not `cards`: the refresh above re-rendered
+  // the strip, so every node captured before it is detached. Assertions against
+  // detached nodes pass while the page on screen is wrong — two of these did.
+  const live = [...document.querySelectorAll(".fleet-card")];
+
   // A standalone AP has no mesh backhaul, so the product answers "the question
   // does not apply" in both directions and refuses the control — a different
   // statement from "we have not measured yet", and the demo showed neither.
-  const standalone = cards.find(c => rowsOf(c)["Uplink to parent"] === "Not applicable");
+  const standalone = live.find(c => rowsOf(c)["Uplink to parent"] === "Not applicable");
   report.ok("a standalone remote reads Not applicable both ways",
     !!standalone && rowsOf(standalone)["Children on backhaul"] === "Not applicable");
-  report.ok("and its Refresh RSSI is refused, not merely idle",
-    !!standalone?.querySelector("[data-act=rssi]")?.disabled);
+  const refusal = standalone?.querySelector("[data-act=rssi]");
+  report.ok("and its Refresh RSSI is refused for being standalone, not for being closed",
+    !!refusal?.disabled && /standalone/i.test(refusal.title), refusal?.title);
 
   // The strip is the product's DUT switcher: the card body selects. Only the
-  // buttons acted here, so the card read as a display, not a control.
-  // Re-queried: the refresh above re-rendered the strip, and the `cards` array
-  // now holds detached nodes whose clicks reach no listener.
-  const live = [...document.querySelectorAll(".fleet-card")];
+  // buttons acted here, so the card read as a display, not a control. The pill
+  // alone cannot tell selection from the Console action — both move it — so
+  // this asserts which branch ran.
   const other = live.find(c => c.querySelector(".fleet-name").textContent !== "DemoDUT-6E");
   click(window, other.querySelector(".fleet-name"));
+  const label = other.querySelector(".fleet-name").textContent;
   report.ok("clicking a card body selects that DUT",
-    document.getElementById("dutPill").textContent ===
-      other.querySelector(".fleet-name").textContent);
+    document.getElementById("dutPill").textContent === label &&
+    document.getElementById("toast").textContent === `Selected ${label}`,
+    document.getElementById("toast").textContent);
 
-  // Every status the product renders should be reachable here; a strip of
-  // identical cards showed one of three, and no disconnected card at all.
+  // Named, not counted: `size >= 3` passed with any three strings at all, and
+  // passed while the statuses were not ones the product renders.
   const statuses = new Set(live.map(c => c.querySelector(".pill").textContent.trim()));
-  report.ok("more than one status is represented", statuses.size >= 3, [...statuses].join(","));
+  report.ok("the statuses are the ones FleetStrip renders",
+    ["streaming", "idle", "no DUT"].every(s => statuses.has(s)), [...statuses].join(","));
   report.ok("a disconnected card still offers Connect",
     live.some(c => c.querySelector("[data-act=connect]")));
+
+  // A mesh remote nobody has connected: both directions unmeasured, and the
+  // control refused for the other reason. "Not captured" and "Not applicable"
+  // are different answers and the strip has to be able to say both.
+  const unconnected = live.find(c => rowsOf(c)["Uplink to parent"] === "Not captured");
+  const closedRefusal = unconnected?.querySelector("[data-act=rssi]");
+  report.ok("an unconnected mesh remote reads Not captured, not Not applicable",
+    !!unconnected && rowsOf(unconnected)["Children on backhaul"] === "Not captured");
+  report.ok("its Refresh RSSI is refused for the console, not for being standalone",
+    !!closedRefusal?.disabled && /console/i.test(closedRefusal.title), closedRefusal?.title);
+
+  // Connecting a remote node runs the capture, as FleetStrip's onConnect does.
+  // A demo where the rows only fill on Refresh would understate the control.
+  click(window, unconnected.querySelector("[data-act=connect]"));
+  await new Promise(r => setTimeout(r, 900));
+  const connected = [...document.querySelectorAll(".fleet-card")]
+    .find(c => c.querySelector(".fleet-name").textContent === "DemoNode-lab3");
+  report.ok("connecting a remote node captures its backhaul without a second press",
+    rowsOf(connected)["Uplink to parent"].includes("dBm"),
+    rowsOf(connected)["Uplink to parent"]);
+
+  // Close asks first, and a refusal leaves the session alone — the product
+  // puts a confirm in front of an outward state change.
+  window.confirm = () => false;
+  click(window, connected.querySelector("[data-act=close]"));
+  await new Promise(r => setTimeout(r, 900));
+  const afterCancel = [...document.querySelectorAll(".fleet-card")]
+    .find(c => c.querySelector(".fleet-name").textContent === "DemoNode-lab3");
+  report.ok("declining the confirm leaves the session open",
+    !!afterCancel.querySelector("[data-act=close]"),
+    document.getElementById("toast").textContent);
+
+  window.confirm = () => true;
+  click(window, afterCancel.querySelector("[data-act=close]"));
+  await new Promise(r => setTimeout(r, 900));
+  const afterClose = [...document.querySelectorAll(".fleet-card")]
+    .find(c => c.querySelector(".fleet-name").textContent === "DemoNode-lab3");
+  report.ok("accepting it closes the session",
+    !!afterClose.querySelector("[data-act=connect]"));
 
   report.ok("overview.html threw nothing while all that ran",
     pageErrors(window).length === 0, pageErrors(window).join(" | "));

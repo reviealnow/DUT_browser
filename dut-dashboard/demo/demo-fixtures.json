@@ -35,22 +35,54 @@
         "lastSerial": "/dev/cu.PL2303G-1130"
       },
       {
-        "label": "DemoDUT-5G",
+        "label": "DemoNode-420",
         "id": "lab-420",
-        "status": "idle",
-        "cpu": "—",
-        "cpuSub": "no stream",
+        "status": "streaming",
+        "cpu": "18.6%",
+        "cpuSub": "2 cores",
         "reco": "all bands clear",
         "recoLevel": "ok",
         "crashCount": 0,
         "lastEvent": "—",
         "lastSnapshot": "2026-08-01 09:14:02",
-        "open": false,
-        "lastSerial": "/dev/cu.PL2303G-1130"
+        "open": true,
+        "lastSerial": "/dev/cu.PL2303G-1130",
+        "remote": {
+          "host": "10.0.0.24",
+          "port": 22,
+          "role": "node",
+          "isMesh": true,
+          "uplink": "-37 dBm · near",
+          "downlink": "None",
+          "downlinkSource": "detected"
+        }
       },
       {
-        "label": "DemoDUT-lab2",
+        "label": "DemoRoot-840E",
         "id": "lab2",
+        "status": "streaming",
+        "cpu": "27.1%",
+        "cpuSub": "4 cores",
+        "reco": "no survey yet",
+        "recoLevel": "muted",
+        "crashCount": 0,
+        "lastEvent": "2m ago",
+        "lastSnapshot": "2026-08-02 19:58:41",
+        "open": true,
+        "lastSerial": null,
+        "remote": {
+          "host": "10.0.0.24",
+          "port": 22,
+          "role": "root",
+          "isMesh": true,
+          "uplink": "None — this is the root",
+          "downlink": "-38 dBm",
+          "downlinkSource": "detected"
+        }
+      },
+      {
+        "label": "DemoAP-standalone",
+        "id": "ap-2",
         "status": "no DUT",
         "cpu": "—",
         "cpuSub": "no stream",
@@ -60,21 +92,57 @@
         "lastEvent": "—",
         "lastSnapshot": "—",
         "open": false,
-        "lastSerial": null
+        "lastSerial": null,
+        "remote": {
+          "host": "10.0.0.24",
+          "port": 22,
+          "role": null,
+          "isMesh": false,
+          "uplink": "Not applicable",
+          "downlink": "Not applicable",
+          "downlinkSource": "detected"
+        }
+      },
+      {
+        "label": "DemoNode-lab3",
+        "id": "lab3",
+        "status": "no DUT",
+        "cpu": "—",
+        "cpuSub": "no stream",
+        "reco": "no survey yet",
+        "recoLevel": "muted",
+        "crashCount": 0,
+        "lastEvent": "—",
+        "lastSnapshot": "—",
+        "open": false,
+        "lastSerial": null,
+        "remote": {
+          "host": "10.0.0.24",
+          "port": 22,
+          "role": "node",
+          "isMesh": true,
+          "uplink": "Not captured",
+          "downlink": "Not captured",
+          "downlinkSource": "detected",
+          "captured": {
+            "uplink": "-52 dBm · mid",
+            "downlink": "None"
+          }
+        }
       },
       {
         "label": "DemoDUT-bench3",
         "id": "bench3",
-        "status": "streaming",
-        "cpu": "62.8%",
-        "cpuSub": "4 cores",
+        "status": "idle",
+        "cpu": "—",
+        "cpuSub": "no stream",
         "reco": "1 band needs a move",
         "recoLevel": "warn",
         "crashCount": 1,
         "lastEvent": "3m ago",
         "lastSnapshot": "2026-08-06 10:41:55",
-        "open": true,
-        "lastSerial": "/dev/cu.usbserial-14"
+        "open": false,
+        "lastSerial": null
       }
     ],
     "crash": [

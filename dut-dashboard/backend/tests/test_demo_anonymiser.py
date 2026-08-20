@@ -679,3 +679,33 @@ def test_a_malformed_block_is_refused_not_replaced(anon_module, tmp_path) -> Non
 
     assert "not valid JSON" in str(caught.value)
     assert page.read_text(encoding="utf-8") == original      # untouched
+
+
+def test_the_regeneration_source_carries_every_fleet_state(anon_module) -> None:
+    """The fleet is synthetic, so `demo-fixtures.json` owns it — not the page.
+    Hand-editing the page's data block put the remote nodes somewhere the very
+    next `build_demo_data.py --page overview.html` would overwrite from a stale
+    fixture: the destructive regeneration this suite exists to stop, one level
+    below the key merge.
+
+    Asserted by state rather than by count, so adding a card is not a failure
+    while losing a state still is.
+    """
+    demo = DEMO.parent
+    fixture = json.loads((demo / "demo-fixtures.json").read_text(encoding="utf-8"))
+    fleet = fixture["overview.html"]["fleet"]
+    remotes = [f for f in fleet if f.get("remote")]
+
+    assert remotes, "no remote node survives a rebuild"
+    assert {f["remote"]["isMesh"] for f in remotes} == {True, False}, "no standalone AP"
+    assert {f["remote"].get("role") for f in remotes} >= {"node", "root"}
+    assert any(f["remote"].get("captured") for f in remotes), "nothing to capture on connect"
+    assert any(f.get("remote") and not f["open"] for f in fleet), "no disconnected remote"
+    assert any(not f.get("remote") for f in fleet), "no mother-server card"
+    assert len({f["status"] for f in fleet}) >= 3, {f["status"] for f in fleet}
+    assert any(not f["open"] for f in fleet), "no disconnected card"
+
+    page = json.loads(
+        re.search(r'<script id="demo-data" type="application/json">(.*?)</script>',
+                  (demo / "overview.html").read_text(encoding="utf-8"), re.S).group(1))
+    assert page["fleet"] == fleet, "the page and its regeneration source disagree"
