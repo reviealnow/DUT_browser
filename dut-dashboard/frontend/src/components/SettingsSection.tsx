@@ -1,18 +1,24 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import {
+  configureRemoteNode,
   createInvite,
   CreatedInvite,
+  DutInfo,
+  getDuts,
   humanizeApiError,
   InviteSummary,
   listInvites,
   listRoleChanges,
   listUsers,
+  MAX_REMOTE_NODES,
+  removeDut,
   revokeInvite,
   Role,
   RoleChange,
   UserRecord,
 } from "../api/rest";
+import { DEFAULT_DUT_ID } from "../api/dut";
 import { useAuth } from "../monitoring/AuthContext";
 import { useCrashKeywords } from "../monitoring/useCrashKeywords";
 import { ACCENT_PRESETS, useSettings } from "../monitoring/useSettings";
@@ -21,7 +27,19 @@ import { Card } from "./shell/Card";
 
 const BAUD_RATES = [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600];
 
-export default function SettingsSection() {
+export default function SettingsSection({
+  selectedDut,
+  onSelectDut,
+  onRegistryChanged,
+}: {
+  /** Removing the DUT the app is currently showing has to move the selection
+   *  off it, exactly as the Topbar switcher does — otherwise every section goes
+   *  on asking the backend about an id that no longer exists. */
+  selectedDut: string;
+  onSelectDut: (dutId: string) => void;
+  /** Tells the shell the DUT registry moved, so the topbar switcher re-reads it. */
+  onRegistryChanged: () => void;
+}) {
   const { settings, setAccent, setDefaultBaud, setDisplayName } = useSettings();
   const { keywords, saving, saveKeywords } = useCrashKeywords();
   const [kwInput, setKwInput] = useState("");
@@ -155,9 +173,351 @@ export default function SettingsSection() {
           </div>
         </div>
       </Card>
+      <RemoteNodesCard
+        selectedDut={selectedDut}
+        onSelectDut={onSelectDut}
+        onRegistryChanged={onRegistryChanged}
+      />
       <InvitesCard />
       <UsersCard />
     </>
+  );
+}
+
+type NodeForm = {
+  id: string;
+  label: string;
+  host: string;
+  user: string;
+  keyPath: string;
+  port: string;
+  device: string;
+  baudrate: string;
+  isMesh: boolean;
+  backhaulIface: string;
+};
+
+const BLANK_NODE: NodeForm = {
+  id: "",
+  label: "",
+  host: "",
+  user: "",
+  keyPath: "",
+  port: "22",
+  device: "/dev/ttyUSB0",
+  baudrate: "115200",
+  isMesh: true,
+  backhaulIface: "",
+};
+
+/**
+ * Admin-only registration for SSH-backed remote nodes.
+ *
+ * The strip on Overview could already connect, disconnect and capture, but
+ * nothing in the frontend called `POST /api/fleet/nodes`: registering a node
+ * meant a `curl` with a session cookie copied out of the browser, which is what
+ * `docs/fleet-remote-nodes.md` had to tell people to do.
+ *
+ * In Settings rather than on the strip, because the strip hides itself when the
+ * fleet has one DUT or fewer — precisely the state you are in before the first
+ * node exists, so an "Add node" control there could never add the first one.
+ *
+ * What it shows about a registered node is what `/api/duts` returns: host, port
+ * and device. `user` and `key_path` are deliberately not in that response and
+ * are not echoed back here — the key never leaves the dashboard's machine.
+ */
+function RemoteNodesCard({
+  selectedDut,
+  onSelectDut,
+  onRegistryChanged,
+}: {
+  selectedDut: string;
+  onSelectDut: (dutId: string) => void;
+  onRegistryChanged: () => void;
+}) {
+  const { role } = useAuth();
+  const isAdmin = role === "admin";
+  const [nodes, setNodes] = useState<DutInfo[]>([]);
+  const [form, setForm] = useState<NodeForm>(BLANK_NODE);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const refresh = useCallback(() => {
+    if (!isAdmin) {
+      return;
+    }
+    getDuts()
+      .then((duts) => setNodes(duts.filter((dut) => dut.remote !== null)))
+      .catch((err) => setError(humanizeApiError(err)));
+  }, [isAdmin]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  // Settings is an engineer section and all four fleet routes are admin-only,
+  // so an engineer gets nothing here rather than a form that can only 403.
+  if (!isAdmin) {
+    return null;
+  }
+
+  const set = <K extends keyof NodeForm>(key: K, value: NodeForm[K]) =>
+    setForm((current) => ({ ...current, [key]: value }));
+
+  // Re-posting an existing id re-configures that node, which stays allowed at
+  // the limit; only a new one is blocked. Trimmed on both sides of the compare
+  // because the id is trimmed before it is sent.
+  const known = nodes.some((node) => node.id === form.id.trim());
+  const full = nodes.length >= MAX_REMOTE_NODES && !known;
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    const id = form.id.trim();
+    try {
+      await configureRemoteNode({
+        id,
+        label: form.label.trim() || undefined,
+        host: form.host.trim(),
+        user: form.user.trim(),
+        key_path: form.keyPath.trim(),
+        port: Number(form.port) || 22,
+        device: form.device.trim(),
+        baudrate: Number(form.baudrate) || 115200,
+        is_mesh: form.isMesh,
+        // A non-mesh node has no backhaul to name, and sending a stale one
+        // would persist a value the card then reports as configured.
+        backhaul_iface: form.isMesh ? form.backhaulIface.trim() || null : null,
+      });
+      setForm(BLANK_NODE);
+      setNotice(
+        `${id} registered. Connect it from the Fleet strip on Overview — ` +
+          "nodes before roots, so a root can be named from its child.",
+      );
+      refresh();
+      onRegistryChanged();
+    } catch (err) {
+      setError(humanizeApiError(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const forget = async (node: DutInfo) => {
+    if (
+      !window.confirm(
+        `Remove ${node.label || node.id}? Its console session is closed and the ` +
+          "registration is dropped. Nothing on the Pi is touched.",
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    setNotice(null);
+    try {
+      await removeDut(node.id);
+      if (node.id === selectedDut) {
+        onSelectDut(DEFAULT_DUT_ID);
+      }
+      refresh();
+      onRegistryChanged();
+    } catch (err) {
+      setError(humanizeApiError(err));
+    }
+  };
+
+  return (
+    <Card
+      title="Fleet remote nodes"
+      subtitle="DUTs reached over SSH to a Raspberry Pi running socat"
+    >
+      <div className="settings-list">
+        <div className="setting-hint">
+          {nodes.length} of {MAX_REMOTE_NODES} registered. The key lives on{" "}
+          <strong>this dashboard's machine</strong> and must have no passphrase — the backend
+          runs <code>ssh -o BatchMode=yes</code> with nobody to type one. Connect to the Pi by
+          hand once first, or every attempt fails on <code>Host key verification failed</code>.
+        </div>
+
+        <form className="invite-form" onSubmit={submit}>
+          <label className="modal-label">
+            DUT id
+            <input
+              className="input"
+              value={form.id}
+              onChange={(e) => set("id", e.target.value)}
+              placeholder="node1"
+              required
+            />
+          </label>
+          <label className="modal-label">
+            Label
+            <input
+              className="input"
+              value={form.label}
+              onChange={(e) => set("label", e.target.value)}
+              placeholder="Mesh Node (420)"
+              maxLength={80}
+            />
+          </label>
+          <label className="modal-label">
+            Pi host
+            <input
+              className="input"
+              value={form.host}
+              onChange={(e) => set("host", e.target.value)}
+              placeholder="192.168.30.124"
+              required
+            />
+          </label>
+          <label className="modal-label">
+            SSH user
+            <input
+              className="input"
+              value={form.user}
+              onChange={(e) => set("user", e.target.value)}
+              placeholder="pi"
+              required
+            />
+          </label>
+          <label className="modal-label">
+            SSH port
+            <input
+              className="input"
+              type="number"
+              min={1}
+              max={65535}
+              value={form.port}
+              onChange={(e) => set("port", e.target.value)}
+            />
+          </label>
+          <label className="modal-label">
+            Private key path
+            <input
+              className="input"
+              value={form.keyPath}
+              onChange={(e) => set("keyPath", e.target.value)}
+              placeholder="/home/you/.ssh/dut_fleet_ed25519"
+              required
+            />
+          </label>
+          <label className="modal-label">
+            Serial device on the Pi
+            <input
+              className="input"
+              value={form.device}
+              onChange={(e) => set("device", e.target.value)}
+              placeholder="/dev/ttyUSB0"
+              required
+            />
+          </label>
+          <label className="modal-label">
+            Baud rate
+            <select
+              className="input"
+              value={form.baudrate}
+              onChange={(e) => set("baudrate", e.target.value)}
+            >
+              {BAUD_RATES.map((rate) => (
+                <option key={rate} value={rate}>
+                  {rate}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="modal-label node-mesh-toggle">
+            <span>Mesh node</span>
+            <input
+              type="checkbox"
+              checked={form.isMesh}
+              onChange={(e) => set("isMesh", e.target.checked)}
+            />
+          </label>
+          {form.isMesh ? (
+            <label className="modal-label">
+              Backhaul interface
+              <input
+                className="input"
+                value={form.backhaulIface}
+                onChange={(e) => set("backhaulIface", e.target.value)}
+                placeholder="ath16"
+                required
+              />
+            </label>
+          ) : null}
+          <button type="submit" className="btn primary" disabled={busy || full}>
+            {busy ? "Saving…" : known ? "Update node" : "Register node"}
+          </button>
+        </form>
+
+        <div className="setting-hint">
+          The interface is a <strong>fallback</strong>: detection overrides it wherever it works,
+          and it is what a root falls back to, since a root cannot name its own backhaul VAP from
+          its own console. Clear <em>Mesh node</em> for a standalone AP — the link rows then read{" "}
+          <code>Not applicable</code> instead of <code>Not captured</code>.
+        </div>
+
+        {full ? (
+          <div className="setting-hint">
+            The limit of {MAX_REMOTE_NODES} remote nodes is reached — remove one to add another.
+            Re-registering an id already in the table is still allowed.
+          </div>
+        ) : null}
+        {error ? <div className="flash">{error}</div> : null}
+        {notice ? <div className="setting-hint">{notice}</div> : null}
+
+        {nodes.length === 0 ? (
+          <div className="setting-hint">No remote nodes registered.</div>
+        ) : (
+          <div className="invite-table-wrap">
+            <table className="filetable invite-table">
+              <thead>
+                <tr>
+                  <th>DUT</th>
+                  <th>CONSOLE</th>
+                  <th>MESH</th>
+                  <th>SESSION</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {nodes.map((node) => (
+                  <tr key={node.id}>
+                    <td>
+                      {node.label}
+                      <div className="setting-hint">{node.id}</div>
+                    </td>
+                    <td>
+                      {node.remote!.host}:{node.remote!.port}
+                      <div className="setting-hint">{node.remote!.device}</div>
+                    </td>
+                    <td>
+                      {/* `role` is null until a capture has run: an absent uplink is
+                          an answer, an absent capture is not. */}
+                      {node.remote!.is_mesh ? node.remote!.role ?? "not captured" : "standalone"}
+                    </td>
+                    <td>{node.serial_open ? "open" : "closed"}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="btn"
+                        onClick={() => void forget(node)}
+                        disabled={!node.removable}
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </Card>
   );
 }
 

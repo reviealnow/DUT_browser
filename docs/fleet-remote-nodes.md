@@ -72,9 +72,17 @@ environment variable; with neither, the role stays locked. Log in, choose
 
 ## 4. Register each node
 
-There is **no UI for this yet** — the strip can connect, disconnect and capture,
-but nothing in the frontend calls `POST /api/fleet/nodes`. Register with the API,
-using the session cookie from a login:
+**Settings → Fleet remote nodes**, logged in as admin. Fill the form and press
+*Register node*; the card lists what is registered and removes one on request.
+It is in Settings rather than on the strip because the strip hides itself when
+the fleet has one DUT or fewer — which is the state you are in before the first
+node exists, so a control there could never add the first one.
+
+Nothing about the form reaches the Pi: it writes the configuration, and the
+first SSH attempt is *Connect* on the strip (step 5).
+
+The same registration over the API, for a script — the session cookie comes from
+a login:
 
 ```bash
 curl -X POST http://localhost:8000/api/fleet/nodes -b cookies.txt -H 'Content-Type: application/json' -d '{"id":"node1","label":"Mesh Node (420)","host":"10.0.0.24","user":"pi","key_path":"/home/you/.ssh/dut_fleet_ed25519","port":22,"device":"/dev/ttyUSB0","baudrate":115200,"is_mesh":true,"backhaul_iface":"ath16"}'
@@ -85,8 +93,10 @@ curl -X POST http://localhost:8000/api/fleet/nodes -b cookies.txt -H 'Content-Ty
   would reach `ssh` as an option rather than a name, and is refused.
 * `backhaul_iface` is only a **fallback**. Detection overrides it wherever it
   works; it is consulted for a root, which cannot identify its own backhaul VAP.
-* `user` and `key_path` are stored server-side and never appear in `/api/duts`.
-* At most four remote nodes.
+* `user` and `key_path` are stored server-side and never appear in `/api/duts`
+  — so the card cannot show them back to you either, by construction.
+* At most four remote nodes. Re-registering an id already in the table replaces
+  its configuration, and stays allowed at the limit.
 
 Register the root the same way, with its own `device`.
 
