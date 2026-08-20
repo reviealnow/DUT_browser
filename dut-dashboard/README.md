@@ -45,8 +45,9 @@ Vite proxy target updated).
 ### DUTs on a remote Raspberry Pi
 
 A DUT that is not cabled to this machine can be reached over SSH to a Pi that
-pipes its serial port through `socat`. Setup, the admin-only API, how to read the
-Fleet strip's rows and what the failure modes mean are in
+pipes its serial port through `socat`. Register one under **Settings → Fleet
+remote nodes** as an admin. Setup, that form and the API behind it, how to read
+the Fleet strip's rows and what the failure modes mean are in
 [`docs/fleet-remote-nodes.md`](../docs/fleet-remote-nodes.md) — start there, in
 particular for the two prerequisites that are easy to get wrong: the SSH key must
 have **no passphrase**, and the Pi must already be a known host.

@@ -17,9 +17,15 @@ import { useAuth } from "../monitoring/AuthContext";
 export default function DutSwitcher({
   selected,
   onSelect,
+  refreshKey = 0,
 }: {
   selected: string;
   onSelect: (dutId: string) => void;
+  /** Bumped by whoever changes the registry from somewhere else in the app —
+   *  today the fleet-node card in Settings. This list is read once on mount and
+   *  after this component's own add/remove, so a DUT registered elsewhere was
+   *  missing from the switcher until the page was reloaded. */
+  refreshKey?: number;
 }) {
   const { role } = useAuth();
   const canManage = role !== "guest";
@@ -35,7 +41,7 @@ export default function DutSwitcher({
       .catch(() => setError("Could not load DUTs"));
   };
 
-  useEffect(refresh, []);
+  useEffect(refresh, [refreshKey]);
 
   async function handleAdd() {
     setError("");

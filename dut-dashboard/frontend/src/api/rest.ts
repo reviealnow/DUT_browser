@@ -35,6 +35,25 @@ export function humanizeApiError(error: unknown): string {
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed.detail === "string") {
       detail = parsed.detail;
+    } else if (parsed && Array.isArray(parsed.detail)) {
+      // FastAPI answers a body that fails a pydantic validator with 422 and a
+      // *list*: [{loc:["body","host"], msg:"Value error, must contain only …"}].
+      // Only `detail`-as-a-string was unwrapped, so those arrived as the raw
+      // JSON this function promises never to show — visible the moment a form
+      // posted a typed body (the fleet-node registration is the first).
+      const parts = parsed.detail
+        .map((item: { loc?: unknown[]; msg?: unknown }) => {
+          const field = Array.isArray(item?.loc) ? item.loc[item.loc.length - 1] : null;
+          // "Value error, " is pydantic's own prefix around the validator's
+          // message; the message underneath is the one written for a reader.
+          const msg =
+            typeof item?.msg === "string" ? item.msg.replace(/^Value error,\s*/, "") : "";
+          return typeof field === "string" && msg ? `${field}: ${msg}` : msg;
+        })
+        .filter((part: string) => part.length > 0);
+      if (parts.length > 0) {
+        detail = parts.join("; ");
+      }
     }
   } catch {
     // Not JSON — keep the raw message as the fallback detail.
@@ -364,6 +383,36 @@ export type RemoteRssiResult = {
   uplink: RemoteUplink | null;
   downlink: RemoteDownlink | null;
 };
+
+/** What an admin has to supply to register a node. Mirrors `RemoteNodeBody`.
+ *
+ *  `key_path` is a path on the **dashboard's** machine, not on the Pi — the
+ *  backend is the one that runs `ssh -i`. The key itself never travels, and
+ *  neither `user` nor `key_path` is returned by `/api/duts`, so this type is
+ *  write-only: what comes back about a registered node is `DutInfo["remote"]`.
+ */
+export type RemoteNodeConfig = {
+  id: string;
+  label?: string;
+  host: string;
+  user: string;
+  key_path: string;
+  port: number;
+  device: string;
+  baudrate: number;
+  is_mesh: boolean;
+  /** Required when `is_mesh`; the backend refuses a mesh node without one. */
+  backhaul_iface: string | null;
+};
+
+/** At most four remote nodes (`MAX_REMOTE_NODES` in fleet_api.py). Mirrored so
+ *  the form can say so before the POST rather than only in the 400 that follows. */
+export const MAX_REMOTE_NODES = 4;
+
+/** Register a node, or re-configure one by posting the same id. */
+export async function configureRemoteNode(config: RemoteNodeConfig): Promise<void> {
+  await post("/api/fleet/nodes", config);
+}
 
 export async function connectRemoteNode(dutId: string): Promise<void> {
   await post(`/api/fleet/nodes/${encodeURIComponent(dutId)}/connect`, {});

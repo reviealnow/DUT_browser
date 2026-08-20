@@ -75,6 +75,10 @@ function AppShellInner() {
   // or clicking any tag chip; cleared by Close or switching sections.
   const [wsSearch, setWsSearch] = useState<string | null>(null);
   const [selectedDut, setSelectedDut] = useState(DEFAULT_DUT_ID);
+  // Bumped when a section changes the DUT registry, so the topbar switcher —
+  // which otherwise reads it once on mount — picks up a node registered from
+  // Settings without a page reload.
+  const [registryVersion, setRegistryVersion] = useState(0);
   // One monitor for the selected DUT drives everything: the sections, the topbar
   // status, and the Serial Console (via context) — all follow the switcher.
   const monitor = useDutMonitor(selectedDut);
@@ -169,7 +173,11 @@ function AppShellInner() {
             // Wrapper is transparent on desktop (display:contents) so the layout
             // is unchanged; under 720px it becomes the deliberate stacked column.
             <div className="toolbar-actions">
-              <DutSwitcher selected={selectedDut} onSelect={setSelectedDut} />
+              <DutSwitcher
+                selected={selectedDut}
+                onSelect={setSelectedDut}
+                refreshKey={registryVersion}
+              />
               <ToolbarActions
                 status={monitor.status}
                 lastEventAgeSec={monitor.lastEventAgeSec}
@@ -243,6 +251,7 @@ function AppShellInner() {
                     },
                     setActive,
                     setWsSearch,
+                    () => setRegistryVersion((version) => version + 1),
                   )
                 )}
               </Suspense>
@@ -290,6 +299,7 @@ function renderSection(
   onOpenConsole: (dutId: string) => void,
   onNavigate: (id: SectionId) => void,
   onTagSearch: (tag: string) => void,
+  onRegistryChanged: () => void,
 ) {
   switch (active) {
     case "overview":
@@ -341,7 +351,13 @@ function renderSection(
     case "bulletin":
       return <BulletinSection query={search} onTagClick={onTagSearch} />;
     case "settings":
-      return <SettingsSection />;
+      return (
+        <SettingsSection
+          selectedDut={selectedDut}
+          onSelectDut={onSelectDut}
+          onRegistryChanged={onRegistryChanged}
+        />
+      );
     case "firmware":
       return <FirmwareSection dutId={selectedDut} />;
     default:
