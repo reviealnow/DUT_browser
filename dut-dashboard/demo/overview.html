@@ -88,6 +88,11 @@ button{font:inherit; color:inherit; cursor:pointer}
 .stat-row{display:flex; justify-content:space-between; gap:var(--space-2); font-size:12px}
 .stat-row dt{color:var(--muted)}
 .stat-row dd{margin:0; color:var(--ink)}
+.fleet-card{border-top-width:4px}
+.fleet-where{color:var(--faint); font-size:11px}
+.fleet-fact-ok{color:var(--ok)}
+.fleet-fact-idle{color:var(--muted)}
+.fleet-rssi-na{color:var(--muted); font-style:italic}
 .fleet-actions{display:flex; gap:var(--space-2); flex-wrap:wrap; margin-top:var(--space-1)}
 
 /* ---------- kpi ---------- */
@@ -138,7 +143,7 @@ button{font:inherit; color:inherit; cursor:pointer}
 
 <!-- Source data for every chart on this page, per the repo's inline-SVG convention
      (CLAUDE.md: charts are hand-rendered and must also emit their data as JSON). -->
-<script id="demo-data" type="application/json">{"generatedFrom":"bundle40 + dut-session-20260804-154148","scannedAt":"2026-08-04 12:44","cpu":{"c0":[26.8,27.2,38.8,32.8,22.2,22.8,19.8,14.9,23.2,41.3,21.0,23.6,26.2,15.0,26.0,19.8,25.5,14.9,34.7,34.0,36.0,45.6,31.2,19.0,40.6,27.0,43.0,27.2,43.6,24.0,35.3,26.5,23.0,27.0,23.0,37.8,36.9,26.0,39.9,26.8,27.2,43.0,26.8,22.5,43.4,22.2,26.0,23.6,26.0,42.3,23.0,33.7,37.3,32.4,29.0,29.3,38.2,23.0,49.5,32.0,38.0,25.8,36.8,15.7,25.0,31.7,32.0,35.9,31.7,59.7,38.0,28.1,26.0,23.5,20.2,25.5,27.5,31.0,24.0,31.0,26.5,36.0,30.5,26.0,42.0,27.8,53.5,23.0,28.8,39.0,47.5,24.8,31.0,46.0,22.2,41.0,37.0,24.8,35.3,39.6,24.5,29.2,28.8,32.7,22.2,24.0,43.0,22.8,26.5,45.3,25.2,28.1,32.0,22.2,30.3,51.0,27.0,26.8,36.1,34.3],"c1":[11.1,15.7,22.1,30.3,13.6,8.2,7.0,5.1,7.2,29.9,7.1,22.0,26.2,5.0,5.0,11.8,22.0,6.0,15.9,10.2,11.2,34.4,21.8,8.2,27.5,25.5,31.0,10.3,29.2,11.1,21.0,21.2,8.1,13.2,15.9,33.7,19.2,14.9,29.7,28.8,20.7,22.7,17.6,4.3,29.8,11.0,10.1,25.3,18.5,29.6,24.8,23.4,21.0,20.8,21.4,15.8,25.3,8.2,28.0,20.2,23.2,11.1,39.4,9.6,15.2,20.8,15.2,20.6,14.4,36.5,24.6,16.9,16.1,9.1,12.6,28.1,23.2,20.4,11.0,17.0,8.1,35.7,32.0,13.2,18.0,7.3,38.3,11.0,12.4,34.6,26.8,17.0,16.2,16.9,12.9,26.5,26.0,10.4,21.0,18.2,15.9,15.2,17.0,18.2,11.7,11.1,51.1,11.7,8.0,47.1,14.0,16.9,22.4,17.2,13.8,26.5,14.1,16.5,30.0,25.8],"labels":[{"i":0,"text":"08-01 03:47"},{"i":39,"text":"08-01 16:33"},{"i":79,"text":"08-02 05:51"},{"i":119,"text":"08-02 19:19"}]},"clients":{"values":[6,6,6,6,6,6,6,6,6,6,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5],"labels":[{"i":0,"text":"08-01 03:47"},{"i":39,"text":"08-01 16:33"},{"i":79,"text":"08-02 05:51"},{"i":119,"text":"08-02 19:19"}]},"bands":[{"band":"2.4GHz","current":1,"recommended":11,"scoreCurrent":1021,"scoreBest":693,"channels":[{"channel":1,"count":451,"score":1021},{"channel":2,"count":14,"score":1047},{"channel":3,"count":0,"score":1055},{"channel":4,"count":45,"score":1073},{"channel":5,"count":79,"score":1067},{"channel":6,"count":210,"score":981},{"channel":7,"count":0,"score":937},{"channel":8,"count":15,"score":901},{"channel":9,"count":54,"score":848},{"channel":10,"count":27,"score":761},{"channel":11,"count":203,"score":693},{"channel":12,"count":0,"score":534},{"channel":13,"count":0,"score":375}]},{"band":"5GHz","current":153,"recommended":132,"scoreCurrent":104,"scoreBest":1,"channels":[{"channel":36,"count":328,"score":814},{"channel":40,"count":151,"score":295},{"channel":44,"count":170,"score":483},{"channel":48,"count":91,"score":231},{"channel":52,"count":26,"score":78},{"channel":64,"count":23,"score":49},{"channel":104,"count":13,"score":39},{"channel":132,"count":1,"score":1},{"channel":140,"count":13,"score":39},{"channel":149,"count":211,"score":371},{"channel":153,"count":39,"score":104},{"channel":157,"count":132,"score":392},{"channel":161,"count":116,"score":219},{"channel":165,"count":26,"score":65}]}],"roamer":{"mac":"02:00:71:DC:46:05","radios":["2.4G","5G"],"ssid":"DemoAP-Field","lastSeen":"2026-08-02 19:56:27"},"kpis":[{"label":"Latest CPU","value":"34.3","unit":"%","foot":"2 cores \u00b7 peak 59.7%"},{"label":"Wi-Fi clients","value":"5","unit":"","foot":"peak 7 over the session"},{"label":"Neighbours seen","value":"2438","unit":"","foot":"2 band(s) scanned"},{"label":"Snapshots plotted","value":"120","unit":"","foot":"downsampled from the full session"}],"statusKpi":{"label":"DUT status","value":"Streaming","unit":"","foot":"serial open"},"fleet":[{"label":"DemoDUT-6E","id":"default","status":"streaming","cpu":"34.3%","cpuSub":"2 cores","reco":"2 bands need a move","recoLevel":"warn","crashCount":3,"lastEvent":"12m ago","lastSnapshot":"2026-08-02 19:56:27","open":true,"lastSerial":"/dev/cu.PL2303G-1130"},{"label":"DemoDUT-5G","id":"lab-420","status":"idle","cpu":"\u2014","cpuSub":"no stream","reco":"all bands clear","recoLevel":"ok","crashCount":0,"lastEvent":"\u2014","lastSnapshot":"2026-08-01 09:14:02","open":false,"lastSerial":"/dev/cu.PL2303G-1130"},{"label":"DemoDUT-lab2","id":"lab2","status":"no DUT","cpu":"\u2014","cpuSub":"no stream","reco":"no survey yet","recoLevel":"muted","crashCount":0,"lastEvent":"\u2014","lastSnapshot":"\u2014","open":false,"lastSerial":null},{"label":"DemoDUT-bench3","id":"bench3","status":"streaming","cpu":"62.8%","cpuSub":"4 cores","reco":"1 band needs a move","recoLevel":"warn","crashCount":1,"lastEvent":"3m ago","lastSnapshot":"2026-08-06 10:41:55","open":true,"lastSerial":"/dev/cu.usbserial-14"}],"crash":[{"time":"08-01 07:22:13","sev":"crit","text":"wlan1: STA 02:9f:41:c7:0b:e2 deauthenticated (reason 4, inactivity) on both radios"},{"time":"08-01 14:05:52","sev":"warn","text":"ath_dfs: radar detected on channel 60, moving to channel 149"},{"time":"08-02 03:11:07","sev":"warn","text":"nss_queue0: rx ring full, 214 packets dropped"}]}</script>
+<script id="demo-data" type="application/json">{"generatedFrom":"bundle40 + dut-session-20260804-154148","scannedAt":"2026-08-04 12:44","cpu":{"c0":[26.8,27.2,38.8,32.8,22.2,22.8,19.8,14.9,23.2,41.3,21.0,23.6,26.2,15.0,26.0,19.8,25.5,14.9,34.7,34.0,36.0,45.6,31.2,19.0,40.6,27.0,43.0,27.2,43.6,24.0,35.3,26.5,23.0,27.0,23.0,37.8,36.9,26.0,39.9,26.8,27.2,43.0,26.8,22.5,43.4,22.2,26.0,23.6,26.0,42.3,23.0,33.7,37.3,32.4,29.0,29.3,38.2,23.0,49.5,32.0,38.0,25.8,36.8,15.7,25.0,31.7,32.0,35.9,31.7,59.7,38.0,28.1,26.0,23.5,20.2,25.5,27.5,31.0,24.0,31.0,26.5,36.0,30.5,26.0,42.0,27.8,53.5,23.0,28.8,39.0,47.5,24.8,31.0,46.0,22.2,41.0,37.0,24.8,35.3,39.6,24.5,29.2,28.8,32.7,22.2,24.0,43.0,22.8,26.5,45.3,25.2,28.1,32.0,22.2,30.3,51.0,27.0,26.8,36.1,34.3],"c1":[11.1,15.7,22.1,30.3,13.6,8.2,7.0,5.1,7.2,29.9,7.1,22.0,26.2,5.0,5.0,11.8,22.0,6.0,15.9,10.2,11.2,34.4,21.8,8.2,27.5,25.5,31.0,10.3,29.2,11.1,21.0,21.2,8.1,13.2,15.9,33.7,19.2,14.9,29.7,28.8,20.7,22.7,17.6,4.3,29.8,11.0,10.1,25.3,18.5,29.6,24.8,23.4,21.0,20.8,21.4,15.8,25.3,8.2,28.0,20.2,23.2,11.1,39.4,9.6,15.2,20.8,15.2,20.6,14.4,36.5,24.6,16.9,16.1,9.1,12.6,28.1,23.2,20.4,11.0,17.0,8.1,35.7,32.0,13.2,18.0,7.3,38.3,11.0,12.4,34.6,26.8,17.0,16.2,16.9,12.9,26.5,26.0,10.4,21.0,18.2,15.9,15.2,17.0,18.2,11.7,11.1,51.1,11.7,8.0,47.1,14.0,16.9,22.4,17.2,13.8,26.5,14.1,16.5,30.0,25.8],"labels":[{"i":0,"text":"08-01 03:47"},{"i":39,"text":"08-01 16:33"},{"i":79,"text":"08-02 05:51"},{"i":119,"text":"08-02 19:19"}]},"clients":{"values":[6,6,6,6,6,6,6,6,6,6,7,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5],"labels":[{"i":0,"text":"08-01 03:47"},{"i":39,"text":"08-01 16:33"},{"i":79,"text":"08-02 05:51"},{"i":119,"text":"08-02 19:19"}]},"bands":[{"band":"2.4GHz","current":1,"recommended":11,"scoreCurrent":1021,"scoreBest":693,"channels":[{"channel":1,"count":451,"score":1021},{"channel":2,"count":14,"score":1047},{"channel":3,"count":0,"score":1055},{"channel":4,"count":45,"score":1073},{"channel":5,"count":79,"score":1067},{"channel":6,"count":210,"score":981},{"channel":7,"count":0,"score":937},{"channel":8,"count":15,"score":901},{"channel":9,"count":54,"score":848},{"channel":10,"count":27,"score":761},{"channel":11,"count":203,"score":693},{"channel":12,"count":0,"score":534},{"channel":13,"count":0,"score":375}]},{"band":"5GHz","current":153,"recommended":132,"scoreCurrent":104,"scoreBest":1,"channels":[{"channel":36,"count":328,"score":814},{"channel":40,"count":151,"score":295},{"channel":44,"count":170,"score":483},{"channel":48,"count":91,"score":231},{"channel":52,"count":26,"score":78},{"channel":64,"count":23,"score":49},{"channel":104,"count":13,"score":39},{"channel":132,"count":1,"score":1},{"channel":140,"count":13,"score":39},{"channel":149,"count":211,"score":371},{"channel":153,"count":39,"score":104},{"channel":157,"count":132,"score":392},{"channel":161,"count":116,"score":219},{"channel":165,"count":26,"score":65}]}],"roamer":{"mac":"02:00:71:DC:46:05","radios":["2.4G","5G"],"ssid":"DemoAP-Field","lastSeen":"2026-08-02 19:56:27"},"kpis":[{"label":"Latest CPU","value":"34.3","unit":"%","foot":"2 cores \u00b7 peak 59.7%"},{"label":"Wi-Fi clients","value":"5","unit":"","foot":"peak 7 over the session"},{"label":"Neighbours seen","value":"2438","unit":"","foot":"2 band(s) scanned"},{"label":"Snapshots plotted","value":"120","unit":"","foot":"downsampled from the full session"}],"statusKpi":{"label":"DUT status","value":"Streaming","unit":"","foot":"serial open"},"fleet":[{"label":"DemoDUT-6E","id":"default","status":"streaming","cpu":"34.3%","cpuSub":"2 cores","reco":"2 bands need a move","recoLevel":"warn","crashCount":3,"lastEvent":"12m ago","lastSnapshot":"2026-08-02 19:56:27","open":true,"lastSerial":"/dev/cu.PL2303G-1130"},{"label":"DemoNode-420","id":"lab-420","status":"streaming","cpu":"18.6%","cpuSub":"2 cores","reco":"all bands clear","recoLevel":"ok","crashCount":0,"lastEvent":"\u2014","lastSnapshot":"2026-08-01 09:14:02","open":true,"lastSerial":"/dev/cu.PL2303G-1130","remote":{"host":"10.0.0.24","port":22,"role":"node","uplink":"-37 dBm \u00b7 near","downlink":"None","downlinkSource":"detected"}},{"label":"DemoRoot-840E","id":"lab2","status":"streaming","cpu":"27.1%","cpuSub":"4 cores","reco":"no survey yet","recoLevel":"muted","crashCount":0,"lastEvent":"2m ago","lastSnapshot":"2026-08-02 19:58:41","open":true,"lastSerial":null,"remote":{"host":"10.0.0.24","port":22,"role":"root","uplink":"None \u2014 this is the root","downlink":"-38 dBm","downlinkSource":"detected"}},{"label":"DemoDUT-bench3","id":"bench3","status":"streaming","cpu":"62.8%","cpuSub":"4 cores","reco":"1 band needs a move","recoLevel":"warn","crashCount":1,"lastEvent":"3m ago","lastSnapshot":"2026-08-06 10:41:55","open":true,"lastSerial":"/dev/cu.usbserial-14"}],"crash":[{"time":"08-01 07:22:13","sev":"crit","text":"wlan1: STA 02:9f:41:c7:0b:e2 deauthenticated (reason 4, inactivity) on both radios"},{"time":"08-01 14:05:52","sev":"warn","text":"ath_dfs: radar detected on channel 60, moving to channel 149"},{"time":"08-02 03:11:07","sev":"warn","text":"nss_queue0: rx ring full, 214 packets dropped"}]}</script>
 
 <div class="layout">
   <aside class="sidebar">
@@ -314,10 +319,17 @@ function renderFleet(){
     const el = document.createElement("div");
     el.className = "fleet-card";
     el.dataset.index = idx;
-    // Field-for-field what FleetStrip.tsx renders: label + id, status pill, CPU
-    // and its sub-label, the band badge, then Crash events / Last event / Last
-    // snapshot. Nothing else — a card carrying firmware or uptime would be
-    // showing an Overview the product does not have.
+    // Field-for-field what FleetStrip.tsx renders: label + id, where the
+    // console is attached, status pill, CPU and its sub-label, the band badge,
+    // the four remote-node rows when the DUT is reached over SSH, then Crash
+    // events / Last event / Last snapshot. Nothing else — a card carrying
+    // firmware or uptime would be showing an Overview the product does not
+    // have. Leaving the remote rows off would be the other failure: the
+    // product grew a whole capability this page did not show.
+    const r = d.remote || null;
+    // Root vs node is not what this colours: the product splits on where the
+    // console is attached, and a mesh root can hang off a Pi (one does).
+    el.style.borderTopColor = r ? "var(--ok)" : "var(--accent)";
     const statusPill = d.status === "streaming" ? "pill-ok"
                      : d.status === "idle" ? "pill-muted" : "pill-muted";
     el.innerHTML = `
@@ -326,11 +338,22 @@ function renderFleet(){
         <div>
           <div class="fleet-name">${d.label}</div>
           <div class="fleet-id">${d.id}</div>
+          <div class="fleet-where">${r ? `Remote via ${r.host}:${r.port}` : "Mother server"}</div>
         </div>
         <span class="pill ${statusPill}"><span class="dot"></span>${d.status}</span>
       </div>
       <div class="fleet-cpu"><span class="fleet-cpu-value">${d.cpu}</span><span class="fleet-cpu-sub">${d.cpuSub}</span></div>
       <span class="band-badge band-${d.recoLevel}">${d.reco}</span>
+      ${r ? `
+      <dl class="stat-list">
+        <div class="stat-row"><dt>SSH session</dt>
+          <dd class="${d.open ? "fleet-fact-ok" : "fleet-fact-idle"}">${d.open ? "Connected" : "Not connected"}</dd></div>
+        <div class="stat-row"><dt>Node console</dt><dd>${d.status}</dd></div>
+        <div class="stat-row"><dt>Uplink to parent</dt>
+          <dd class="${r.role === "root" ? "fleet-rssi-na" : ""}">${r.uplink}</dd></div>
+        <div class="stat-row"><dt>Children on backhaul</dt>
+          <dd>${r.downlink}${r.downlinkSource === "configured" ? ` · ${r.downlinkIface} configured` : ""}</dd></div>
+      </dl>` : ""}
       <dl class="stat-list">
         <div class="stat-row"><dt>Crash events</dt><dd>${d.crashCount}${d.crashCount > 0 ? " · since open" : ""}</dd></div>
         <div class="stat-row"><dt>Last event</dt><dd>${d.lastEvent}</dd></div>
@@ -340,7 +363,8 @@ function renderFleet(){
         <button class="btn" data-act="console">Console</button>
         ${d.open
           ? `<button class="btn btn-danger" data-act="close">Close serial</button>`
-          : `<button class="btn" data-act="connect" ${d.lastSerial ? "" : "disabled title='no remembered port'"}>Connect</button>`}
+          : `<button class="btn" data-act="connect" ${d.lastSerial || r ? "" : "disabled title='no remembered port'"}>Connect</button>`}
+        ${r ? `<button class="btn" data-act="rssi" ${d.open ? "" : "disabled title='console not open'"}>Refresh RSSI</button>` : ""}
       </div>`;
     host.appendChild(el);
   });
@@ -391,12 +415,22 @@ function wireFleet(){
     const d = fleet[Number(card.dataset.index)];
     const act = btn.dataset.act;
     if (act === "console"){ $("dutPill").textContent = d.label; toast(`Serial Console → ${d.label}`); return; }
+    if (act === "rssi"){
+      // Replays the captured reading rather than inventing a second one — the
+      // same line Re-scan draws on Site Survey. The product re-runs iwconfig
+      // and wlanconfig here and rewrites the two rows above.
+      btn.innerHTML = `<span class="spin"></span> Reading`;
+      btn.disabled = true;
+      setTimeout(() => { renderFleet(); toast(`${d.label}: backhaul re-read`); }, 750);
+      return;
+    }
     btn.innerHTML = `<span class="spin"></span> ${act === "close" ? "Closing" : "Connecting"}`;
     btn.disabled = true;
     setTimeout(() => {
       d.open = act !== "close";
       renderFleet();
-      toast(`${d.label}: serial ${d.open ? "opened on " + d.lastSerial : "closed"}`);
+      const via = d.remote ? `SSH to ${d.remote.host}` : d.lastSerial;
+      toast(`${d.label}: ${d.open ? "console opened over " + via : "console closed"}`);
     }, 750);
   });
 }

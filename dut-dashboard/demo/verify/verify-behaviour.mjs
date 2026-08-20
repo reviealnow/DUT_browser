@@ -215,4 +215,53 @@ const report = reporter();
     pageErrors(window).length === 0, pageErrors(window).join(" | "));
 }
 
+// ------------------------------------------------------------ fleet strip
+{
+  report.section("overview.html — the fleet strip's remote-node card");
+  const window = await load("overview.html");
+  const document = window.document;
+  const cards = [...document.querySelectorAll(".fleet-card")];
+  const rowsOf = (card) => Object.fromEntries([...card.querySelectorAll(".stat-row")]
+    .map(r => [r.querySelector("dt").textContent.trim(), r.querySelector("dd").textContent.trim()]));
+
+  const mother = cards.find(c => c.querySelector(".fleet-where").textContent.includes("Mother"));
+  const node = cards.find(c => c.querySelector(".fleet-where").textContent.includes("Remote via")
+    && rowsOf(c)["Uplink to parent"]?.includes("dBm"));
+  const root = cards.find(c => rowsOf(c)["Uplink to parent"] === "None — this is the root");
+
+  // FleetStrip renders the four remote rows only when the DUT has an SSH
+  // console. A strip of mother-server cards alone would tell a viewer the
+  // product cannot reach a DUT over a Pi at all.
+  report.ok("a mother-server card carries no remote rows",
+    !!mother && !("SSH session" in rowsOf(mother)));
+  report.ok("a remote node shows all four remote rows",
+    !!node && ["SSH session", "Node console", "Uplink to parent", "Children on backhaul"]
+      .every(k => k in rowsOf(node)));
+
+  // Up and down are separate measurements from separate commands; a root has
+  // no parent and says so rather than reading as an uncaptured value.
+  report.ok("the root's uplink is an answer, not a gap", !!root);
+  report.ok("the root still reports children",
+    !!root && rowsOf(root)["Children on backhaul"].includes("dBm"));
+  report.ok("only remote cards offer Refresh RSSI",
+    !!node?.querySelector("[data-act=rssi]") && !mother?.querySelector("[data-act=rssi]"));
+
+  // Refresh RSSI re-reads the backhaul and touches nothing else. Sharing the
+  // connect/close path would have made it a connection control wearing another
+  // label — and on an already-open card that is invisible in the card's own
+  // state, so the assertion is on what the page says it did.
+  click(window, node.querySelector("[data-act=rssi]"));
+  await new Promise(r => setTimeout(r, 900));
+  const said = document.getElementById("toast").textContent;
+  report.ok("Refresh RSSI reports a re-read, not a connection change",
+    said.includes("backhaul re-read"), said);
+  const after = [...document.querySelectorAll(".fleet-card")]
+    .find(c => rowsOf(c)["Uplink to parent"]?.includes("dBm"));
+  report.ok("and the reading survives the re-read",
+    !!after && rowsOf(after)["Uplink to parent"].includes("dBm"));
+
+  report.ok("overview.html threw nothing while all that ran",
+    pageErrors(window).length === 0, pageErrors(window).join(" | "));
+}
+
 report.finish();
