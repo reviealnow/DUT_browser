@@ -85,12 +85,13 @@ git checkout CPU_Plots && git pull --ff-only   # or `git checkout phase-N` to pi
 frontend/src/
 ├── main.tsx                      mounts <AppShell/>, imports the design system
 ├── pages/
-│   ├── AppShell.tsx              shell: sidebar (12 sections in 3 groups) + toolbar + DUT switcher; Overview KPIs + chart cards
+│   ├── AppShell.tsx              shell: sidebar (13 sections in 3 groups) + toolbar + DUT switcher; Overview KPIs + chart cards
 │   └── Dashboard.tsx             Serial Console (embedded), Critical Crash panel, log download
 ├── components/
 │   ├── shell/                    Sidebar · Topbar · Card · navigation (SectionId, nav groups)
 │   ├── charts/                   Sparkline (inline SVG) · ChartData (JSON blob)
-│   ├── FleetSection.tsx          fleet card grid (one card per registered DUT)
+│   ├── FleetCard.tsx             one DUT's card, shared by both fleet views
+│   ├── FleetStrip.tsx · FleetSection.tsx   Overview strip (glance + switch) · Fleet section (whole backhaul capture)
 │   ├── WifiClientsCard.tsx · SsidCapabilityCard.tsx · SiteSurveyCard.tsx
 │   │                             on-demand Wi-Fi captures: client tables · capability report · site survey
 │   ├── RecommendationPill.tsx · BandRecoSummary.tsx   per-band channel recommendation UI

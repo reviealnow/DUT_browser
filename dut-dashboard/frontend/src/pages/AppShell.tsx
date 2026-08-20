@@ -29,6 +29,7 @@ import { copyToClipboard } from "../utils/clipboard";
 const BulletinSection = lazy(() => import("../components/BulletinSection"));
 const WorkspaceSearchResults = lazy(() => import("../components/WorkspaceSearchResults"));
 const FleetStrip = lazy(() => import("../components/FleetStrip"));
+const FleetSection = lazy(() => import("../components/FleetSection"));
 const DownloadsSection = lazy(() => import("../components/DownloadsSection"));
 const FilesSection = lazy(() => import("../components/FilesSection"));
 const SettingsSection = lazy(() => import("../components/SettingsSection"));
@@ -312,6 +313,8 @@ function renderSection(
           onOpenSiteSurvey={() => onNavigate("sitesurvey")}
         />
       );
+    case "fleet":
+      return <FleetSection onSelectDut={onSelectDut} onOpenConsole={onOpenConsole} />;
     case "console":
       // Rendered separately (always mounted) so its session/state persists.
       return null;

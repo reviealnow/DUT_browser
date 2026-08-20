@@ -1493,6 +1493,50 @@ body {
   padding: 0 var(--space-1);
 }
 
+/* ---------- Fleet section: the same cards, with room for a whole capture ----
+   The strip fixes a card at 250px and scrolls sideways; here they wrap into as
+   many columns as fit, and each one unfolds its uplink/downlink detail. */
+.fleet-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+  /* Cards in a row are wildly different heights — a local DUT has no backhaul
+     detail at all, a mesh node has two tables — and stretching the short one to
+     the tallest leaves a card that is mostly blank and reads as broken. */
+  align-items: start;
+}
+.fleet-card--grid {
+  border-top-width: 4px;
+}
+.fleet-section-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.fleet-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-4);
+}
+.fleet-detail-block { display: flex; flex-direction: column; gap: var(--space-2); }
+.fleet-detail-empty { color: var(--muted); font-size: 13px; }
+/* A BSSID is read character by character when two cards are compared, so it
+   gets a monospace column rather than the body face. */
+.fleet-detail-mac {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  white-space: nowrap;
+}
+/* Three columns of MACs do not fit a narrow card — scroll the table inside its
+   own box rather than pushing the card sideways. */
+.fleet-peer-table { min-width: 280px; }
+.fleet-detail-block:has(> .fleet-peer-table) { overflow-x: auto; }
+
 /* SSID Capability Card */
 .cap-body { display: flex; flex-direction: column; gap: var(--space-4); }
 .cap-summary { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }

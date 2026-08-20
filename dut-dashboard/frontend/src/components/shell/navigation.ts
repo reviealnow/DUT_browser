@@ -3,6 +3,7 @@ import { ROLE_RANK } from "../../monitoring/AuthContext";
 
 export type SectionId =
   | "overview"
+  | "fleet"
   | "cpu"
   | "wifi"
   | "ssid"
@@ -34,6 +35,11 @@ export type NavItem = {
 // anything that drives the DUT, downloads logs or posts content is engineer.
 export const NAV_ITEMS: NavItem[] = [
   { id: "overview", label: "Overview", icon: "▣", title: "Overview", subtitle: "Live DUT monitoring summary", group: "Monitoring", minRole: "guest" },
+  // P69 folded the fleet into an Overview strip and dropped this entry, because
+  // the cards then held three numbers and a nav slot was too much for them.
+  // What a card holds now is a mesh backhaul measured in both directions, per
+  // child — see FleetSection for why that needs the width back. The strip stays.
+  { id: "fleet", label: "Fleet", icon: "🛰", title: "Fleet", subtitle: "Every registered DUT and its mesh backhaul", group: "Monitoring", minRole: "guest" },
   { id: "cpu", label: "CPU / Memory", icon: "📈", title: "CPU / Memory", subtitle: "Per-core CPU and memory trends", group: "Monitoring", minRole: "guest" },
   { id: "wifi", label: "Wi-Fi Clients", icon: "📶", title: "Wi-Fi Clients", subtitle: "Associated clients by radio", group: "Monitoring", minRole: "guest" },
   { id: "ssid", label: "SSID Capability", icon: "🔍", title: "SSID Capability", subtitle: "DUT config vs host-side scan reconciliation", group: "Monitoring", minRole: "guest" },
