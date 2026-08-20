@@ -625,3 +625,43 @@ def test_the_excerpt_selector_and_the_refusal_ask_the_same_question(anon_module,
         except SystemExit:
             raised = True
         assert refused == raised, line
+
+
+# --- the data block's hand-maintained keys ---------------------------------
+#
+# `build()` fills five keys; overview.html carries ten. The other five — the
+# fleet strip, the crash feed, the status tile and the provenance line — are
+# synthetic and hand-written, and a whole-block rewrite silently erased them.
+
+
+def test_a_regeneration_keeps_the_keys_no_builder_produces(anon_module, tmp_path) -> None:
+    page = tmp_path / "overview.html"
+    page.write_text(
+        '<script id="demo-data" type="application/json">'
+        '{"cpu":"old","fleet":[{"id":"lab-420"}],"crash":["boom"]}'
+        "</script>",
+        encoding="utf-8",
+    )
+
+    anon_module.inject(page, {"cpu": "fresh"})
+
+    import json as _json
+    import re as _re
+    block = _re.search(r">(\{.*\})<", page.read_text(encoding="utf-8")).group(1)
+    data = _json.loads(block)
+    assert data["cpu"] == "fresh"                      # the builder's key wins
+    assert data["fleet"] == [{"id": "lab-420"}]        # hand-maintained, kept
+    assert data["crash"] == ["boom"]
+
+
+def test_a_builder_key_still_overwrites(anon_module, tmp_path) -> None:
+    page = tmp_path / "overview.html"
+    page.write_text(
+        '<script id="demo-data" type="application/json">{"cpu":"stale","fleet":[]}</script>',
+        encoding="utf-8",
+    )
+    anon_module.inject(page, {"cpu": "fresh", "fleet": [{"id": "new"}]})
+    import json as _json
+    import re as _re
+    data = _json.loads(_re.search(r">(\{.*\})<", page.read_text(encoding="utf-8")).group(1))
+    assert data == {"cpu": "fresh", "fleet": [{"id": "new"}]}

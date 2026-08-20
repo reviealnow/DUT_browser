@@ -1248,11 +1248,27 @@ HAND_MAINTAINED = frozenset({"index.html"})
 
 
 def inject(page: Path, payload: dict) -> None:
-    """Rewrite only the data block, so hand-edits to the markup survive."""
+    """Rewrite the generated keys of the data block, and only those.
+
+    Hand-edits to the markup survive because only this block is rewritten. The
+    block also holds keys **no builder produces** — the fleet strip, the crash
+    feed, the status tile and the provenance line are synthetic, written by
+    hand, and were being erased by every regeneration: `build()` emits five
+    keys and `overview.html` carries ten. Merging over the existing block keeps
+    them; a builder that does emit a key still overwrites it.
+    """
     html = page.read_text(encoding="utf-8")
-    if not DATA_BLOCK_RE.search(html):
+    match = DATA_BLOCK_RE.search(html)
+    if not match:
         raise SystemExit(f"{page.name} has no <script id='demo-data'> block")
-    blob = json.dumps(payload, separators=(",", ":"))
+    try:
+        existing = json.loads(match.group(2))
+    except ValueError:
+        existing = {}
+    kept = sorted(set(existing) - set(payload))
+    if kept:
+        print(f"{page.name}: preserving hand-maintained {', '.join(kept)}")
+    blob = json.dumps({**existing, **payload}, separators=(",", ":"))
     page.write_text(
         DATA_BLOCK_RE.sub(lambda m: m.group(1) + blob + m.group(3), html, count=1),
         encoding="utf-8",
