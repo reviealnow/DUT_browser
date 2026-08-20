@@ -35,6 +35,25 @@ export function humanizeApiError(error: unknown): string {
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed.detail === "string") {
       detail = parsed.detail;
+    } else if (parsed && Array.isArray(parsed.detail)) {
+      // FastAPI answers a body that fails a pydantic validator with 422 and a
+      // *list*: [{loc:["body","host"], msg:"Value error, must contain only …"}].
+      // Only `detail`-as-a-string was unwrapped, so those arrived as the raw
+      // JSON this function promises never to show — visible the moment a form
+      // posted a typed body (the fleet-node registration is the first).
+      const parts = parsed.detail
+        .map((item: { loc?: unknown[]; msg?: unknown }) => {
+          const field = Array.isArray(item?.loc) ? item.loc[item.loc.length - 1] : null;
+          // "Value error, " is pydantic's own prefix around the validator's
+          // message; the message underneath is the one written for a reader.
+          const msg =
+            typeof item?.msg === "string" ? item.msg.replace(/^Value error,\s*/, "") : "";
+          return typeof field === "string" && msg ? `${field}: ${msg}` : msg;
+        })
+        .filter((part: string) => part.length > 0);
+      if (parts.length > 0) {
+        detail = parts.join("; ");
+      }
     }
   } catch {
     // Not JSON — keep the raw message as the fallback detail.
