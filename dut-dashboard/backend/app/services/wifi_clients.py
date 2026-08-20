@@ -23,6 +23,7 @@ from typing import Callable
 # A VAP header line, e.g.: ath16     IEEE 802.11axa  ESSID:"!!3290-1"
 _VAP_RE = re.compile(r'^(ath\d+)\s+IEEE\s+\S+\s+ESSID:"([^"]*)"')
 _CHAN_RE = re.compile(r"Frequency:[\d.]+\s*GHz\s*\(Channel\s*(\d+)\)")
+_FREQ_GHZ_RE = re.compile(r"Frequency[:=]\s*([\d.]+)\s*GHz")
 _MODE_RE = re.compile(r"Mode:(\w+)")
 
 # Association-row fields.
@@ -38,7 +39,14 @@ _BAND_RE = re.compile(r"Operating band\s*[:=]\s*(\S+)")
 
 
 def band_for_iface(iface: str) -> str:
-    """Map athN to a radio band (16 VAPs per band on this platform)."""
+    """Guess a radio band from athN, assuming 16 VAPs per band.
+
+    A **fallback only**, for output that carries no frequency. The assumption
+    holds on the AP6 840E and fails on the AP6 420, where ath8, ath14 and ath15
+    are all 5.22 GHz — this returns "2.4G" for every one of them. Prefer
+    `band_from_ghz()` wherever the source states a frequency, which `iwconfig`
+    always does.
+    """
     m = re.match(r"ath(\d+)", iface)
     if not m:
         return "?"
@@ -48,6 +56,15 @@ def band_for_iface(iface: str) -> str:
     if n < 32:
         return "5G"
     return "6G"
+
+
+def band_from_ghz(freq_ghz: float | None) -> str | None:
+    """A radio band from a stated frequency, in the short "5G" spelling this
+    module uses. The authoritative answer where one is available."""
+    if freq_ghz is None:
+        return None
+    band = _band_from_freq(int(freq_ghz * 1000))
+    return _norm_band(band) if band else None
 
 
 def _norm_band(band: str) -> str:
@@ -102,12 +119,20 @@ def discover_vaps(iwconfig_text: str) -> list[dict]:
             if current:
                 vaps.append(current)
             iface = head.group(1)
+            # The band starts as the iface-number guess and is replaced by the
+            # frequency below as soon as one is seen: iwconfig always states it,
+            # and the numbering assumption is wrong on some models.
             current = {"iface": iface, "ssid": head.group(2), "band": band_for_iface(iface), "channel": None, "mode": None}
             # channel/mode may be on the same logical block; check this line too
         if current:
             ch = _CHAN_RE.search(line)
             if ch and current["channel"] is None:
                 current["channel"] = int(ch.group(1))
+            freq = _FREQ_GHZ_RE.search(line)
+            if freq is not None:
+                stated = band_from_ghz(float(freq.group(1)))
+                if stated:
+                    current["band"] = stated
             md = _MODE_RE.search(line)
             if md and current["mode"] is None:
                 current["mode"] = md.group(1)
@@ -117,9 +142,14 @@ def discover_vaps(iwconfig_text: str) -> list[dict]:
     return [v for v in vaps if (v["mode"] or "Master") == "Master"]
 
 
-def parse_wlanconfig_list(text: str, iface: str) -> list[dict]:
+def parse_wlanconfig_list(text: str, iface: str, band: str | None = None) -> list[dict]:
     """Parse `wlanconfig <iface> list` into client dicts. Header-only (no clients)
-    returns []. Verbose SNR/band tail (if present) attaches to the latest client."""
+    returns []. Verbose SNR/band tail (if present) attaches to the latest client.
+
+    This command states no frequency, so `band` should be passed by a caller
+    that knows it — `discover_vaps()` reads it from iwconfig. Without it the
+    iface-number guess is all there is, and that guess is wrong on some models.
+    """
     clients: list[dict] = []
     for raw in text.splitlines():
         line = raw.rstrip()
@@ -134,7 +164,7 @@ def parse_wlanconfig_list(text: str, iface: str) -> list[dict]:
             nss = _NSS_RE.search(line)
             client = {
                 "iface": iface,
-                "band": band_for_iface(iface),
+                "band": band or band_for_iface(iface),
                 "mac": mac,
                 "vendor": vendor_for_mac(mac),
                 "aid": int(rest[0]) if rest and rest[0].isdigit() else None,

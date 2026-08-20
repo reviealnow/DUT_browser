@@ -330,7 +330,9 @@ def _capture_clients(worker) -> tuple[list[dict], list[dict]]:
             out = worker.capture_command(f"wlanconfig {vap['iface']} list", timeout=6.0)
         except RuntimeError:
             continue
-        for client in parse_wlanconfig_list(out, vap["iface"]):
+        # vap["band"] comes from the frequency iwconfig stated, so the client
+        # rows inherit it rather than re-guessing from the interface number.
+        for client in parse_wlanconfig_list(out, vap["iface"], vap["band"]):
             client["ssid"] = vap["ssid"]
             clients.append(client)
     return clients, vaps
