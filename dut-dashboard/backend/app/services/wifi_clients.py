@@ -186,9 +186,13 @@ def parse_wlanconfig_list(text: str, iface: str, band: str | None = None) -> lis
             snr = _SNR_RE.search(line)
             if snr and clients[-1]["snr"] is None:
                 clients[-1]["snr"] = int(snr.group(1))
-            band = _BAND_RE.search(line)
-            if band:
-                clients[-1]["band"] = _norm_band(band.group(1))
+            # Not `band`: that name is the caller's argument, and rebinding it
+            # here made every later client in the same capture take a match
+            # object — or, with a tail carrying no band, the interface-number
+            # guess this argument exists to replace.
+            stated = _BAND_RE.search(line)
+            if stated:
+                clients[-1]["band"] = _norm_band(stated.group(1))
     return clients
 
 

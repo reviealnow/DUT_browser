@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 
 from app.services.wifi_clients import (
@@ -115,6 +116,28 @@ class WifiParseTests(unittest.TestCase):
 
         # The firmware's own "Operating band" outranks both.
         self.assertEqual(parse_wlanconfig_list(WLANCONFIG_ATH32, "ath8", "5G")[0]["band"], "6G")
+
+    def test_the_callers_band_survives_a_verbose_tail(self) -> None:
+        """Two clients with a tail between them, because one client cannot show
+        this: a tail used to rebind the caller's argument for every row after
+        it — to a match object when it named a band, and to nothing when it did
+        not, sending the rest of the capture back to the interface-number guess
+        this argument exists to replace. The match object is not JSON
+        serialisable, so /api/wifi/clients raised rather than answered."""
+        row = "{mac} 1 44 866M 780M -63 00:01:02 IEEE80211_MODE_11AXA_HE80 2 2"
+        first, second = "00:11:22:33:44:55", "66:77:88:99:aa:bb"
+
+        for tail, expected_first in (("        SNR : 33", "5G"),
+                                     ("        Operating band : 6GHz", "6G")):
+            with self.subTest(tail=tail.strip()):
+                text = "\n".join([row.format(mac=first), tail, row.format(mac=second)]) + "\n"
+                clients = parse_wlanconfig_list(text, "ath8", "5G")
+                self.assertEqual(clients[0]["band"], expected_first)
+                # The tail belongs to the client above it and to nothing else.
+                self.assertEqual(clients[1]["band"], "5G")
+                self.assertTrue(all(isinstance(c["band"], str) for c in clients),
+                                [type(c["band"]).__name__ for c in clients])
+                json.dumps(clients)   # the endpoint returns these verbatim
 
     def test_band_for_iface(self) -> None:
         self.assertEqual(band_for_iface("ath3"), "2.4G")
