@@ -71,6 +71,31 @@ door, linking the screens and saying which are measured, with no capture behind
 it and no `demo-data` block to fill. Edit it by hand; the generator refuses it by
 name rather than failing on the missing block.
 
+### After editing `demo-fixtures.json`
+
+The synthetic data lives in `demo-fixtures.json`, but the pages ship it inlined,
+so an edit there is invisible until something writes it into them. Run:
+
+```bash
+cd dut-dashboard/demo
+python3 build_demo_data.py --sync-fixtures
+```
+
+It reads **no capture** and takes no `--bundle` or `--page`: it sweeps every page
+`demo-fixtures.json` names and writes only the keys the fixture owns, so the
+measured half of a page — CPU, clients, channel counts, none of which can be
+rebuilt without the bundle — stays exactly as committed. The values it writes are
+the ones a full regeneration would write, because that path applies the fixture
+last too.
+
+Do it in the same commit as the fixture edit. The alternative is what happened
+last time: the sixth fleet card was typed into `overview.html` while the fixture
+still described four, and the next regeneration would have knocked the strip back
+to four. `backend/tests/test_demo_anonymiser.py` runs this sync against a copy of
+the kit and fails if any page's bytes move — the same check as
+`git diff --exit-code` after running it, at the gate everything else already
+runs at.
+
 Downloads lists a bundle rather than parsing one, and embeds **every plot it
 produced**, so each inline preview is the real output rather than a note
 explaining its absence:
