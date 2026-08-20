@@ -1263,8 +1263,15 @@ def inject(page: Path, payload: dict) -> None:
         raise SystemExit(f"{page.name} has no <script id='demo-data'> block")
     try:
         existing = json.loads(match.group(2))
-    except ValueError:
-        existing = {}
+    except ValueError as exc:
+        # Falling back to {} here would merge over nothing and write the
+        # builder's keys alone — the whole-block replacement this function
+        # exists to stop, hidden behind a swallowed exception and reported as
+        # success. A block nobody can parse is a page to fix by hand.
+        raise SystemExit(
+            f"{page.name}: the data block is not valid JSON ({exc}); "
+            "refusing to overwrite it — fix or restore the block first"
+        ) from exc
     kept = sorted(set(existing) - set(payload))
     if kept:
         print(f"{page.name}: preserving hand-maintained {', '.join(kept)}")

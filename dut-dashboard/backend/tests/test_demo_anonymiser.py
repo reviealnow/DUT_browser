@@ -665,3 +665,17 @@ def test_a_builder_key_still_overwrites(anon_module, tmp_path) -> None:
     import re as _re
     data = _json.loads(_re.search(r">(\{.*\})<", page.read_text(encoding="utf-8")).group(1))
     assert data == {"cpu": "fresh", "fleet": [{"id": "new"}]}
+
+
+def test_a_malformed_block_is_refused_not_replaced(anon_module, tmp_path) -> None:
+    """Swallowing the parse error would merge over nothing and write the
+    builder's keys alone — the data loss this merge exists to prevent."""
+    page = tmp_path / "overview.html"
+    original = '<script id="demo-data" type="application/json">{"fleet":[oops</script>'
+    page.write_text(original, encoding="utf-8")
+
+    with pytest.raises(SystemExit) as caught:
+        anon_module.inject(page, {"cpu": "fresh"})
+
+    assert "not valid JSON" in str(caught.value)
+    assert page.read_text(encoding="utf-8") == original      # untouched

@@ -260,6 +260,33 @@ const report = reporter();
   report.ok("and the reading survives the re-read",
     !!after && rowsOf(after)["Uplink to parent"].includes("dBm"));
 
+  // A standalone AP has no mesh backhaul, so the product answers "the question
+  // does not apply" in both directions and refuses the control — a different
+  // statement from "we have not measured yet", and the demo showed neither.
+  const standalone = cards.find(c => rowsOf(c)["Uplink to parent"] === "Not applicable");
+  report.ok("a standalone remote reads Not applicable both ways",
+    !!standalone && rowsOf(standalone)["Children on backhaul"] === "Not applicable");
+  report.ok("and its Refresh RSSI is refused, not merely idle",
+    !!standalone?.querySelector("[data-act=rssi]")?.disabled);
+
+  // The strip is the product's DUT switcher: the card body selects. Only the
+  // buttons acted here, so the card read as a display, not a control.
+  // Re-queried: the refresh above re-rendered the strip, and the `cards` array
+  // now holds detached nodes whose clicks reach no listener.
+  const live = [...document.querySelectorAll(".fleet-card")];
+  const other = live.find(c => c.querySelector(".fleet-name").textContent !== "DemoDUT-6E");
+  click(window, other.querySelector(".fleet-name"));
+  report.ok("clicking a card body selects that DUT",
+    document.getElementById("dutPill").textContent ===
+      other.querySelector(".fleet-name").textContent);
+
+  // Every status the product renders should be reachable here; a strip of
+  // identical cards showed one of three, and no disconnected card at all.
+  const statuses = new Set(live.map(c => c.querySelector(".pill").textContent.trim()));
+  report.ok("more than one status is represented", statuses.size >= 3, [...statuses].join(","));
+  report.ok("a disconnected card still offers Connect",
+    live.some(c => c.querySelector("[data-act=connect]")));
+
   report.ok("overview.html threw nothing while all that ran",
     pageErrors(window).length === 0, pageErrors(window).join(" | "));
 }
