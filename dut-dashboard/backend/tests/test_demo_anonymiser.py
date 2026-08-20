@@ -713,13 +713,15 @@ def test_the_regeneration_source_carries_every_fleet_state(anon_module) -> None:
     assert page["fleet"] == fleet, "the page and its regeneration source disagree"
 
 
-def test_the_builder_and_the_fixture_cover_every_key_on_the_page(anon_module) -> None:
+def test_the_page_and_its_sources_carry_exactly_the_same_keys(anon_module) -> None:
     """The real account of the defect, pinned so the wrong one cannot come back.
 
     Nothing was lost in the normal path — the two sources cover the page
-    exactly. A key here that neither produces is either synthetic copy that
-    belongs in the fixture, or an accident; both want finding, and before the
-    merge both vanished silently on the next rebuild.
+    exactly, in both directions. A key on the page that neither produces is
+    either synthetic copy that belongs in the fixture or an accident, and used
+    to vanish on the next rebuild. A key a source produces that the page lacks
+    is the same disagreement seen from the other side: the committed page is
+    already out of step with what regenerating it would write.
     """
     import ast
 
@@ -736,7 +738,10 @@ def test_the_builder_and_the_fixture_cover_every_key_on_the_page(anon_module) ->
         re.search(r'<script id="demo-data" type="application/json">(.*?)</script>',
                   (demo / "overview.html").read_text(encoding="utf-8"), re.S).group(1)))
 
-    assert page - builder - fixture == set(), (
-        "a key on the page comes from neither the builder nor the fixture: "
-        f"{sorted(page - builder - fixture)}"
-    )
+    # Both directions. A subset check passes while the fixture carries a key the
+    # page does not, and the next rebuild injects it — the committed page and
+    # its own regeneration would already disagree.
+    assert page == builder | fixture, {
+        "on the page, from neither source": sorted(page - builder - fixture),
+        "produced but not on the page": sorted((builder | fixture) - page),
+    }
