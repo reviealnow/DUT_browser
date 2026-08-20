@@ -1248,11 +1248,38 @@ HAND_MAINTAINED = frozenset({"index.html"})
 
 
 def inject(page: Path, payload: dict) -> None:
-    """Rewrite only the data block, so hand-edits to the markup survive."""
+    """Rewrite the generated keys of the data block, and only those.
+
+    Hand-edits to the markup survive because only this block is rewritten.
+
+    This merges rather than replaces, which is a narrower claim than it first
+    looks. `build()` emits seven keys and `demo-fixtures.json` supplies three;
+    together they cover every key `overview.html` carries, so the previous
+    whole-block replacement lost nothing in the normal path. What it could not
+    survive is a key added to a page by hand that neither side knows about —
+    and since the fixture is where synthetic copy belongs, such a key is a
+    mistake waiting to be silently undone rather than a feature. Merging keeps
+    it long enough to be noticed.
+    """
     html = page.read_text(encoding="utf-8")
-    if not DATA_BLOCK_RE.search(html):
+    match = DATA_BLOCK_RE.search(html)
+    if not match:
         raise SystemExit(f"{page.name} has no <script id='demo-data'> block")
-    blob = json.dumps(payload, separators=(",", ":"))
+    try:
+        existing = json.loads(match.group(2))
+    except ValueError as exc:
+        # Falling back to {} here would merge over nothing and write the
+        # builder's keys alone — the whole-block replacement this function
+        # exists to stop, hidden behind a swallowed exception and reported as
+        # success. A block nobody can parse is a page to fix by hand.
+        raise SystemExit(
+            f"{page.name}: the data block is not valid JSON ({exc}); "
+            "refusing to overwrite it — fix or restore the block first"
+        ) from exc
+    kept = sorted(set(existing) - set(payload))
+    if kept:
+        print(f"{page.name}: preserving hand-maintained {', '.join(kept)}")
+    blob = json.dumps({**existing, **payload}, separators=(",", ":"))
     page.write_text(
         DATA_BLOCK_RE.sub(lambda m: m.group(1) + blob + m.group(3), html, count=1),
         encoding="utf-8",

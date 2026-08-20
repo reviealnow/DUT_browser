@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 
 from app.services.wifi_clients import (
@@ -85,6 +86,58 @@ class WifiParseTests(unittest.TestCase):
         self.assertEqual(ifaces["ath32"]["band"], "6G")
         self.assertEqual(ifaces["ath16"]["channel"], 36)
         self.assertEqual(ifaces["ath0"]["ssid"], "!!3290-1")
+
+    def test_the_band_comes_from_the_stated_frequency_not_the_number(self) -> None:
+        """Captured from an AP6 420, where the 16-per-band assumption breaks:
+        ath8, ath14 and ath15 are all 5.22 GHz. The interface number says 2.4G
+        for every one of them."""
+        ap6_420 = (
+            'ath0      IEEE 802.11axg  ESSID:"420"\n'
+            "          Mode:Master  Frequency:2.412 GHz (Channel 1)  Access Point: CA:4F:86:89:F1:68\n"
+            'ath8      IEEE 802.11axa  ESSID:"420_2+5"\n'
+            "          Mode:Master  Frequency:5.22 GHz (Channel 44)  Access Point: C8:4F:86:89:F1:69\n"
+            'ath14     IEEE 802.11axa  ESSID:"dutBrowser_Backhaul"\n'
+            "          Mode:Master  Frequency:5.22 GHz (Channel 44)  Access Point: CE:4F:86:89:F1:69\n"
+        )
+        bands = {v["iface"]: v["band"] for v in discover_vaps(ap6_420)}
+        self.assertEqual(bands, {"ath0": "2.4G", "ath8": "5G", "ath14": "5G"})
+        self.assertEqual(band_for_iface("ath8"), "2.4G")   # the guess this replaces
+
+    def test_a_client_row_inherits_the_band_its_caller_knows(self) -> None:
+        """wlanconfig states no frequency, so the caller supplies the band.
+        Three sources, in order of authority: the verbose tail if the firmware
+        printed one, then the caller, then the interface-number guess."""
+        plain = "00:11:22:33:44:55 1 44 866M 780M -63 00:01:02 IEEE80211_MODE_11AXA_HE80 2 2\n"
+
+        guessed = parse_wlanconfig_list(plain, "ath8")
+        self.assertEqual(guessed[0]["band"], "2.4G")       # the wrong guess, unchanged
+        told = parse_wlanconfig_list(plain, "ath8", "5G")
+        self.assertEqual(told[0]["band"], "5G")            # the caller knew better
+
+        # The firmware's own "Operating band" outranks both.
+        self.assertEqual(parse_wlanconfig_list(WLANCONFIG_ATH32, "ath8", "5G")[0]["band"], "6G")
+
+    def test_the_callers_band_survives_a_verbose_tail(self) -> None:
+        """Two clients with a tail between them, because one client cannot show
+        this: a tail used to rebind the caller's argument for every row after
+        it — to a match object when it named a band, and to nothing when it did
+        not, sending the rest of the capture back to the interface-number guess
+        this argument exists to replace. The match object is not JSON
+        serialisable, so /api/wifi/clients raised rather than answered."""
+        row = "{mac} 1 44 866M 780M -63 00:01:02 IEEE80211_MODE_11AXA_HE80 2 2"
+        first, second = "00:11:22:33:44:55", "66:77:88:99:aa:bb"
+
+        for tail, expected_first in (("        SNR : 33", "5G"),
+                                     ("        Operating band : 6GHz", "6G")):
+            with self.subTest(tail=tail.strip()):
+                text = "\n".join([row.format(mac=first), tail, row.format(mac=second)]) + "\n"
+                clients = parse_wlanconfig_list(text, "ath8", "5G")
+                self.assertEqual(clients[0]["band"], expected_first)
+                # The tail belongs to the client above it and to nothing else.
+                self.assertEqual(clients[1]["band"], "5G")
+                self.assertTrue(all(isinstance(c["band"], str) for c in clients),
+                                [type(c["band"]).__name__ for c in clients])
+                json.dumps(clients)   # the endpoint returns these verbatim
 
     def test_band_for_iface(self) -> None:
         self.assertEqual(band_for_iface("ath3"), "2.4G")

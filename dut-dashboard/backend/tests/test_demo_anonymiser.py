@@ -625,3 +625,123 @@ def test_the_excerpt_selector_and_the_refusal_ask_the_same_question(anon_module,
         except SystemExit:
             raised = True
         assert refused == raised, line
+
+
+# --- the data block's hand-maintained keys ---------------------------------
+#
+# `build()` fills seven keys and demo-fixtures.json supplies three, which
+# together are every key overview.html carries: a whole-block rewrite lost
+# nothing in the normal path. The merge protects the case neither side knows
+# about — a key added to a page by hand — which is worth keeping because that
+# key is a mistake, and one that used to disappear without a word.
+
+
+def test_a_regeneration_keeps_the_keys_no_builder_produces(anon_module, tmp_path) -> None:
+    page = tmp_path / "overview.html"
+    page.write_text(
+        '<script id="demo-data" type="application/json">'
+        '{"cpu":"old","fleet":[{"id":"lab-420"}],"crash":["boom"]}'
+        "</script>",
+        encoding="utf-8",
+    )
+
+    anon_module.inject(page, {"cpu": "fresh"})
+
+    import json as _json
+    import re as _re
+    block = _re.search(r">(\{.*\})<", page.read_text(encoding="utf-8")).group(1)
+    data = _json.loads(block)
+    assert data["cpu"] == "fresh"                      # the builder's key wins
+    assert data["fleet"] == [{"id": "lab-420"}]        # hand-maintained, kept
+    assert data["crash"] == ["boom"]
+
+
+def test_a_builder_key_still_overwrites(anon_module, tmp_path) -> None:
+    page = tmp_path / "overview.html"
+    page.write_text(
+        '<script id="demo-data" type="application/json">{"cpu":"stale","fleet":[]}</script>',
+        encoding="utf-8",
+    )
+    anon_module.inject(page, {"cpu": "fresh", "fleet": [{"id": "new"}]})
+    import json as _json
+    import re as _re
+    data = _json.loads(_re.search(r">(\{.*\})<", page.read_text(encoding="utf-8")).group(1))
+    assert data == {"cpu": "fresh", "fleet": [{"id": "new"}]}
+
+
+def test_a_malformed_block_is_refused_not_replaced(anon_module, tmp_path) -> None:
+    """Swallowing the parse error would merge over nothing and write the
+    builder's keys alone — the data loss this merge exists to prevent."""
+    page = tmp_path / "overview.html"
+    original = '<script id="demo-data" type="application/json">{"fleet":[oops</script>'
+    page.write_text(original, encoding="utf-8")
+
+    with pytest.raises(SystemExit) as caught:
+        anon_module.inject(page, {"cpu": "fresh"})
+
+    assert "not valid JSON" in str(caught.value)
+    assert page.read_text(encoding="utf-8") == original      # untouched
+
+
+def test_the_regeneration_source_carries_every_fleet_state(anon_module) -> None:
+    """The fleet is synthetic, so `demo-fixtures.json` owns it — not the page.
+    Hand-editing the page's data block put the remote nodes somewhere the very
+    next `build_demo_data.py --page overview.html` would overwrite from a stale
+    fixture: the destructive regeneration this suite exists to stop, one level
+    below the key merge.
+
+    Asserted by state rather than by count, so adding a card is not a failure
+    while losing a state still is.
+    """
+    demo = DEMO.parent
+    fixture = json.loads((demo / "demo-fixtures.json").read_text(encoding="utf-8"))
+    fleet = fixture["overview.html"]["fleet"]
+    remotes = [f for f in fleet if f.get("remote")]
+
+    assert remotes, "no remote node survives a rebuild"
+    assert {f["remote"]["isMesh"] for f in remotes} == {True, False}, "no standalone AP"
+    assert {f["remote"].get("role") for f in remotes} >= {"node", "root"}
+    assert any(f["remote"].get("captured") for f in remotes), "nothing to capture on connect"
+    assert any(f.get("remote") and not f["open"] for f in fleet), "no disconnected remote"
+    assert any(not f.get("remote") for f in fleet), "no mother-server card"
+    assert len({f["status"] for f in fleet}) >= 3, {f["status"] for f in fleet}
+    assert any(not f["open"] for f in fleet), "no disconnected card"
+
+    page = json.loads(
+        re.search(r'<script id="demo-data" type="application/json">(.*?)</script>',
+                  (demo / "overview.html").read_text(encoding="utf-8"), re.S).group(1))
+    assert page["fleet"] == fleet, "the page and its regeneration source disagree"
+
+
+def test_the_page_and_its_sources_carry_exactly_the_same_keys(anon_module) -> None:
+    """The real account of the defect, pinned so the wrong one cannot come back.
+
+    Nothing was lost in the normal path — the two sources cover the page
+    exactly, in both directions. A key on the page that neither produces is
+    either synthetic copy that belongs in the fixture or an accident, and used
+    to vanish on the next rebuild. A key a source produces that the page lacks
+    is the same disagreement seen from the other side: the committed page is
+    already out of step with what regenerating it would write.
+    """
+    import ast
+
+    demo = DEMO.parent
+    tree = ast.parse(DEMO.read_text(encoding="utf-8"))
+    build = next(n for n in tree.body
+                 if isinstance(n, ast.FunctionDef) and n.name == "build")
+    returned = next(n for n in ast.walk(build)
+                    if isinstance(n, ast.Return) and isinstance(n.value, ast.Dict))
+    builder = {k.value for k in returned.value.keys}
+
+    fixture = set(json.loads((demo / "demo-fixtures.json").read_text(encoding="utf-8"))["overview.html"])
+    page = set(json.loads(
+        re.search(r'<script id="demo-data" type="application/json">(.*?)</script>',
+                  (demo / "overview.html").read_text(encoding="utf-8"), re.S).group(1)))
+
+    # Both directions. A subset check passes while the fixture carries a key the
+    # page does not, and the next rebuild injects it — the committed page and
+    # its own regeneration would already disagree.
+    assert page == builder | fixture, {
+        "on the page, from neither source": sorted(page - builder - fixture),
+        "produced but not on the page": sorted((builder | fixture) - page),
+    }

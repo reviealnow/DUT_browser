@@ -215,4 +215,135 @@ const report = reporter();
     pageErrors(window).length === 0, pageErrors(window).join(" | "));
 }
 
+// ------------------------------------------------------------ fleet strip
+{
+  report.section("overview.html — the fleet strip's remote-node card");
+  const window = await load("overview.html");
+  const document = window.document;
+  const cards = [...document.querySelectorAll(".fleet-card")];
+  const rowsOf = (card) => Object.fromEntries([...card.querySelectorAll(".stat-row")]
+    .map(r => [r.querySelector("dt").textContent.trim(), r.querySelector("dd").textContent.trim()]));
+
+  const mother = cards.find(c => c.querySelector(".fleet-where").textContent.includes("Mother"));
+  const node = cards.find(c => c.querySelector(".fleet-where").textContent.includes("Remote via")
+    && rowsOf(c)["Uplink to parent"]?.includes("dBm"));
+  const root = cards.find(c => rowsOf(c)["Uplink to parent"] === "None — this is the root");
+
+  // FleetStrip renders the four remote rows only when the DUT has an SSH
+  // console. A strip of mother-server cards alone would tell a viewer the
+  // product cannot reach a DUT over a Pi at all.
+  report.ok("a mother-server card carries no remote rows",
+    !!mother && !("SSH session" in rowsOf(mother)));
+  report.ok("a remote node shows all four remote rows",
+    !!node && ["SSH session", "Node console", "Uplink to parent", "Children on backhaul"]
+      .every(k => k in rowsOf(node)));
+
+  // Up and down are separate measurements from separate commands; a root has
+  // no parent and says so rather than reading as an uncaptured value.
+  report.ok("the root's uplink is an answer, not a gap", !!root);
+  report.ok("the root still reports children",
+    !!root && rowsOf(root)["Children on backhaul"].includes("dBm"));
+  report.ok("only remote cards offer Refresh RSSI",
+    !!node?.querySelector("[data-act=rssi]") && !mother?.querySelector("[data-act=rssi]"));
+
+  // Refresh RSSI re-reads the backhaul and touches nothing else. Sharing the
+  // connect/close path would have made it a connection control wearing another
+  // label — and on an already-open card that is invisible in the card's own
+  // state, so the assertion is on what the page says it did.
+  click(window, node.querySelector("[data-act=rssi]"));
+  await new Promise(r => setTimeout(r, 900));
+  const said = document.getElementById("toast").textContent;
+  report.ok("Refresh RSSI reports a re-read, not a connection change",
+    said.includes("backhaul re-read"), said);
+  const after = [...document.querySelectorAll(".fleet-card")]
+    .find(c => rowsOf(c)["Uplink to parent"]?.includes("dBm"));
+  report.ok("and the reading survives the re-read",
+    !!after && rowsOf(after)["Uplink to parent"].includes("dBm"));
+
+  // Everything below reads `live`, not `cards`: the refresh above re-rendered
+  // the strip, so every node captured before it is detached. Assertions against
+  // detached nodes pass while the page on screen is wrong — two of these did.
+  const live = [...document.querySelectorAll(".fleet-card")];
+
+  // A standalone AP has no mesh backhaul, so the product answers "the question
+  // does not apply" in both directions and refuses the control — a different
+  // statement from "we have not measured yet", and the demo showed neither.
+  const standalone = live.find(c => rowsOf(c)["Uplink to parent"] === "Not applicable");
+  report.ok("a standalone remote reads Not applicable both ways",
+    !!standalone && rowsOf(standalone)["Children on backhaul"] === "Not applicable");
+  const refusal = standalone?.querySelector("[data-act=rssi]");
+  report.ok("and its Refresh RSSI is refused for being standalone, not for being closed",
+    !!refusal?.disabled && /standalone/i.test(refusal.title), refusal?.title);
+
+  // The strip is the product's DUT switcher: the card body selects. Only the
+  // buttons acted here, so the card read as a display, not a control. The pill
+  // alone cannot tell selection from the Console action — both move it — so
+  // this asserts which branch ran.
+  const other = live.find(c => c.querySelector(".fleet-name").textContent !== "DemoDUT-6E");
+  click(window, other.querySelector(".fleet-name"));
+  const label = other.querySelector(".fleet-name").textContent;
+  report.ok("clicking a card body selects that DUT",
+    document.getElementById("dutPill").textContent === label &&
+    document.getElementById("toast").textContent === `Selected ${label}`,
+    document.getElementById("toast").textContent);
+
+  // Named, not counted: `size >= 3` passed with any three strings at all. These
+  // are STATUS_META's labels — the product never prints a state name, and this
+  // page used to print "idle".
+  const statuses = new Set(live.map(c => c.querySelector(".pill").textContent.trim()));
+  report.ok("all three of FleetStrip's status labels are reachable",
+    ["Streaming", "No DUT", "Offline"].every(s => statuses.has(s)), [...statuses].join(","));
+  report.ok("a disconnected card still offers Connect",
+    live.some(c => c.querySelector("[data-act=connect]")));
+
+  // A mesh remote nobody has connected: both directions unmeasured, and the
+  // control refused for the other reason. "Not captured" and "Not applicable"
+  // are different answers and the strip has to be able to say both.
+  const unconnected = live.find(c => rowsOf(c)["Uplink to parent"] === "Not captured");
+  const closedRefusal = unconnected?.querySelector("[data-act=rssi]");
+  report.ok("an unconnected mesh remote reads Not captured, not Not applicable",
+    !!unconnected && rowsOf(unconnected)["Children on backhaul"] === "Not captured");
+  report.ok("its Refresh RSSI is refused for the console, not for being standalone",
+    !!closedRefusal?.disabled && /console/i.test(closedRefusal.title), closedRefusal?.title);
+
+  // Connecting a remote node runs the capture, as FleetStrip's onConnect does.
+  // A demo where the rows only fill on Refresh would understate the control.
+  click(window, unconnected.querySelector("[data-act=connect]"));
+  await new Promise(r => setTimeout(r, 900));
+  const connected = [...document.querySelectorAll(".fleet-card")]
+    .find(c => c.querySelector(".fleet-name").textContent === "DemoNode-lab3");
+  report.ok("connecting a remote node captures its backhaul without a second press",
+    rowsOf(connected)["Uplink to parent"].includes("dBm"),
+    rowsOf(connected)["Uplink to parent"]);
+
+  // Close asks first, and a refusal leaves the session alone — the product puts
+  // a confirm in front of an outward state change. The stub is a spy, because
+  // observing only the end state cannot tell a working gate from an
+  // implementation that never asks: one that cancels the first Close and closes
+  // on the second passes both outcome checks while asking nobody anything.
+  const asked = [];
+  window.confirm = (message) => { asked.push(message); return false; };
+  click(window, connected.querySelector("[data-act=close]"));
+  await new Promise(r => setTimeout(r, 900));
+  const afterCancel = [...document.querySelectorAll(".fleet-card")]
+    .find(c => c.querySelector(".fleet-name").textContent === "DemoNode-lab3");
+  report.ok("Close asks before it closes, naming the DUT",
+    asked.length === 1 && asked[0].includes("DemoNode-lab3"), asked.join(" | "));
+  report.ok("declining the confirm leaves the session open",
+    !!afterCancel.querySelector("[data-act=close]"),
+    document.getElementById("toast").textContent);
+
+  window.confirm = (message) => { asked.push(message); return true; };
+  click(window, afterCancel.querySelector("[data-act=close]"));
+  await new Promise(r => setTimeout(r, 900));
+  const afterClose = [...document.querySelectorAll(".fleet-card")]
+    .find(c => c.querySelector(".fleet-name").textContent === "DemoNode-lab3");
+  report.ok("it asks again on the second attempt", asked.length === 2, String(asked.length));
+  report.ok("accepting it closes the session",
+    !!afterClose.querySelector("[data-act=connect]"));
+
+  report.ok("overview.html threw nothing while all that ran",
+    pageErrors(window).length === 0, pageErrors(window).join(" | "));
+}
+
 report.finish();
