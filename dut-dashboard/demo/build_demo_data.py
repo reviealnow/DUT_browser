@@ -1250,12 +1250,16 @@ HAND_MAINTAINED = frozenset({"index.html"})
 def inject(page: Path, payload: dict) -> None:
     """Rewrite the generated keys of the data block, and only those.
 
-    Hand-edits to the markup survive because only this block is rewritten. The
-    block also holds keys **no builder produces** — the fleet strip, the crash
-    feed, the status tile and the provenance line are synthetic, written by
-    hand, and were being erased by every regeneration: `build()` emits five
-    keys and `overview.html` carries ten. Merging over the existing block keeps
-    them; a builder that does emit a key still overwrites it.
+    Hand-edits to the markup survive because only this block is rewritten.
+
+    This merges rather than replaces, which is a narrower claim than it first
+    looks. `build()` emits seven keys and `demo-fixtures.json` supplies three;
+    together they cover every key `overview.html` carries, so the previous
+    whole-block replacement lost nothing in the normal path. What it could not
+    survive is a key added to a page by hand that neither side knows about —
+    and since the fixture is where synthetic copy belongs, such a key is a
+    mistake waiting to be silently undone rather than a feature. Merging keeps
+    it long enough to be noticed.
     """
     html = page.read_text(encoding="utf-8")
     match = DATA_BLOCK_RE.search(html)

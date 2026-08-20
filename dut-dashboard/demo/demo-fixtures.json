@@ -83,7 +83,7 @@
       {
         "label": "DemoAP-standalone",
         "id": "ap-2",
-        "status": "no DUT",
+        "status": "idle",
         "cpu": "—",
         "cpuSub": "no stream",
         "reco": "no survey yet",
@@ -106,7 +106,7 @@
       {
         "label": "DemoNode-lab3",
         "id": "lab3",
-        "status": "no DUT",
+        "status": "idle",
         "cpu": "—",
         "cpuSub": "no stream",
         "reco": "no survey yet",
@@ -133,7 +133,7 @@
       {
         "label": "DemoDUT-bench3",
         "id": "bench3",
-        "status": "idle",
+        "status": "offline",
         "cpu": "—",
         "cpuSub": "no stream",
         "reco": "1 band needs a move",

@@ -629,9 +629,11 @@ def test_the_excerpt_selector_and_the_refusal_ask_the_same_question(anon_module,
 
 # --- the data block's hand-maintained keys ---------------------------------
 #
-# `build()` fills five keys; overview.html carries ten. The other five — the
-# fleet strip, the crash feed, the status tile and the provenance line — are
-# synthetic and hand-written, and a whole-block rewrite silently erased them.
+# `build()` fills seven keys and demo-fixtures.json supplies three, which
+# together are every key overview.html carries: a whole-block rewrite lost
+# nothing in the normal path. The merge protects the case neither side knows
+# about — a key added to a page by hand — which is worth keeping because that
+# key is a mistake, and one that used to disappear without a word.
 
 
 def test_a_regeneration_keeps_the_keys_no_builder_produces(anon_module, tmp_path) -> None:
@@ -709,3 +711,32 @@ def test_the_regeneration_source_carries_every_fleet_state(anon_module) -> None:
         re.search(r'<script id="demo-data" type="application/json">(.*?)</script>',
                   (demo / "overview.html").read_text(encoding="utf-8"), re.S).group(1))
     assert page["fleet"] == fleet, "the page and its regeneration source disagree"
+
+
+def test_the_builder_and_the_fixture_cover_every_key_on_the_page(anon_module) -> None:
+    """The real account of the defect, pinned so the wrong one cannot come back.
+
+    Nothing was lost in the normal path — the two sources cover the page
+    exactly. A key here that neither produces is either synthetic copy that
+    belongs in the fixture, or an accident; both want finding, and before the
+    merge both vanished silently on the next rebuild.
+    """
+    import ast
+
+    demo = DEMO.parent
+    tree = ast.parse(DEMO.read_text(encoding="utf-8"))
+    build = next(n for n in tree.body
+                 if isinstance(n, ast.FunctionDef) and n.name == "build")
+    returned = next(n for n in ast.walk(build)
+                    if isinstance(n, ast.Return) and isinstance(n.value, ast.Dict))
+    builder = {k.value for k in returned.value.keys}
+
+    fixture = set(json.loads((demo / "demo-fixtures.json").read_text(encoding="utf-8"))["overview.html"])
+    page = set(json.loads(
+        re.search(r'<script id="demo-data" type="application/json">(.*?)</script>',
+                  (demo / "overview.html").read_text(encoding="utf-8"), re.S).group(1)))
+
+    assert page - builder - fixture == set(), (
+        "a key on the page comes from neither the builder nor the fixture: "
+        f"{sorted(page - builder - fixture)}"
+    )

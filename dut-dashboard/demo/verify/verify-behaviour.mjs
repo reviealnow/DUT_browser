@@ -287,11 +287,12 @@ const report = reporter();
     document.getElementById("toast").textContent === `Selected ${label}`,
     document.getElementById("toast").textContent);
 
-  // Named, not counted: `size >= 3` passed with any three strings at all, and
-  // passed while the statuses were not ones the product renders.
+  // Named, not counted: `size >= 3` passed with any three strings at all. These
+  // are STATUS_META's labels — the product never prints a state name, and this
+  // page used to print "idle".
   const statuses = new Set(live.map(c => c.querySelector(".pill").textContent.trim()));
-  report.ok("the statuses are the ones FleetStrip renders",
-    ["streaming", "idle", "no DUT"].every(s => statuses.has(s)), [...statuses].join(","));
+  report.ok("all three of FleetStrip's status labels are reachable",
+    ["Streaming", "No DUT", "Offline"].every(s => statuses.has(s)), [...statuses].join(","));
   report.ok("a disconnected card still offers Connect",
     live.some(c => c.querySelector("[data-act=connect]")));
 
@@ -315,22 +316,29 @@ const report = reporter();
     rowsOf(connected)["Uplink to parent"].includes("dBm"),
     rowsOf(connected)["Uplink to parent"]);
 
-  // Close asks first, and a refusal leaves the session alone — the product
-  // puts a confirm in front of an outward state change.
-  window.confirm = () => false;
+  // Close asks first, and a refusal leaves the session alone — the product puts
+  // a confirm in front of an outward state change. The stub is a spy, because
+  // observing only the end state cannot tell a working gate from an
+  // implementation that never asks: one that cancels the first Close and closes
+  // on the second passes both outcome checks while asking nobody anything.
+  const asked = [];
+  window.confirm = (message) => { asked.push(message); return false; };
   click(window, connected.querySelector("[data-act=close]"));
   await new Promise(r => setTimeout(r, 900));
   const afterCancel = [...document.querySelectorAll(".fleet-card")]
     .find(c => c.querySelector(".fleet-name").textContent === "DemoNode-lab3");
+  report.ok("Close asks before it closes, naming the DUT",
+    asked.length === 1 && asked[0].includes("DemoNode-lab3"), asked.join(" | "));
   report.ok("declining the confirm leaves the session open",
     !!afterCancel.querySelector("[data-act=close]"),
     document.getElementById("toast").textContent);
 
-  window.confirm = () => true;
+  window.confirm = (message) => { asked.push(message); return true; };
   click(window, afterCancel.querySelector("[data-act=close]"));
   await new Promise(r => setTimeout(r, 900));
   const afterClose = [...document.querySelectorAll(".fleet-card")]
     .find(c => c.querySelector(".fleet-name").textContent === "DemoNode-lab3");
+  report.ok("it asks again on the second attempt", asked.length === 2, String(asked.length));
   report.ok("accepting it closes the session",
     !!afterClose.querySelector("[data-act=connect]"));
 
