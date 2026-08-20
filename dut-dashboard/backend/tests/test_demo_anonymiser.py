@@ -30,6 +30,8 @@ import csv
 import importlib.util
 import json
 import random
+import shutil
+import sys
 import tempfile
 import re
 from pathlib import Path
@@ -45,6 +47,14 @@ def _load():
     assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
+
+
+def _page_data(page: Path) -> dict:
+    """The parsed `demo-data` block of a shipped page."""
+    block = re.search(r'<script id="demo-data" type="application/json">(.*?)</script>',
+                      page.read_text(encoding="utf-8"), re.S)
+    assert block, f"{page.name} has no demo-data block"
+    return json.loads(block.group(1))
 
 
 @pytest.fixture(scope="module")
@@ -707,9 +717,7 @@ def test_the_regeneration_source_carries_every_fleet_state(anon_module) -> None:
     assert len({f["status"] for f in fleet}) >= 3, {f["status"] for f in fleet}
     assert any(not f["open"] for f in fleet), "no disconnected card"
 
-    page = json.loads(
-        re.search(r'<script id="demo-data" type="application/json">(.*?)</script>',
-                  (demo / "overview.html").read_text(encoding="utf-8"), re.S).group(1))
+    page = _page_data(demo / "overview.html")
     assert page["fleet"] == fleet, "the page and its regeneration source disagree"
 
 
@@ -734,9 +742,7 @@ def test_the_page_and_its_sources_carry_exactly_the_same_keys(anon_module) -> No
     builder = {k.value for k in returned.value.keys}
 
     fixture = set(json.loads((demo / "demo-fixtures.json").read_text(encoding="utf-8"))["overview.html"])
-    page = set(json.loads(
-        re.search(r'<script id="demo-data" type="application/json">(.*?)</script>',
-                  (demo / "overview.html").read_text(encoding="utf-8"), re.S).group(1)))
+    page = set(_page_data(demo / "overview.html"))
 
     # Both directions. A subset check passes while the fixture carries a key the
     # page does not, and the next rebuild injects it — the committed page and
@@ -745,3 +751,225 @@ def test_the_page_and_its_sources_carry_exactly_the_same_keys(anon_module) -> No
         "on the page, from neither source": sorted(page - builder - fixture),
         "produced but not on the page": sorted((builder | fixture) - page),
     }
+
+
+# --- the fixture-only sync -------------------------------------------------
+#
+# `demo-fixtures.json` owns the synthetic data, the pages ship it inlined, and
+# until now the only thing that carried one into the other was a full
+# regeneration — which needs a capture bundle for seven of the ten pages. So a
+# hand-written crash line or a sixth fleet card was either edited into the page,
+# where the next rebuild overwrites it from the stale fixture, or edited into
+# the fixture, where nobody can see it. `--sync-fixtures` is the path that needs
+# no capture, and the tests below are about what it must and must not touch.
+
+
+def _kit_copy(tmp_path: Path):
+    """A throwaway copy of the kit, loaded so its `HERE` points into the copy.
+
+    The sync writes to the pages beside the script, so driving the real
+    directory would mean editing the working tree to make an assertion about it,
+    and a failing test would leave it edited.
+    """
+    demo = tmp_path / "demo"
+    demo.mkdir(parents=True)
+    source = DEMO.parent
+    shutil.copy(DEMO, demo / DEMO.name)
+    shutil.copy(source / "demo-fixtures.json", demo / "demo-fixtures.json")
+    for page in json.loads((source / "demo-fixtures.json").read_text(encoding="utf-8")):
+        if page != "_comment":
+            shutil.copy(source / page, demo / page)
+    spec = importlib.util.spec_from_file_location(
+        f"build_demo_data_{tmp_path.name}", demo / DEMO.name)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    assert module.HERE == demo.resolve()
+    return module, demo
+
+
+def _run(module, monkeypatch, *argv: str) -> int:
+    monkeypatch.setattr(sys, "argv", ["build_demo_data.py", *argv])
+    return module.main()
+
+
+def _edit_fixture(demo: Path, page: str, key: str, value) -> None:
+    path = demo / "demo-fixtures.json"
+    fixture = json.loads(path.read_text(encoding="utf-8"))
+    fixture[page][key] = value
+    path.write_text(json.dumps(fixture, indent=2), encoding="utf-8")
+
+
+def _synced_pages() -> list[str]:
+    return [p for p in json.loads(
+        (DEMO.parent / "demo-fixtures.json").read_text(encoding="utf-8")) if p != "_comment"]
+
+
+def test_every_fixture_names_a_page_the_generator_writes(anon_module) -> None:
+    """A fixture keyed to a page nobody builds is data with no way out.
+
+    It would sit there looking authoritative while the page it names went on
+    carrying something else, which is the disagreement this whole section is
+    about — one typo away.
+    """
+    for page in _synced_pages():
+        assert page in anon_module.PAGE_BUILDERS, page
+        assert page not in anon_module.HAND_MAINTAINED, page
+        assert (DEMO.parent / page).is_file(), page
+
+
+def test_syncing_the_committed_kit_writes_the_same_bytes_back(tmp_path, monkeypatch) -> None:
+    """The CI check: run the sync, and the tree must not move.
+
+    Byte comparison rather than key comparison, because the postcondition worth
+    having is the one a `git diff --exit-code` would report — a fixture edited
+    without the pages being synced fails here, at the same gate as everything
+    else, instead of shipping a page that disagrees with its own source.
+    """
+    module, demo = _kit_copy(tmp_path)
+
+    assert _run(module, monkeypatch, "--sync-fixtures") == 0
+
+    differs = [page for page in _synced_pages()
+               if (demo / page).read_bytes() != (DEMO.parent / page).read_bytes()]
+    assert not differs, f"out of sync with demo-fixtures.json: {differs}"
+
+
+def test_a_fixture_edit_reaches_every_page_it_names(tmp_path, monkeypatch) -> None:
+    """Two pages, because one proves nothing about the sweep.
+
+    A sync that wrote the first page and stopped — or that only ever knew about
+    overview.html, the page the problem was noticed on — passes a one-page
+    check. So both pages are edited and both are read back.
+    """
+    module, demo = _kit_copy(tmp_path)
+    _edit_fixture(demo, "overview.html", "crash",
+                  [{"time": "09-09 09:09:09", "sev": "crit", "text": "edited in the fixture"}])
+    _edit_fixture(demo, "firmware.html", "mgmtUrl", "https://198.51.100.99")
+
+    assert _run(module, monkeypatch, "--sync-fixtures") == 0
+
+    assert _page_data(demo / "overview.html")["crash"][0]["text"] == "edited in the fixture"
+    assert _page_data(demo / "firmware.html")["mgmtUrl"] == "https://198.51.100.99"
+
+
+def test_the_sync_leaves_every_key_the_fixture_does_not_own(tmp_path, monkeypatch) -> None:
+    """The measured half of a page is not the fixture's to write.
+
+    overview.html carries seven builder-produced keys — CPU, clients, the
+    channel counts — and none of them can be rebuilt without the bundle this
+    path deliberately does not have. A sync that replaced the block instead of
+    merging into it would erase them and there would be no way back.
+    """
+    module, demo = _kit_copy(tmp_path)
+    before = _page_data(demo / "overview.html")
+    _edit_fixture(demo, "overview.html", "crash", [])          # force a rewrite
+
+    assert _run(module, monkeypatch, "--sync-fixtures") == 0
+
+    after = _page_data(demo / "overview.html")
+    fixture_owned = set(json.loads(
+        (demo / "demo-fixtures.json").read_text(encoding="utf-8"))["overview.html"])
+    assert set(after) == set(before)
+    assert {k: v for k, v in after.items() if k not in fixture_owned} == \
+           {k: v for k, v in before.items() if k not in fixture_owned}
+    assert after["crash"] == []
+
+
+@pytest.mark.parametrize("page", ["files.html", "firmware.html"])
+def test_the_sync_and_a_full_regeneration_write_the_same_bytes(
+        tmp_path, monkeypatch, page: str) -> None:
+    """Same fixture, two paths, one result — checked where both can run.
+
+    A sync that wrote the fixture's keys *differently* from the regeneration
+    would swap one disagreement for another, and the swap would be invisible
+    until someone finally had a bundle. These two pages are synthetic in full,
+    so `--page` needs no bundle either and the comparison is available.
+    """
+    sync_module, synced = _kit_copy(tmp_path / "a")
+    build_module, built = _kit_copy(tmp_path / "b")
+    for demo in (synced, built):
+        _edit_fixture(demo, page, "files", [{"name": "edited-in-the-fixture.bin"}])
+
+    assert _run(sync_module, monkeypatch, "--sync-fixtures") == 0
+    assert _run(build_module, monkeypatch, "--page", page) == 0
+
+    assert (synced / page).read_bytes() == (built / page).read_bytes()
+    assert _page_data(synced / page)["files"] == [{"name": "edited-in-the-fixture.bin"}]
+
+
+def test_the_fixture_still_wins_over_a_builder_that_writes_the_same_key(
+        tmp_path, monkeypatch) -> None:
+    """Precedence, on a page that has a real builder — the case above cannot see.
+
+    `main` applies the fixture after the builder, so the two paths agree on
+    every key the fixture owns. Were the builder to win, a sync would write one
+    value and the next regeneration another, and the page would flip between
+    them depending on which command was run last. The builder is stubbed because
+    the real one needs a capture; `--bundle` is only passed to get past the
+    "built from a capture" check, and the stub never opens it.
+    """
+    module, demo = _kit_copy(tmp_path)
+    monkeypatch.setitem(
+        module.PAGE_BUILDERS, "overview.html",
+        lambda bundle, anon, survey: {"crash": ["from the builder"], "cpu": "from the builder"},
+    )
+
+    assert _run(module, monkeypatch, "--page", "overview.html", "--bundle", str(demo)) == 0
+
+    page = _page_data(demo / "overview.html")
+    fixture = json.loads(
+        (demo / "demo-fixtures.json").read_text(encoding="utf-8"))["overview.html"]
+    assert page["crash"] == fixture["crash"], "the builder overwrote the fixture"
+    assert page["cpu"] == "from the builder", "a key the fixture does not own"
+
+
+@pytest.mark.parametrize("damage", ["unknown-page", "missing-file"])
+def test_a_fixture_the_sync_cannot_honour_writes_nothing_at_all(
+        tmp_path, monkeypatch, damage: str) -> None:
+    """Every name is checked before the first page is written.
+
+    Validating inside the loop leaves the pages ahead of the bad entry rewritten
+    and the ones after it stale, then reports a failure — a half-synced kit,
+    which is worse than either end of it. The edit below is what makes that
+    visible: without a pending change to overview.html, an in-loop check would
+    have "written" a page whose bytes happened not to move, and this test would
+    pass over the bug it exists to catch.
+    """
+    module, demo = _kit_copy(tmp_path)
+    _edit_fixture(demo, "overview.html", "crash", [])
+    before = (demo / "overview.html").read_bytes()
+    if damage == "unknown-page":
+        _edit_fixture(demo, "overview.html", "crash", [])
+        fixture = json.loads((demo / "demo-fixtures.json").read_text(encoding="utf-8"))
+        fixture["not-a-page.html"] = {"whatever": 1}
+        (demo / "demo-fixtures.json").write_text(json.dumps(fixture, indent=2), encoding="utf-8")
+    else:
+        (demo / "firmware.html").unlink()
+
+    with pytest.raises(SystemExit) as caught:
+        _run(module, monkeypatch, "--sync-fixtures")
+
+    assert "demo-fixtures.json names" in str(caught.value)
+    assert (demo / "overview.html").read_bytes() == before, "wrote a page, then failed"
+
+
+@pytest.mark.parametrize("argv", [["--bundle", "/nonexistent"],
+                                  ["--survey-bundle", "/nonexistent"],
+                                  ["--page", "overview.html"]])
+def test_the_sync_refuses_the_arguments_it_does_not_read(
+        tmp_path, monkeypatch, argv: list[str]) -> None:
+    """Accepting them would let the command misreport what it did.
+
+    `--sync-fixtures --bundle <session>` looks like a regeneration and is not
+    one: nothing measured would be rebuilt. `--page` is the same lie from the
+    other side — the sweep covers every page whatever is named.
+    """
+    module, demo = _kit_copy(tmp_path)
+    before = {page: (demo / page).read_bytes() for page in _synced_pages()}
+
+    with pytest.raises(SystemExit) as caught:
+        _run(module, monkeypatch, "--sync-fixtures", *argv)
+
+    assert argv[0] in str(caught.value)
+    assert {page: (demo / page).read_bytes() for page in _synced_pages()} == before
