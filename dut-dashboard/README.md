@@ -42,6 +42,15 @@ It creates `.venv`, installs backend deps, and (on `--prod`) runs `npm run build
 `BIND_HOST`, `BACKEND_PORT`, `FRONTEND_PORT` (changing `BACKEND_PORT` in dev also needs the
 Vite proxy target updated).
 
+### DUTs on a remote Raspberry Pi
+
+A DUT that is not cabled to this machine can be reached over SSH to a Pi that
+pipes its serial port through `socat`. Setup, the admin-only API, how to read the
+Fleet strip's rows and what the failure modes mean are in
+[`docs/fleet-remote-nodes.md`](../docs/fleet-remote-nodes.md) — start there, in
+particular for the two prerequisites that are easy to get wrong: the SSH key must
+have **no passphrase**, and the Pi must already be a known host.
+
 ## Upgrading from a previous version
 
 This is a git-based app (no installer), so updating is **pull → re-run the launcher**:
@@ -259,6 +268,10 @@ Per-DUT endpoints (serial, snapshots, console, wifi, terminal) accept
 | `GET` | `/api/duts` | list registered DUTs (id, label, mode, serial_open, …) |
 | `POST` | `/api/duts` | `{id, label?}` → register a DUT with its own serial/parser/snapshot context |
 | `DELETE` | `/api/duts/{dut_id}` | remove a DUT (the `default` DUT is not removable) |
+| `POST` | `/api/fleet/nodes` | admin — `{id, label?, host, user, key_path, port?, device?, baudrate?, is_mesh?, backhaul_iface?}` → register a DUT whose console is an SSH + `socat` pipe to a Pi |
+| `POST` | `/api/fleet/nodes/{dut_id}/connect` | admin — open that console |
+| `POST` | `/api/fleet/nodes/{dut_id}/disconnect` | admin — close it and reap the ssh child |
+| `POST` | `/api/fleet/nodes/{dut_id}/rssi` | admin — capture both directions of the mesh backhaul → `{role, uplink, downlink}` |
 | `GET` | `/api/snapshots` | recent full snapshots — chart backfill on (re)connect |
 | `GET` | `/api/console/tail` | recent console lines — console seeds instantly on load |
 | `GET` | `/api/serial/ports` | list serial ports |
