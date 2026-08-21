@@ -1,4 +1,9 @@
-"""Admin-only lifecycle and on-demand link capture for SSH-backed DUTs."""
+"""Admin-only remote-node lifecycle, and on-demand link capture for any DUT.
+
+Configuring, connecting and disconnecting a node are SSH operations and refuse
+a DUT that has no remote configuration. The backhaul capture is not: it is two
+console commands, and a cabled console runs them as well as an SSH one.
+"""
 
 from __future__ import annotations
 
@@ -146,13 +151,17 @@ def _known_uplinks(registry, exclude_dut_id: str) -> tuple[set[str], set[tuple]]
     can: the BSSID it associates to is that VAP. This reads what previous
     captures already stored, so it costs no console time — and it stays empty
     until some node has been captured, which is the ordering this depends on.
+
+    Every registered DUT is walked, cabled ones included: the fleet's root is
+    frequently the DUT on this desk, and it is named by a node exactly as a
+    remote root would be.
     """
     bssids: set[str] = set()
     networks: set[tuple] = set()
     for other_id in registry.ids():
         if other_id == exclude_dut_id:
             continue
-        uplink = registry.get(other_id).remote_uplink
+        uplink = registry.get(other_id).backhaul_uplink
         if not uplink:
             continue
         if uplink.get("peer_mac"):
@@ -172,13 +181,25 @@ def capture_rssi(dut_id: str, request: Request, _admin: dict = _ADMIN) -> dict:
     lives on its Managed VAP and is only visible through `iwconfig`, so asking
     wlanconfig for it returns an empty table and no error — which is how a
     perfectly healthy -37 dBm uplink reads as "not captured" forever.
+
+    Neither command needs SSH. Both go through `capture_command`, which answers
+    the same way on a locally cabled console, so a DUT with no remote is
+    captured here too — on this bench the mesh root is the AP6 on the desk, and
+    refusing it made the one measurement this endpoint exists for unobtainable
+    for the device most likely to be in front of someone. What a cabled DUT does
+    not have is the pair of declarations a node's SSH configuration carries:
+    nobody said it is meshed, and nobody named a fallback backhaul VAP. Both
+    absences are handled below rather than guessed at.
     """
     context = _context(request, dut_id)
     remote = context.remote
-    if remote is None:
-        raise HTTPException(status_code=400, detail="DUT has no remote SSH configuration")
-    if not remote["is_mesh"]:
-        return {"dut": dut_id, "applicable": False, "role": None, "uplink": None, "downlink": None}
+    if remote is not None and not remote["is_mesh"]:
+        # The only way to know a DUT has no mesh backhaul is for an admin to
+        # have said so, which is a field of a remote node's configuration.
+        return {
+            "dut": dut_id, "applicable": False, "captured": False,
+            "role": None, "uplink": None, "downlink": None,
+        }
 
     worker = context.serial_worker
     try:
@@ -213,21 +234,40 @@ def capture_rssi(dut_id: str, request: Request, _admin: dict = _ADMIN) -> dict:
 
     # A root has no uplink to pair against, so its downward VAP can only come
     # from configuration. Detection wins where it works: interface numbering
-    # differs between models and firmware renumbers VAPs.
+    # differs between models and firmware renumbers VAPs. A cabled DUT has no
+    # configuration to fall back to — and wants none: the fallback is the least
+    # trustworthy source here (on this bench a configured VAP was serving a
+    # laptop), while detection from a peer's uplink names the VAP exactly.
     detected = found["downlink"]
-    downlink_iface = detected["iface"] if detected else remote.get("backhaul_iface")
+    downlink_iface = detected["iface"] if detected else (
+        remote.get("backhaul_iface") if remote is not None else None
+    )
 
     # The capture parsed real VAPs, so an absent uplink is an answer rather
     # than a gap: this DUT has no parent. The card must be able to tell those
     # apart, and only the side that read the VAPs can.
-    role = "node" if uplink is not None else "root"
+    #
+    # "No parent" is still not the same statement as "root of the mesh", and
+    # for a cabled DUT it is the difference between a fact and a guess: a
+    # standalone AP on someone's desk has no parent either. So a root is
+    # claimed only where something backs it — an admin having declared this
+    # node meshed, or a peer's uplink having named one of these VAPs. Neither,
+    # and the honest answer is that this capture found no backhaul at all,
+    # which `captured` keeps distinguishable from never having looked.
+    if uplink is not None:
+        role = "node"
+    elif remote is not None or detected is not None:
+        role = "root"
+    else:
+        role = None
 
     # Stored before the second capture. The uplink is already measured, and a
     # console that dies between the two commands must not cost a reading that
     # succeeded — the request still fails, but the fresh value is kept rather
     # than the card being left on a stale one.
-    context.remote_uplink = uplink
-    context.remote_role = role
+    context.backhaul_uplink = uplink
+    context.backhaul_role = role
+    context.backhaul_captured = True
 
     downlink = None
     if downlink_iface:
@@ -249,10 +289,11 @@ def capture_rssi(dut_id: str, request: Request, _admin: dict = _ADMIN) -> dict:
             "peers": [_peer(c) for c in parse_wlanconfig_list(table, downlink_iface)],
         }
 
-    context.remote_downlink = downlink
+    context.backhaul_downlink = downlink
     return {
         "dut": dut_id,
         "applicable": True,
+        "captured": True,
         "role": role,
         "uplink": uplink,
         "downlink": downlink,

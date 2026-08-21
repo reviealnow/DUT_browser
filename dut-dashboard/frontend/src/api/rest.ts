@@ -335,23 +335,40 @@ export type DutInfo = {
   removable: boolean;
   /** Last successful serial-open params, remembered for one-click Connect. */
   last_serial: { port: string; baudrate: number } | null;
+  /** Where this DUT's console lives, or null when it is cabled to this
+   *  machine. Connecting and disconnecting it are SSH operations; the backhaul
+   *  capture is not, which is why the capture is not nested in here. */
   remote: {
     host: string;
     port: number;
     device: string;
     is_mesh: boolean;
+  } | null;
+  /** The last backhaul capture, for every DUT — a cabled DUT is frequently the
+   *  root of the mesh, and its measurement needs somewhere to be served from. */
+  backhaul: {
+    /** Whether asking is meaningful. False only where an admin declared a
+     *  remote node standalone; nothing declares a cabled DUT either way. */
+    applicable: boolean;
+    /** Whether a capture ever parsed this DUT's VAPs. Tells "measured, and
+     *  there is no backhaul here" from "nobody has measured this yet" — with
+     *  role, uplink and downlink all null, the two look identical. */
+    captured: boolean;
     /** Opaque name for the console these readings were taken on. Changes when
      *  the registry decides a stored capture no longer applies (another Pi,
-     *  another device, mesh flipped, a different backhaul fallback) and does
-     *  not change for a credential-only edit. Compare it; never parse it. */
+     *  another device, mesh flipped, a different backhaul fallback, a cable
+     *  moved to another serial port) and does not change for a credential-only
+     *  edit. Compare it; never parse it. */
     console_id: string;
-    /** "root" once a capture found no uplink, "node" when it found one, null
-     *  while nothing has been captured — an absent uplink is an answer, and
-     *  the card must not show it as a missing measurement. */
+    /** "node" when a capture found an uplink; "root" when it found none and
+     *  something backs the mesh claim (an admin's `is_mesh`, or a peer naming
+     *  one of this DUT's VAPs); null otherwise. An absent uplink is an answer,
+     *  and the card must not show it as a missing measurement — but "no
+     *  uplink" alone is not a root, or every standalone AP would be one. */
     role: "root" | "node" | null;
     uplink: RemoteUplink | null;
     downlink: RemoteDownlink | null;
-  } | null;
+  };
 };
 
 /** How well this node hears its parent. Read from `iwconfig` on the Managed
@@ -384,6 +401,9 @@ export type RemoteDownlink = {
 export type RemoteRssiResult = {
   dut: string;
   applicable: boolean;
+  /** True for any capture that read the DUT's VAPs, so a card can say "no
+   *  backhaul found here" instead of "not captured". See `DutInfo["backhaul"]`. */
+  captured: boolean;
   role: "root" | "node" | null;
   uplink: RemoteUplink | null;
   downlink: RemoteDownlink | null;

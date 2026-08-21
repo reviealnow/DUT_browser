@@ -81,6 +81,18 @@ def _clean_last_serial(value: object) -> dict | None:
     return {"port": port, "baudrate": baudrate}
 
 
+def _identity_token(material: list) -> str:
+    """Hash the parts that make one console distinct from another.
+
+    Hashed rather than joined: the value is for equality only, and no part of a
+    DUT's configuration should be published in a field nobody meant as a
+    disclosure.
+    """
+    return hashlib.sha256(
+        json.dumps(material, separators=(",", ":"), sort_keys=True).encode()
+    ).hexdigest()[:16]
+
+
 def console_id(remote: dict | None) -> str | None:
     """An opaque name for the console a reading was taken on.
 
@@ -89,19 +101,10 @@ def console_id(remote: dict | None) -> str | None:
     diverged, each with its own list of fields, so an edit could clear the
     capture here and leave the browser re-serving it. A token means there is one
     rule, computed once, and the client compares rather than re-derives.
-
-    Hashed rather than a joined string: the value is for equality only, and no
-    part of a DUT's configuration should be published in a field nobody meant as
-    a disclosure.
     """
     if remote is None:
         return None
-    material = json.dumps(
-        [remote.get(field) for field in CONSOLE_IDENTITY_FIELDS],
-        separators=(",", ":"),
-        sort_keys=True,
-    )
-    return hashlib.sha256(material.encode()).hexdigest()[:16]
+    return _identity_token([remote.get(field) for field in CONSOLE_IDENTITY_FIELDS])
 
 
 def _clean_remote(value: object) -> dict | None:
@@ -170,12 +173,55 @@ class DutContext:
     # on the Managed VAP), downlink is how well it hears each child (wlanconfig
     # on the Master VAP). Collapsing them into one "RSSI" makes the number on
     # the card unreadable — you cannot tell which direction it describes.
-    remote_uplink: dict | None = None
-    remote_downlink: dict | None = None
-    # "root" once a capture has parsed this DUT's VAPs and found no uplink,
-    # "node" when it found one, None while nothing has been captured. Without
-    # it the card cannot tell a root from a DUT nobody has measured yet.
-    remote_role: str | None = None
+    #
+    # Named for the measurement, not for the transport: both commands run over
+    # `capture_command`, which a cabled console answers exactly as an SSH one
+    # does, so the fleet's own root — often the DUT on the desk — is measurable
+    # too. Calling these `remote_*` said otherwise for as long as they existed.
+    backhaul_uplink: dict | None = None
+    backhaul_downlink: dict | None = None
+    # "node" when a capture found this DUT's uplink; "root" when it found none
+    # and something backs the claim that this DUT is nevertheless in the mesh —
+    # an admin declaring a remote node `is_mesh`, or a peer's uplink naming one
+    # of this DUT's VAPs. None otherwise, which is why `backhaul_captured`
+    # exists: for a cabled DUT nobody declared, "no uplink" is not by itself a
+    # root, and a standalone AP must not be shown as one.
+    backhaul_role: str | None = None
+    # Whether a capture ever parsed this DUT's VAPs. Separates "measured, and
+    # there is no backhaul here" from "nobody has measured this yet" — the two
+    # are otherwise identical (role, uplink and downlink all None) and the card
+    # would have to call both of them "Not captured".
+    backhaul_captured: bool = False
+
+
+def capture_identity(ctx: DutContext) -> str:
+    """Which console this DUT's stored capture was read from.
+
+    One rule for both kinds of DUT, published once. A remote node's console is
+    its SSH configuration (`console_id`). A cabled DUT's is the serial device it
+    was last opened on: moving the cable to another device under the same DUT id
+    is the local equivalent of re-pointing a node at another Pi, and the port is
+    the only part of it the app can see.
+    """
+    if ctx.remote is None:
+        return _identity_token(["local", ctx.last_serial["port"] if ctx.last_serial else None])
+    # Not None: console_id answers None only for a remote that is None.
+    return console_id(ctx.remote)
+
+
+def _forget_backhaul(ctx: DutContext) -> None:
+    """Drop a capture that no longer describes the console behind this DUT.
+
+    A capture describes the console it was read from, so anything that changes
+    which console that is revokes it. Kept, the old device's role, uplink and
+    children go out through /api/duts as the new device's current state, where
+    nothing downstream can tell them from a fresh measurement. Dropping them
+    says "not captured", which is true.
+    """
+    ctx.backhaul_uplink = None
+    ctx.backhaul_downlink = None
+    ctx.backhaul_role = None
+    ctx.backhaul_captured = False
 
 
 class DutRegistry:
@@ -271,6 +317,17 @@ class DutRegistry:
             ctx = self._duts.get(dut_id)
             if ctx is None:
                 return
+            previous = ctx.last_serial["port"] if ctx.last_serial else None
+            # The cabled half of the rule `configure_remote` applies to a node:
+            # a different serial device is a different console, so whatever was
+            # captured on the old one stops describing this DUT. Only for a DUT
+            # with no remote — a node's identity is its SSH configuration, and
+            # dropping its reading because a baudrate was re-recorded would cost
+            # a serial RPC for nothing. Baud is excluded here for the same
+            # reason it is absent from CONSOLE_IDENTITY_FIELDS: it changes how
+            # to talk to a console, not which one it is.
+            if ctx.remote is None and previous != cleaned["port"]:
+                _forget_backhaul(ctx)
             ctx.last_serial = cleaned
             self._save_locked()
 
@@ -292,19 +349,13 @@ class DutRegistry:
             if ctx is None:
                 raise KeyError(f"Unknown DUT: {dut_id}")
             if console_id(ctx.remote) != console_id(cleaned):
-                # A capture describes the console it was read from, and this
-                # call has just changed which console that is. Re-pointing an
-                # id at another Pi is a supported edit, and keeping the reading
-                # served the new device the old device's role, uplink and
-                # children through /api/duts — indistinguishable, at the card,
-                # from a fresh measurement. Dropping it says "not captured",
-                # which is true. A credential-only edit is not a different
-                # console, and neither is re-registering the same values, so
-                # both keep the reading rather than spending a serial RPC to
-                # learn the same thing again.
-                ctx.remote_uplink = None
-                ctx.remote_downlink = None
-                ctx.remote_role = None
+                # Re-pointing an id at another Pi is a supported edit (the
+                # Settings card calls it "Update node"), so the reading it was
+                # holding is somebody else's. A credential-only edit is not a
+                # different console, and neither is re-registering the same
+                # values, so both keep the reading rather than spending a
+                # serial RPC to learn the same thing again.
+                _forget_backhaul(ctx)
             ctx.remote = cleaned
             self._save_locked()
             return ctx
@@ -348,13 +399,27 @@ class DutRegistry:
                         "port": ctx.remote["port"],
                         "device": ctx.remote["device"],
                         "is_mesh": ctx.remote["is_mesh"],
+                    },
+                    # Published for every DUT, not inside `remote`, because the
+                    # measurement does not belong to the transport: the two
+                    # commands behind it run over a cabled console exactly as
+                    # they do over SSH. Nested under `remote`, a locally cabled
+                    # mesh root could be captured and the reading would have
+                    # nowhere to be served from.
+                    "backhaul": {
+                        # Whether asking is meaningful at all. Only an admin
+                        # declaring a remote node standalone can answer "no" —
+                        # nothing declares a cabled DUT either way, so the
+                        # capture is offered and its result does the talking.
+                        "applicable": True if ctx.remote is None else ctx.remote["is_mesh"],
+                        "captured": ctx.backhaul_captured,
                         # The client holds captures of its own and needs the
                         # registry's rule for when they stop applying, not a
                         # second guess at it.
-                        "console_id": console_id(ctx.remote),
-                        "role": ctx.remote_role,
-                        "uplink": ctx.remote_uplink,
-                        "downlink": ctx.remote_downlink,
+                        "console_id": capture_identity(ctx),
+                        "role": ctx.backhaul_role,
+                        "uplink": ctx.backhaul_uplink,
+                        "downlink": ctx.backhaul_downlink,
                     },
                 }
             )

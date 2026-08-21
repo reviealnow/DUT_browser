@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { getDuts, getSnapshots, RemoteDownlink, RemoteUplink } from "../api/rest";
+import { DutInfo, getDuts, getSnapshots } from "../api/rest";
 import { applySnapshotDelta, connectFleetWebSocket, SnapshotPayload } from "../api/websocket";
 import { useCrashKeywords } from "./useCrashKeywords";
 import { cpuFromSnapshot, DutStatus } from "./useDutMonitor";
@@ -20,19 +20,27 @@ export type FleetEntry = {
   serialOpen: boolean;
   /** Last successful serial-open params, or null. Enables one-click Connect. */
   lastSerial: { port: string; baudrate: number } | null;
+  /** Null for a DUT cabled to this machine. Where its console lives, not
+   *  whether it is in a mesh: those are independent, and only the second is
+   *  measured (`backhaul`). */
   remote: {
     host: string;
     port: number;
     device: string;
     isMesh: boolean;
+  } | null;
+  /** The last backhaul capture — for every DUT, cabled ones included. Up to the
+   *  parent and down to the children are separate measurements from separate
+   *  commands; the card must not blur them into one number. */
+  backhaul: {
+    applicable: boolean;
+    captured: boolean;
     /** The registry's own name for the console behind this DUT — see rest.ts. */
     consoleId: string;
-    /** Up to the parent and down to the children are separate measurements
-     *  from separate commands; the card must not blur them into one number. */
     role: "root" | "node" | null;
-    uplink: RemoteUplink | null;
-    downlink: RemoteDownlink | null;
-  } | null;
+    uplink: DutInfo["backhaul"]["uplink"];
+    downlink: DutInfo["backhaul"]["downlink"];
+  };
   /** 100 − mean idle across cores from the latest (reconstructed) snapshot. */
   cpuBusyPct: number | null;
   coreCount: number;
@@ -55,6 +63,33 @@ export type FleetEntry = {
  * Phase 69: mounted by the Fleet strip at the top of Overview (its own nav
  * section was removed). Its subscription shares the app-wide `/ws` transport.
  */
+/** The registry's own words for one DUT, in this hook's shape.
+ *
+ *  Written once: the initial load and every refresh must agree about what a
+ *  DUT is, and as two copies of the same object literal they had already
+ *  started to. */
+type RegistryEntry = Pick<FleetEntry, "id" | "label" | "serialOpen" | "lastSerial" | "remote" | "backhaul">;
+
+function fromRegistry(d: DutInfo): RegistryEntry {
+  return {
+    id: d.id,
+    label: d.label,
+    serialOpen: d.serial_open,
+    lastSerial: d.last_serial,
+    remote: d.remote
+      ? { host: d.remote.host, port: d.remote.port, device: d.remote.device, isMesh: d.remote.is_mesh }
+      : null,
+    backhaul: {
+      applicable: d.backhaul.applicable,
+      captured: d.backhaul.captured,
+      consoleId: d.backhaul.console_id,
+      role: d.backhaul.role,
+      uplink: d.backhaul.uplink,
+      downlink: d.backhaul.downlink,
+    },
+  };
+}
+
 export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () => Promise<void> } {
   const { pattern: crashPattern } = useCrashKeywords();
   // Read through a ref inside the socket callbacks so the websocket effect can
@@ -64,9 +99,7 @@ export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () =>
   crashPatternRef.current = crashPattern;
   // Registry order + labels + open-state for every registered DUT (cards show
   // even with no stream).
-  const [duts, setDuts] = useState<
-    { id: string; label: string; serialOpen: boolean; lastSerial: FleetEntry["lastSerial"]; remote: FleetEntry["remote"] }[]
-  >([]);
+  const [duts, setDuts] = useState<RegistryEntry[]>([]);
   const [connected, setConnected] = useState(false);
   const [nowTick, setNowTick] = useState(() => Date.now());
 
@@ -80,14 +113,7 @@ export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () =>
   // backfill. Used by quick actions after they change a DUT's open state.
   const refreshRegistry = useCallback(async () => {
     try {
-      const list = (await getDuts()).map((d) => ({
-        id: d.id,
-        label: d.label,
-        serialOpen: d.serial_open,
-        lastSerial: d.last_serial,
-        remote: d.remote ? { host: d.remote.host, port: d.remote.port, device: d.remote.device, isMesh: d.remote.is_mesh, consoleId: d.remote.console_id, role: d.remote.role, uplink: d.remote.uplink, downlink: d.remote.downlink } : null,
-      }));
-      setDuts(list);
+      setDuts((await getDuts()).map(fromRegistry));
     } catch {
       // Keep the current registry view; the action's own error surfaces to the user.
     }
@@ -99,15 +125,9 @@ export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () =>
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      let list: { id: string; label: string; serialOpen: boolean; lastSerial: FleetEntry["lastSerial"]; remote: FleetEntry["remote"] }[] = [];
+      let list: RegistryEntry[] = [];
       try {
-        list = (await getDuts()).map((d) => ({
-          id: d.id,
-          label: d.label,
-          serialOpen: d.serial_open,
-          lastSerial: d.last_serial,
-          remote: d.remote ? { host: d.remote.host, port: d.remote.port, device: d.remote.device, isMesh: d.remote.is_mesh, consoleId: d.remote.console_id, role: d.remote.role, uplink: d.remote.uplink, downlink: d.remote.downlink } : null,
-        }));
+        list = (await getDuts()).map(fromRegistry);
       } catch {
         return; // backend unreachable: nothing to show
       }
@@ -200,7 +220,7 @@ export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () =>
   }, []);
 
   // Derive the view rows on each tick from the registry order + live refs.
-  const fleet = duts.map(({ id, label, serialOpen, lastSerial, remote }) => {
+  const fleet = duts.map(({ id, label, serialOpen, lastSerial, remote, backhaul }) => {
     const base = baseRef.current.get(id) ?? null;
     const cpu = cpuFromSnapshot(base);
     const lastActivity = lastActivityRef.current.get(id) ?? 0;
@@ -218,6 +238,7 @@ export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () =>
       serialOpen,
       lastSerial,
       remote,
+      backhaul,
       cpuBusyPct: cpu.cpuBusyPct,
       coreCount: cpu.coreCount,
       crashCount: crashRef.current.get(id) ?? 0,
