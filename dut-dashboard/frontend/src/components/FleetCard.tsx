@@ -110,7 +110,7 @@ export default function FleetCard({
       .then(() => onClosed())
       .then(() => {
         if (entry.remote) {
-          return rssiState.refresh(entry.id);
+          return rssiState.refresh(entry);
         }
         void runConnectCaptures(entry.id);
       })
@@ -120,8 +120,8 @@ export default function FleetCard({
 
   const onRefreshRssi = useCallback(() => {
     setError(null);
-    rssiState.refresh(entry.id).catch((e) => setError(humanizeApiError(e)));
-  }, [entry.id, rssiState]);
+    rssiState.refresh(entry).catch((e) => setError(humanizeApiError(e)));
+  }, [entry, rssiState]);
 
   // Where a DUT's console is attached — this machine, or a remote Pi over SSH —
   // is the one distinction this strip exists to make, so the two get the

@@ -21,8 +21,10 @@ export type RemoteRssiState = {
   /** The newest capture for this DUT, or what the registry already knew. */
   get: (entry: FleetEntry) => RemoteRssiResult | null;
   capturing: (dutId: string) => boolean;
-  /** Rejects on failure — the caller owns how that is shown. */
-  refresh: (dutId: string) => Promise<RemoteRssiResult>;
+  /** Rejects on failure — the caller owns how that is shown. Takes the entry,
+   *  not the id, so the result can be filed against the console it was actually
+   *  read from (see `identityOf`). */
+  refresh: (entry: FleetEntry) => Promise<RemoteRssiResult>;
   /**
    * Every mesh node with a console open, **children before roots**.
    *
@@ -35,14 +37,37 @@ export type RemoteRssiState = {
    * root" — it is "nobody knows yet". Ordering on the registry's role alone put
    * an unclassified root in the first pass, so on a cold fleet the order was
    * whatever order the DUTs happened to be registered in. Hence two passes: the
-   * second re-captures anything now known to be a root, including one that only
-   * turned out to be one during the first pass.
+   * second captures the roots, including any that pass 1 only just discovered.
+   *
+   * A root is captured **twice only when the first reading could not be
+   * trusted** — when it ran before any node in this sweep had reported an
+   * uplink. The backend identifies a root's backhaul VAP from uplinks other
+   * DUTs already persisted (`_known_uplinks`), so a root captured after a
+   * successful node capture has already seen everything a second run would
+   * show it. Re-capturing it anyway costs two more synchronous serial RPCs and
+   * pauses that DUT's sysmon parsing for nothing — and for a lone root, with no
+   * node to learn from at all, the second reading is byte for byte the first.
    *
    * One DUT failing does not abandon the rest: each is caught, and the failures
    * are reported together at the end.
    */
   refreshAll: (entries: FleetEntry[]) => Promise<void>;
 };
+
+/**
+ * Which console a reading came from — not just which DUT id.
+ *
+ * An id is re-usable: removing a node and registering the same id against a
+ * different Pi, or re-pointing an existing one, is a supported edit (the
+ * Settings card calls it "Update node"). Keyed by id alone, this cache would
+ * hand the new device the old device's role, uplink and children, and the fresh
+ * seed from `/api/duts` could never win — including when a capture started
+ * before the change lands after it.
+ */
+function identityOf(entry: FleetEntry): string {
+  const remote = entry.remote;
+  return remote ? `${remote.host}:${remote.port}${remote.device}` : "local";
+}
 
 /** What the registry persisted from the last capture, before this one. */
 function seed(entry: FleetEntry): RemoteRssiResult | null {
@@ -60,8 +85,13 @@ function seed(entry: FleetEntry): RemoteRssiResult | null {
 
 const RemoteRssiContext = createContext<RemoteRssiState | null>(null);
 
+/** A reading, and the console it was read from. */
+type Held = { identity: string; result: RemoteRssiResult };
+
 export function RemoteRssiProvider({ children }: { children: ReactNode }) {
-  const [results, setResults] = useState<Map<string, RemoteRssiResult>>(new Map());
+  // Keyed by DUT id — one entry per id, so re-registering overwrites rather
+  // than accumulating, and the map cannot outgrow the registry's own limit.
+  const [results, setResults] = useState<Map<string, Held>>(new Map());
   const [inflight, setInflight] = useState<Set<string>>(new Set());
 
   const mark = useCallback((dutId: string, busy: boolean) => {
@@ -77,15 +107,20 @@ export function RemoteRssiProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refresh = useCallback(
-    async (dutId: string) => {
+    async (entry: FleetEntry) => {
+      const dutId = entry.id;
+      const identity = identityOf(entry);
       mark(dutId, true);
       try {
         const result = await captureRemoteRssi(dutId);
         // `captureRemoteRssi` coalesces per DUT and answers with the id it
         // captured; keying on that rather than on the id we asked for is what
         // stops a result landing on the wrong card when the fleet changes
-        // under an in-flight request.
-        setResults((current) => new Map(current).set(result.dut, result));
+        // under an in-flight request. The identity is the one the capture was
+        // *started* against, so a reading that lands after the node was
+        // re-pointed is filed against the console it actually came from and
+        // simply stops matching.
+        setResults((current) => new Map(current).set(result.dut, { identity, result }));
         return result;
       } finally {
         mark(dutId, false);
@@ -102,10 +137,28 @@ export function RemoteRssiProvider({ children }: { children: ReactNode }) {
         mesh.map((entry) => [entry.id, entry.remote!.role]),
       );
 
+      // When each DUT was read, and when the first node in this sweep reported
+      // an uplink. A root read before that moment saw a registry with no uplink
+      // to identify its backhaul VAP; one read after it saw everything a second
+      // reading could show it.
+      let step = 0;
+      const readAt = new Map<string, number>();
+      // `null` is "no node reported an uplink in this sweep at all", which is a
+      // different statement from "one did, later than this root" — and only the
+      // second is a reason to read a root again. A sentinel of Infinity
+      // conflated them and sent a lone root round twice.
+      let firstNodeAt: number | null = null;
+
       const capture = async (dutId: string) => {
+        const entry = mesh.find((e) => e.id === dutId)!;
         try {
-          const result = await refresh(dutId);
+          const at = step++;
+          const result = await refresh(entry);
           roles.set(dutId, result.role);
+          readAt.set(dutId, at);
+          if (result.role === "node" && (firstNodeAt === null || at < firstNodeAt)) {
+            firstNodeAt = at;
+          }
         } catch (err) {
           // Sequential, but not fragile: a closed console or a DUT removed
           // mid-sweep costs its own reading and nothing else. Reporting them
@@ -126,12 +179,19 @@ export function RemoteRssiProvider({ children }: { children: ReactNode }) {
       for (const entry of mesh.filter((e) => roles.get(e.id) !== "root")) {
         await capture(entry.id);
       }
-      // Pass 2: everything known to be a root *now*, which includes a DUT that
-      // pass 1 discovered was one. Its first reading was taken before any child
-      // had reported an uplink, so it is exactly the reading that cannot be
-      // trusted — capturing it again is the whole point of the second pass.
+      // Pass 2: the roots. One that pass 1 never touched is captured here for
+      // the first time. One that pass 1 discovered is captured again *only if*
+      // it was read before some node reported an uplink — otherwise its reading
+      // already stands, and a second would be two more serial RPCs and another
+      // pause of that DUT's sysmon parsing for a byte-identical answer. A lone
+      // root, with no node in the fleet to learn from, is the clearest case:
+      // there is nothing a second reading could know that the first did not.
       for (const entry of mesh.filter((e) => roles.get(e.id) === "root")) {
-        await capture(entry.id);
+        const at = readAt.get(entry.id);
+        const readBlind = at !== undefined && firstNodeAt !== null && at < firstNodeAt;
+        if (at === undefined || readBlind) {
+          await capture(entry.id);
+        }
       }
 
       if (failures.length > 0) {
@@ -142,7 +202,12 @@ export function RemoteRssiProvider({ children }: { children: ReactNode }) {
   );
 
   const get = useCallback(
-    (entry: FleetEntry) => results.get(entry.id) ?? seed(entry),
+    (entry: FleetEntry) => {
+      const held = results.get(entry.id);
+      // A reading from a different console than this card now names is not this
+      // card's reading, however recent it is.
+      return held && held.identity === identityOf(entry) ? held.result : seed(entry);
+    },
     [results],
   );
 
