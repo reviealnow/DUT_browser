@@ -22,12 +22,13 @@ export type FleetEntry = {
   lastSerial: { port: string; baudrate: number } | null;
   /** Null for a DUT cabled to this machine. Where its console lives, not
    *  whether it is in a mesh: those are independent, and only the second is
-   *  measured (`backhaul`). */
+   *  measured (`backhaul`). `is_mesh` is deliberately absent — whether a
+   *  capture applies is `backhaul.applicable`, computed once by the registry,
+   *  and a second copy of that question here is a second answer to it. */
   remote: {
     host: string;
     port: number;
     device: string;
-    isMesh: boolean;
   } | null;
   /** The last backhaul capture — for every DUT, cabled ones included. Up to the
    *  parent and down to the children are separate measurements from separate
@@ -77,7 +78,7 @@ function fromRegistry(d: DutInfo): RegistryEntry {
     serialOpen: d.serial_open,
     lastSerial: d.last_serial,
     remote: d.remote
-      ? { host: d.remote.host, port: d.remote.port, device: d.remote.device, isMesh: d.remote.is_mesh }
+      ? { host: d.remote.host, port: d.remote.port, device: d.remote.device }
       : null,
     backhaul: {
       applicable: d.backhaul.applicable,
