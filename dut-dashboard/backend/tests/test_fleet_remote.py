@@ -12,11 +12,12 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 import app.dut.registry as registry_mod
+import app.serial.serial_worker as serial_worker_mod
 from app.api.fleet_api import RemoteNodeBody, capture_rssi, configure_node
 from app.services.wifi_clients import classify_backhaul, parse_iwconfig_links
 from app.dut.registry import REMOTE_PORT_MAX, DutRegistry
 from app.parser.sysmon_parser import SysMonParser
-from app.serial.serial_worker import SSH_CAPTURE_TIMEOUT_SEC, SerialWorker
+from app.serial.serial_worker import SSH_CAPTURE_TIMEOUT_SEC, _SSH_READY, SerialWorker
 
 
 REMOTE = {
@@ -321,6 +322,45 @@ class SshWorkerTests(unittest.TestCase):
         process.stdin.close.assert_called_once()
         process.stdout.close.assert_called_once()
         process.stderr.close.assert_called_once()
+
+    def test_a_console_is_cleared_before_the_first_command_reaches_it(self) -> None:
+        """Measured on the bench (AP6 on the Pi, 2026-08-21): the DUT's shell was
+        still holding a few bytes of line noise in its input buffer, so the
+        connect-time capture ran as `<junk>iwconfig`, the shell answered
+        "not found", and a healthy console was reported as having no wireless
+        interfaces. socat's own hex dump showed our write was clean, so the fix
+        has to be a line kill that reaches the DUT before any command does.
+        """
+        worker = SerialWorker(SysMonParser(lambda event: None))
+        process = mock.Mock()
+        process.poll.return_value = None
+        process.stderr.fileno.return_value = 12
+        writes: list[bytes] = []
+        process.stdin.write.side_effect = writes.append
+        greeting = [_SSH_READY + b"\n"]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                mock.patch.object(serial_worker_mod, "LOG_DIR", Path(tmp)),
+                mock.patch("app.serial.serial_worker.subprocess.Popen", return_value=process),
+                mock.patch("app.serial.serial_worker.select.select", return_value=([12], [], [])),
+                mock.patch(
+                    "app.serial.serial_worker.os.read",
+                    side_effect=lambda *_: greeting.pop() if greeting else b"",
+                ),
+            ):
+                worker.open(port="/dev/ttyUSB0", baudrate=115200, mode="ssh", ssh=REMOTE)
+                try:
+                    with mock.patch.object(worker._capture_done, "wait", return_value=False):
+                        worker.capture_command("iwconfig", timeout=0.1)
+                finally:
+                    worker.close()
+
+        self.assertEqual(writes[0], b"\x15", "the console was not cleared before anything else")
+        self.assertTrue(
+            any(b"iwconfig" in write for write in writes[1:]),
+            "the capture never reached the console",
+        )
 
     def test_missing_socat_error_is_actionable(self) -> None:
         worker = SerialWorker(SysMonParser(lambda event: None))
