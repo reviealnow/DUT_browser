@@ -32,7 +32,15 @@
         "lastEvent": "12m ago",
         "lastSnapshot": "2026-08-02 19:56:27",
         "open": true,
-        "lastSerial": "/dev/cu.PL2303G-1130"
+        "lastSerial": "/dev/cu.PL2303G-1130",
+        "backhaul": {
+          "applicable": true,
+          "captured": true,
+          "role": "node",
+          "uplink": "-45 dBm · mid",
+          "downlink": "None",
+          "downlinkSource": "detected"
+        }
       },
       {
         "label": "DemoNode-420",
@@ -49,9 +57,12 @@
         "lastSerial": "/dev/cu.PL2303G-1130",
         "remote": {
           "host": "10.0.0.24",
-          "port": 22,
+          "port": 22
+        },
+        "backhaul": {
+          "applicable": true,
+          "captured": true,
           "role": "node",
-          "isMesh": true,
           "uplink": "-37 dBm · near",
           "downlink": "None",
           "downlinkSource": "detected"
@@ -72,11 +83,14 @@
         "lastSerial": null,
         "remote": {
           "host": "10.0.0.24",
-          "port": 22,
+          "port": 22
+        },
+        "backhaul": {
+          "applicable": true,
+          "captured": true,
           "role": "root",
-          "isMesh": true,
           "uplink": "None — this is the root",
-          "downlink": "-38 dBm",
+          "downlink": "-38 dBm · -45 dBm",
           "downlinkSource": "detected"
         }
       },
@@ -95,9 +109,12 @@
         "lastSerial": null,
         "remote": {
           "host": "10.0.0.24",
-          "port": 22,
+          "port": 22
+        },
+        "backhaul": {
+          "applicable": false,
+          "captured": false,
           "role": null,
-          "isMesh": false,
           "uplink": "Not applicable",
           "downlink": "Not applicable",
           "downlinkSource": "detected"
@@ -118,13 +135,16 @@
         "lastSerial": null,
         "remote": {
           "host": "10.0.0.24",
-          "port": 22,
-          "role": "node",
-          "isMesh": true,
+          "port": 22
+        },
+        "backhaul": {
+          "applicable": true,
+          "captured": false,
+          "role": null,
           "uplink": "Not captured",
           "downlink": "Not captured",
           "downlinkSource": "detected",
-          "captured": {
+          "pendingRead": {
             "uplink": "-52 dBm · mid",
             "downlink": "None"
           }
@@ -142,7 +162,15 @@
         "lastEvent": "3m ago",
         "lastSnapshot": "2026-08-06 10:41:55",
         "open": false,
-        "lastSerial": null
+        "lastSerial": null,
+        "backhaul": {
+          "applicable": true,
+          "captured": false,
+          "role": null,
+          "uplink": "Not captured",
+          "downlink": "Not captured",
+          "downlinkSource": "detected"
+        }
       }
     ],
     "crash": [
