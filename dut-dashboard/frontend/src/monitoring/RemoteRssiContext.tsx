@@ -100,6 +100,7 @@ function seed(entry: FleetEntry): RemoteRssiResult {
     dut: entry.id,
     applicable: entry.backhaul.applicable,
     captured: entry.backhaul.captured,
+    console_id: entry.backhaul.consoleId,
     role: entry.backhaul.role,
     uplink: entry.backhaul.uplink,
     downlink: entry.backhaul.downlink,
@@ -132,18 +133,24 @@ export function RemoteRssiProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(
     async (entry: FleetEntry) => {
       const dutId = entry.id;
-      const identity = identityOf(entry);
       mark(dutId, true);
       try {
         const result = await captureRemoteRssi(dutId);
         // `captureRemoteRssi` coalesces per DUT and answers with the id it
         // captured; keying on that rather than on the id we asked for is what
         // stops a result landing on the wrong card when the fleet changes
-        // under an in-flight request. The identity is the one the capture was
-        // *started* against, so a reading that lands after the node was
-        // re-pointed is filed against the console it actually came from and
-        // simply stops matching.
-        setResults((current) => new Map(current).set(result.dut, { identity, result }));
+        // under an in-flight request.
+        //
+        // The identity comes from the answer too, and must: the entry this was
+        // called with is a snapshot from before the request, and a DUT's
+        // console can change between the two. Connect on a node last read over
+        // a cable is exactly that — the card is refreshed to the SSH console
+        // first, then this runs with the pre-connect entry — and filing the
+        // SSH reading under the cable's name made `get` reject a capture that
+        // had just succeeded, leaving the card on "Not captured".
+        setResults((current) =>
+          new Map(current).set(result.dut, { identity: result.console_id, result }),
+        );
         return result;
       } finally {
         mark(dutId, false);
