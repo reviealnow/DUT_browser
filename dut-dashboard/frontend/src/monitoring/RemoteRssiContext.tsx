@@ -57,20 +57,18 @@ export type RemoteRssiState = {
 /**
  * Which console a reading came from — not just which DUT id.
  *
- * An id is re-usable: removing a node and registering the same id against a
- * different Pi, or re-pointing an existing one, is a supported edit (the
- * Settings card calls it "Update node"). Keyed by id alone, this cache would
- * hand the new device the old device's role, uplink and children, and the fresh
- * seed from `/api/duts` could never win — including when a capture started
- * before the change lands after it.
+ * An id is re-usable: re-pointing a node at another Pi under the same id is a
+ * supported edit (the Settings card calls it "Update node"). Keyed by id alone,
+ * this cache would hand the new device the old device's role, uplink and
+ * children — including when a capture started before the change lands after it.
+ *
+ * The value is the registry's own `console_id`, not a rule re-derived here.
+ * Deriving it twice is what went wrong: the registry drops a stored capture on
+ * a `backhaul_iface` edit and this cache did not, so the browser re-served a
+ * reading the backend had just revoked. One rule, published, compared.
  */
 function identityOf(entry: FleetEntry): string {
-  const remote = entry.remote;
-  // `isMesh` belongs here as much as the host does: unticking *Mesh node* on
-  // the same console makes a reading that names a parent and children describe
-  // a DUT that can have neither. The backend drops its own copy on the same
-  // edit; this is the provider's, which nothing else clears.
-  return remote ? `${remote.host}:${remote.port}${remote.device}/${remote.isMesh}` : "local";
+  return entry.remote ? entry.remote.consoleId : "local";
 }
 
 /** What the registry persisted from the last capture, before this one. */
@@ -141,29 +139,53 @@ export function RemoteRssiProvider({ children }: { children: ReactNode }) {
         mesh.map((entry) => [entry.id, entry.remote!.role]),
       );
 
-      // When each DUT was read, and when the first node in this sweep reported
-      // an uplink. A root read before that moment saw a registry with no uplink
-      // to identify its backhaul VAP; one read after it saw everything a second
-      // reading could show it.
+      // When each DUT was read, and the earliest step after which the registry
+      // may hold a clue a root can use. A root read before that saw nothing to
+      // identify its backhaul VAP with; one read after it saw everything a
+      // second reading could show it.
+      //
+      // `null` is "nothing usable was learned in this sweep at all", which is a
+      // different statement from "something was, later than this root" — and
+      // only the second is a reason to read a root again. A sentinel of
+      // Infinity conflated them and sent a lone root round twice.
       let step = 0;
       const readAt = new Map<string, number>();
-      // `null` is "no node reported an uplink in this sweep at all", which is a
-      // different statement from "one did, later than this root" — and only the
-      // second is a reason to read a root again. A sentinel of Infinity
-      // conflated them and sent a lone root round twice.
-      let firstNodeAt: number | null = null;
+      let learnedAt: number | null = null;
+      const learned = (at: number) => {
+        if (learnedAt === null || at < learnedAt) {
+          learnedAt = at;
+        }
+      };
 
       const capture = async (dutId: string) => {
         const entry = mesh.find((e) => e.id === dutId)!;
+        const at = step++;
+        const wasKnownRoot = roles.get(dutId) === "root";
         try {
-          const at = step++;
           const result = await refresh(entry);
           roles.set(dutId, result.role);
           readAt.set(dutId, at);
-          if (result.role === "node" && (firstNodeAt === null || at < firstNodeAt)) {
-            firstNodeAt = at;
+          // `role: "node"` is not the same claim. The backend identifies a
+          // root's backhaul VAP from a peer BSSID, or from an ESSID and band —
+          // and both of those are nullable on an uplink it still calls a node's.
+          // A node that reported neither taught the registry nothing.
+          const uplink = result.uplink;
+          if (result.role === "node" && uplink && (uplink.peer_mac || uplink.essid)) {
+            learned(at);
           }
         } catch (err) {
+          // A rejected capture does not mean the registry learned nothing:
+          // `/rssi` stores the uplink *before* it runs the second command, so a
+          // node whose `wlanconfig` failed has already taught it everything a
+          // root needs. We cannot tell that case from a console that never
+          // answered, so assume the useful one — the cost of being wrong is one
+          // extra capture, and the cost of the other assumption is a root left
+          // holding a downlink read while it was still blind. A root is the
+          // exception: its capture has no uplink to store, so a failed one
+          // cannot have taught the registry anything.
+          if (!wasKnownRoot) {
+            learned(at);
+          }
           // Sequential, but not fragile: a closed console or a DUT removed
           // mid-sweep costs its own reading and nothing else. Reporting them
           // together beats stopping at the first and leaving the rest stale
@@ -192,7 +214,7 @@ export function RemoteRssiProvider({ children }: { children: ReactNode }) {
       // there is nothing a second reading could know that the first did not.
       for (const entry of mesh.filter((e) => roles.get(e.id) === "root")) {
         const at = readAt.get(entry.id);
-        const readBlind = at !== undefined && firstNodeAt !== null && at < firstNodeAt;
+        const readBlind = at !== undefined && learnedAt !== null && at < learnedAt;
         if (at === undefined || readBlind) {
           await capture(entry.id);
         }

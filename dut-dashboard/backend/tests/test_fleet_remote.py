@@ -146,43 +146,70 @@ class RemoteRegistryTests(unittest.TestCase):
                 self.assertIsNone(public["downlink"])
                 self.assertIsNone(public["role"], "a role measured on another console")
 
-    def test_a_mesh_node_turned_standalone_keeps_no_backhaul_reading(self) -> None:
-        """Same rule, the other edit: unticking *Mesh node* leaves a capture
-        that says this DUT has a parent and children, which it now cannot."""
+    #: One edit per field of a remote config, and whether it means the reading
+    #: was taken somewhere else. `user`, `key_path` and `baudrate` decide how to
+    #: log in and how to talk; the rest decide what is on the other end.
+    CONSOLE_EDITS = {
+        "host": ("pi-node-2.local", True),
+        "port": (2222, True),
+        "device": ("/dev/ttyUSB1", True),
+        "is_mesh": (False, True),
+        "backhaul_iface": ("ath22", True),
+        "user": ("someone-else", False),
+        "key_path": ("/run/secrets/rotated_key", False),
+        "baudrate": (9600, False),
+    }
+
+    def test_a_capture_is_dropped_exactly_when_the_console_changes(self) -> None:
+        """The reset and the published token are one rule or they are two bugs.
+
+        The frontend holds captures of its own and cannot see this list; it
+        compares `console_id`. So a field that clears the reading here and
+        leaves the token alone means the browser re-serves what the registry
+        just revoked — and a field that changes the token without clearing
+        means the opposite. Asserting both against the same edit is what keeps
+        them from drifting apart again.
+        """
+        reading = {"iface": "ath15", "rssi": -37, "peer_mac": "c8:4f:86:95:ce:e5"}
+        for field, (value, elsewhere) in self.CONSOLE_EDITS.items():
+            with self.subTest(field=field):
+                with tempfile.TemporaryDirectory() as directory:
+                    with _registries_under(Path(directory)) as make_registry:
+                        registry = make_registry()
+                        registry.register_dut("mesh1", "Mesh 1")
+                        registry.configure_remote("mesh1", REMOTE)
+                        context = registry.get("mesh1")
+                        context.remote_uplink = dict(reading)
+                        context.remote_downlink = {"iface": "ath14", "source": "detected", "peers": []}
+                        context.remote_role = "node"
+                        before = registry.describe()[0]["remote"]["console_id"]
+
+                        registry.configure_remote("mesh1", {**REMOTE, field: value})
+
+                        public = registry.describe()[0]["remote"]
+                        self.assertEqual(
+                            public["uplink"] is None, elsewhere,
+                            f"changing {field}: reading dropped={public['uplink'] is None},"
+                            f" expected {elsewhere}",
+                        )
+                        self.assertEqual(public["role"] is None, elsewhere)
+                        self.assertEqual(
+                            public["console_id"] != before, elsewhere,
+                            f"changing {field}: the token disagrees with the reset",
+                        )
+
+    def test_the_token_never_carries_a_credential(self) -> None:
+        """It is published to every client that can list DUTs."""
         with tempfile.TemporaryDirectory() as directory:
             with _registries_under(Path(directory)) as make_registry:
                 registry = make_registry()
                 registry.register_dut("mesh1", "Mesh 1")
                 registry.configure_remote("mesh1", REMOTE)
-                context = registry.get("mesh1")
-                context.remote_uplink = {"iface": "ath15", "rssi": -37}
-                context.remote_role = "node"
-
-                registry.configure_remote("mesh1", {**REMOTE, "is_mesh": False, "backhaul_iface": None})
-
-                public = registry.describe()[0]["remote"]
-                self.assertFalse(public["is_mesh"])
-                self.assertIsNone(public["uplink"])
-                self.assertIsNone(public["role"])
-
-    def test_re_registering_the_same_configuration_keeps_the_capture(self) -> None:
-        """The console did not change, so neither did what was measured on it.
-        Dropping the reading here would spend a serial RPC to learn the same
-        thing again, and blank a live card on a no-op edit."""
-        with tempfile.TemporaryDirectory() as directory:
-            with _registries_under(Path(directory)) as make_registry:
-                registry = make_registry()
-                registry.register_dut("mesh1", "Mesh 1")
-                registry.configure_remote("mesh1", REMOTE)
-                context = registry.get("mesh1")
-                context.remote_uplink = {"iface": "ath15", "rssi": -37}
-                context.remote_role = "node"
-
-                registry.configure_remote("mesh1", dict(REMOTE))
-
-                public = registry.describe()[0]["remote"]
-                self.assertEqual(public["uplink"], {"iface": "ath15", "rssi": -37})
-                self.assertEqual(public["role"], "node")
+                token = registry.describe()[0]["remote"]["console_id"]
+                self.assertNotIn(REMOTE["key_path"], token)
+                self.assertNotIn(REMOTE["user"], token)
+                self.assertNotIn(REMOTE["host"], token)
+                self.assertRegex(token, r"^[0-9a-f]{16}$")
 
     def test_a_persisted_entry_is_held_to_the_api_shapes(self) -> None:
         """duts.json is the weaker gate otherwise, and these values reach ssh
