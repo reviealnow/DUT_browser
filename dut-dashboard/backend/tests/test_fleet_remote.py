@@ -120,6 +120,70 @@ class RemoteRegistryTests(unittest.TestCase):
                 self.assertNotIn("key_path", public)
                 self.assertNotIn("user", public)
 
+    def test_re_pointing_a_node_drops_the_previous_console_s_capture(self) -> None:
+        """A capture describes the console it was read from, and an id can be
+        re-pointed at another Pi (the Settings card calls it "Update node").
+
+        Kept, the old device's role, uplink and children are served through
+        /api/duts as the new device's current state, where nothing downstream
+        can tell them from a fresh measurement.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            with _registries_under(Path(directory)) as make_registry:
+                registry = make_registry()
+                registry.register_dut("mesh1", "Mesh 1")
+                registry.configure_remote("mesh1", REMOTE)
+                context = registry.get("mesh1")
+                context.remote_uplink = {"iface": "ath15", "rssi": -37, "peer_mac": "c8:4f:86:95:ce:e5"}
+                context.remote_downlink = {"iface": "ath14", "source": "detected", "peers": []}
+                context.remote_role = "node"
+
+                registry.configure_remote("mesh1", {**REMOTE, "host": "pi-node-2.local"})
+
+                public = registry.describe()[0]["remote"]
+                self.assertEqual(public["host"], "pi-node-2.local")
+                self.assertIsNone(public["uplink"], "the old Pi's uplink is served as the new one's")
+                self.assertIsNone(public["downlink"])
+                self.assertIsNone(public["role"], "a role measured on another console")
+
+    def test_a_mesh_node_turned_standalone_keeps_no_backhaul_reading(self) -> None:
+        """Same rule, the other edit: unticking *Mesh node* leaves a capture
+        that says this DUT has a parent and children, which it now cannot."""
+        with tempfile.TemporaryDirectory() as directory:
+            with _registries_under(Path(directory)) as make_registry:
+                registry = make_registry()
+                registry.register_dut("mesh1", "Mesh 1")
+                registry.configure_remote("mesh1", REMOTE)
+                context = registry.get("mesh1")
+                context.remote_uplink = {"iface": "ath15", "rssi": -37}
+                context.remote_role = "node"
+
+                registry.configure_remote("mesh1", {**REMOTE, "is_mesh": False, "backhaul_iface": None})
+
+                public = registry.describe()[0]["remote"]
+                self.assertFalse(public["is_mesh"])
+                self.assertIsNone(public["uplink"])
+                self.assertIsNone(public["role"])
+
+    def test_re_registering_the_same_configuration_keeps_the_capture(self) -> None:
+        """The console did not change, so neither did what was measured on it.
+        Dropping the reading here would spend a serial RPC to learn the same
+        thing again, and blank a live card on a no-op edit."""
+        with tempfile.TemporaryDirectory() as directory:
+            with _registries_under(Path(directory)) as make_registry:
+                registry = make_registry()
+                registry.register_dut("mesh1", "Mesh 1")
+                registry.configure_remote("mesh1", REMOTE)
+                context = registry.get("mesh1")
+                context.remote_uplink = {"iface": "ath15", "rssi": -37}
+                context.remote_role = "node"
+
+                registry.configure_remote("mesh1", dict(REMOTE))
+
+                public = registry.describe()[0]["remote"]
+                self.assertEqual(public["uplink"], {"iface": "ath15", "rssi": -37})
+                self.assertEqual(public["role"], "node")
+
     def test_a_persisted_entry_is_held_to_the_api_shapes(self) -> None:
         """duts.json is the weaker gate otherwise, and these values reach ssh
         as arguments or a shell as a command string."""

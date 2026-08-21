@@ -66,7 +66,11 @@ export type RemoteRssiState = {
  */
 function identityOf(entry: FleetEntry): string {
   const remote = entry.remote;
-  return remote ? `${remote.host}:${remote.port}${remote.device}` : "local";
+  // `isMesh` belongs here as much as the host does: unticking *Mesh node* on
+  // the same console makes a reading that names a parent and children describe
+  // a DUT that can have neither. The backend drops its own copy on the same
+  // edit; this is the provider's, which nothing else clears.
+  return remote ? `${remote.host}:${remote.port}${remote.device}/${remote.isMesh}` : "local";
 }
 
 /** What the registry persisted from the last capture, before this one. */

@@ -255,6 +255,19 @@ class DutRegistry:
             ctx = self._duts.get(dut_id)
             if ctx is None:
                 raise KeyError(f"Unknown DUT: {dut_id}")
+            if ctx.remote != cleaned:
+                # A capture describes the console it was read from, and this
+                # call has just changed which console that is. Re-pointing an
+                # id at another Pi is a supported edit, and keeping the reading
+                # served the new device the old device's role, uplink and
+                # children through /api/duts — indistinguishable, at the card,
+                # from a fresh measurement. Dropping it says "not captured",
+                # which is true. An identical re-registration changes nothing
+                # and keeps the reading rather than spending a serial RPC to
+                # learn the same thing again.
+                ctx.remote_uplink = None
+                ctx.remote_downlink = None
+                ctx.remote_role = None
             ctx.remote = cleaned
             self._save_locked()
             return ctx
