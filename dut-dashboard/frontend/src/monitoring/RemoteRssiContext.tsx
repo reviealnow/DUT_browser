@@ -84,14 +84,23 @@ function identityOf(entry: FleetEntry): string {
 }
 
 /**
- * Whether an uplink carries something a root can be identified by.
+ * What a root could identify its backhaul VAP by, given this uplink — `null`
+ * when the answer is "nothing".
  *
- * The backend names a root's backhaul VAP from a peer BSSID, or from an ESSID
- * and band. Both are nullable on an uplink it still calls a node's, so "there
- * is an uplink" is not the same claim as "a root could use it".
+ * The backend names a root's VAP from a peer BSSID, or from an ESSID and band.
+ * Both are nullable on an uplink it still calls a node's, so "there is an
+ * uplink" is not the same claim as "a root could use it".
+ *
+ * A key rather than a boolean because the sweep has to tell a clue it already
+ * had from one it has just been given: a node re-reporting the uplink the
+ * registry already held teaches nothing a root read earlier did not already
+ * have available to it.
  */
-function usableUplink(uplink: RemoteUplink | null): boolean {
-  return !!uplink && !!(uplink.peer_mac || uplink.essid);
+function uplinkClue(uplink: RemoteUplink | null): string | null {
+  if (!uplink || !(uplink.peer_mac || uplink.essid)) {
+    return null;
+  }
+  return `${uplink.peer_mac ?? ""}|${uplink.essid ?? ""}|${uplink.radio_band ?? ""}`;
 }
 
 /** What the registry persisted from the last capture, before this one. */
@@ -176,12 +185,19 @@ export function RemoteRssiProvider({ children }: { children: ReactNode }) {
       // different statement from "something was, later than this root" — and
       // only the second is a reason to read a root again. A sentinel of
       // Infinity conflated them and sent a lone root round twice.
-      // Which DUTs already had a usable uplink stored before this sweep began.
-      // A root read at step 0 could use those, so they are not something the
-      // sweep "learned" and are not a reason to read anything twice.
-      const knownAtStart = new Map<string, boolean>(
-        mesh.map((entry) => [entry.id, usableUplink(entry.backhaul.uplink)]),
+      // What clue each DUT's stored uplink already offered before this sweep
+      // began. A root read at step 0 could use any of these, so re-reading one
+      // is not something the sweep learned and is not a reason to read anything
+      // twice. One rule for both outcomes of a capture — applying it to the
+      // failures alone still sent a root round again for a node that succeeded
+      // and reported what the registry already held.
+      const knownAtStart = new Map<string, string | null>(
+        mesh.map((entry) => [entry.id, uplinkClue(entry.backhaul.uplink)]),
       );
+      const isNewClue = (dutId: string, uplink: RemoteUplink | null) => {
+        const clue = uplinkClue(uplink);
+        return clue !== null && clue !== knownAtStart.get(dutId);
+      };
       let step = 0;
       const readAt = new Map<string, number>();
       // Every DUT this sweep has already spent a console on, successfully or
@@ -207,7 +223,7 @@ export function RemoteRssiProvider({ children }: { children: ReactNode }) {
       const taughtSomething = async (dutId: string) => {
         try {
           const fresh = (await getDuts()).find((dut) => dut.id === dutId);
-          return fresh ? usableUplink(fresh.backhaul.uplink) : false;
+          return fresh ? isNewClue(dutId, fresh.backhaul.uplink) : false;
         } catch {
           return true;
         }
@@ -221,11 +237,7 @@ export function RemoteRssiProvider({ children }: { children: ReactNode }) {
           const result = await refresh(entry);
           roles.set(dutId, result.role);
           readAt.set(dutId, at);
-          // `role: "node"` is not the same claim. The backend identifies a
-          // root's backhaul VAP from a peer BSSID, or from an ESSID and band —
-          // and both of those are nullable on an uplink it still calls a node's.
-          // A node that reported neither taught the registry nothing.
-          if (usableUplink(result.uplink)) {
+          if (isNewClue(dutId, result.uplink)) {
             learned(at);
           }
         } catch (err) {
@@ -243,7 +255,7 @@ export function RemoteRssiProvider({ children }: { children: ReactNode }) {
           // parsing, for a clue that may not exist. Only a *new* uplink counts:
           // one this DUT already had before the sweep was available to every
           // root read in it, including those read first.
-          if (!knownAtStart.get(dutId) && (await taughtSomething(dutId))) {
+          if (await taughtSomething(dutId)) {
             learned(at);
           }
           // Sequential, but not fragile: a closed console or a DUT removed
