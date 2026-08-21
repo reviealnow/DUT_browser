@@ -268,6 +268,19 @@ creates work for whoever has to make it true later.
   durations, focus placement, animation, keyboard shortcuts that change no
   outcome, spacing and non-load-bearing microcopy.
 
+  **A page portrays one role, and its control set has to be that role's.** The
+  app has three, and a section renders different buttons for each, so a screen
+  showing a control its own role pill could not use is over-showing as surely as
+  one inventing a feature. Overview and Fleet are shown as **admin**, because
+  `FleetCard` gates per route — `Console` is engineer, but on a remote node
+  `Connect`, `Close serial` and `Refresh RSSI` are admin, since every
+  `/api/fleet` route is. Overview said *engineer* over a strip full of those
+  three for as long as the strip has existed; the review of #130 is where the
+  product's own gating caught up, and the demo with it. Files, Bulletin and
+  Downloads portray engineer, which is what their sections require, and Firmware
+  says admin. Both pages state their rule in the provenance line, and
+  `verify-behaviour.mjs` checks the pill against the buttons actually drawn.
+
   The failure mode runs **both ways**, and only one of them has a chip.
   Over-showing: a preview offered for a type the product will not render, a
   field accepting more characters than the product allows — by the test above,

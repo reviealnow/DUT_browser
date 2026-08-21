@@ -246,6 +246,18 @@ const report = reporter();
   report.ok("only remote cards offer Refresh RSSI",
     !!node?.querySelector("[data-act=rssi]") && !mother?.querySelector("[data-act=rssi]"));
 
+  // The strip renders FleetCard, which gates each control on the role its own
+  // route needs: Console is engineer, but on a REMOTE node Connect, Close serial
+  // and Refresh RSSI are admin. So the role this page portrays and the buttons
+  // it draws have to agree — it used to say "engineer" over a strip full of
+  // admin-only controls, which is the demo showing what the product hides.
+  const drives = (card) => ["connect", "close", "rssi"]
+    .some(act => card.querySelector(`[data-act=${act}]`));
+  report.ok("the role the page portrays covers every control it draws",
+    document.querySelector(".pill-admin")?.textContent.trim() === "admin" &&
+    drives(node),
+    document.querySelector(".topbar")?.textContent.trim());
+
   // Refresh RSSI re-reads the backhaul and touches nothing else. Sharing the
   // connect/close path would have made it a connection control wearing another
   // label — and on an already-open card that is invisible in the card's own

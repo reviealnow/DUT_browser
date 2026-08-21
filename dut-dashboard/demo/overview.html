@@ -48,6 +48,7 @@ button{font:inherit; color:inherit; cursor:pointer}
 .pill-danger{background:var(--danger-weak); color:var(--danger)}
 .pill-muted{background:var(--bg); color:var(--muted); border-color:var(--border)}
 .pill-warn{background:var(--warn-weak); color:var(--warn); border-color:#f0dfb4}
+.pill-admin{background:#f3effb; color:#6b4fa8; border-color:#d9cdf0}
 .dot{width:7px; height:7px; border-radius:50%; background:currentColor; flex:none}
 
 .content{padding:var(--space-5); display:flex; flex-direction:column; gap:var(--space-5); max-width:1400px; width:100%}
@@ -179,7 +180,14 @@ button{font:inherit; color:inherit; cursor:pointer}
       <span class="spacer"></span>
       <span class="pill pill-demo">● DEMO — canned data, no DUT attached</span>
       <span class="pill pill-muted" id="dutPill">DemoDUT-6E</span>
-      <span class="pill pill-ok"><span class="dot"></span>engineer</span>
+      <!-- admin, not engineer, and the strip below is why. FleetCard gates each
+           control on the role its own route needs: Console is engineer, but on a
+           REMOTE node Connect, Close serial and Refresh RSSI are admin, because
+           every /api/fleet route is. Portraying an engineer while drawing those
+           three would be showing controls the product hides from the role this
+           page claims to be. Fleet (fleet.html) is shown as admin for the same
+           reason and states the rule in full. -->
+      <span class="pill pill-admin">admin</span>
     </header>
 
     <div class="content">
@@ -188,7 +196,7 @@ button{font:inherit; color:inherit; cursor:pointer}
       <section>
         <div class="card-head" style="padding-left:0">
           <h2>Fleet</h2>
-          <span class="hint">Console / Close / Connect mirror the shipped quick actions</span>
+          <span class="hint">Console / Close / Connect mirror the shipped quick actions · Fleet has the whole capture</span>
           <span class="concept" title="Shown for discussion — the product does not reorder fleet cards today">◇ concept: drag a handle to reorder</span>
         </div>
         <div class="fleet-strip" id="fleet"></div>
@@ -528,8 +536,12 @@ $("provenance").innerHTML =
   + `<b>${DATA.generatedFrom || "—"}</b>; every SSID, MAC and IP in it was replaced before `
   + `commit (see <b>demo/README_demo_kit.md</b>). The fleet list and crash lines are `
   + `synthetic — a one-DUT bench cannot produce a fleet, the reference capture had no `
-  + `crash lines, and connection state is live UI no capture records. Chips marked `
-  + `<span class="concept">◇ concept</span> are ideas for discussion, not shipped behaviour.`;
+  + `crash lines, and connection state is live UI no capture records. This page is shown as an `
+  + `<b>admin</b>: FleetCard gates each control on the role its own route needs, and on a remote `
+  + `node <b>Connect</b> / <b>Close serial</b> / <b>Refresh RSSI</b> are admin — <b>Console</b> is `
+  + `engineer, and a guest gets the strip with none of the buttons. The strip compresses a backhaul `
+  + `capture into two lines; <b>fleet.html</b> is the same six DUTs with the whole of it. Chips `
+  + `marked <span class="concept">◇ concept</span> are ideas for discussion, not shipped behaviour.`;
 
 /* buttons */
 $("btnStory").addEventListener("click", () => {
