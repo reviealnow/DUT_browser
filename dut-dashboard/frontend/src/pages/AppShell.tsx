@@ -16,6 +16,7 @@ import { canAccess, NAV_ITEMS, SectionId } from "../components/shell/navigation"
 import { AuthProvider, useAuth } from "../monitoring/AuthContext";
 import { useAppVersion } from "../monitoring/useAppVersion";
 import { DutMonitorProvider } from "../monitoring/DutMonitorContext";
+import { RemoteRssiProvider } from "../monitoring/RemoteRssiContext";
 import { DutMonitorState, DutStatus, useDutMonitor } from "../monitoring/useDutMonitor";
 import { useWifiScan, wifiScanForDut, WifiScanProvider } from "../monitoring/WifiScanContext";
 import { runConnectCaptures } from "../monitoring/siteSurveyStore";
@@ -29,6 +30,7 @@ import { copyToClipboard } from "../utils/clipboard";
 const BulletinSection = lazy(() => import("../components/BulletinSection"));
 const WorkspaceSearchResults = lazy(() => import("../components/WorkspaceSearchResults"));
 const FleetStrip = lazy(() => import("../components/FleetStrip"));
+const FleetSection = lazy(() => import("../components/FleetSection"));
 const DownloadsSection = lazy(() => import("../components/DownloadsSection"));
 const FilesSection = lazy(() => import("../components/FilesSection"));
 const SettingsSection = lazy(() => import("../components/SettingsSection"));
@@ -137,6 +139,10 @@ function AppShellInner() {
   return (
     <DutMonitorProvider value={monitor}>
       <WifiScanProvider>
+      {/* Above both fleet views: the strip and the Fleet section are never
+          mounted together, so a capture started in one must survive the switch
+          to the other. */}
+      <RemoteRssiProvider>
       <div className="app">
         <Sidebar
           active={active}
@@ -259,6 +265,7 @@ function AppShellInner() {
           </main>
         </div>
       </div>
+      </RemoteRssiProvider>
       </WifiScanProvider>
     </DutMonitorProvider>
   );
@@ -312,6 +319,8 @@ function renderSection(
           onOpenSiteSurvey={() => onNavigate("sitesurvey")}
         />
       );
+    case "fleet":
+      return <FleetSection onSelectDut={onSelectDut} onOpenConsole={onOpenConsole} />;
     case "console":
       // Rendered separately (always mounted) so its session/state persists.
       return null;

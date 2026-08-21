@@ -16,6 +16,7 @@ events tagged with ``dut_id``) and the file-based :class:`AnalyzerService`.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import re
 import threading
@@ -45,6 +46,18 @@ _DUT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 REMOTE_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@%+-]*$")
 REMOTE_DEVICE_RE = re.compile(r"^/dev/[A-Za-z0-9._/-]+$")
 REMOTE_IFACE_RE = re.compile(r"^ath\d+$")
+#: What makes a reading belong to one console rather than another. Everything
+#: here changes what was measured or how it must be read: which Pi, which port,
+#: which serial device, whether the DUT is meshed at all, and which interface a
+#: root falls back to for its backhaul.
+#:
+#: `user`, `key_path` and `baudrate` are deliberately NOT here. They decide how
+#: to log in and how to talk to the console, not what is on the other end of it:
+#: rotating a key or fixing a typo in the login name leaves a captured RSSI as
+#: true as it was, and dropping it there costs a synchronous serial RPC to learn
+#: the same thing again.
+CONSOLE_IDENTITY_FIELDS = ("host", "port", "device", "is_mesh", "backhaul_iface")
+
 REMOTE_PORT_MIN = 1
 REMOTE_PORT_MAX = 65535
 
@@ -66,6 +79,29 @@ def _clean_last_serial(value: object) -> dict | None:
     if not isinstance(baudrate, int) or isinstance(baudrate, bool) or baudrate <= 0:
         return None
     return {"port": port, "baudrate": baudrate}
+
+
+def console_id(remote: dict | None) -> str | None:
+    """An opaque name for the console a reading was taken on.
+
+    Published so the frontend can decide whether a reading it is holding still
+    describes this DUT **by the same rule the registry uses** — the two ends had
+    diverged, each with its own list of fields, so an edit could clear the
+    capture here and leave the browser re-serving it. A token means there is one
+    rule, computed once, and the client compares rather than re-derives.
+
+    Hashed rather than a joined string: the value is for equality only, and no
+    part of a DUT's configuration should be published in a field nobody meant as
+    a disclosure.
+    """
+    if remote is None:
+        return None
+    material = json.dumps(
+        [remote.get(field) for field in CONSOLE_IDENTITY_FIELDS],
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return hashlib.sha256(material.encode()).hexdigest()[:16]
 
 
 def _clean_remote(value: object) -> dict | None:
@@ -255,6 +291,20 @@ class DutRegistry:
             ctx = self._duts.get(dut_id)
             if ctx is None:
                 raise KeyError(f"Unknown DUT: {dut_id}")
+            if console_id(ctx.remote) != console_id(cleaned):
+                # A capture describes the console it was read from, and this
+                # call has just changed which console that is. Re-pointing an
+                # id at another Pi is a supported edit, and keeping the reading
+                # served the new device the old device's role, uplink and
+                # children through /api/duts — indistinguishable, at the card,
+                # from a fresh measurement. Dropping it says "not captured",
+                # which is true. A credential-only edit is not a different
+                # console, and neither is re-registering the same values, so
+                # both keep the reading rather than spending a serial RPC to
+                # learn the same thing again.
+                ctx.remote_uplink = None
+                ctx.remote_downlink = None
+                ctx.remote_role = None
             ctx.remote = cleaned
             self._save_locked()
             return ctx
@@ -298,6 +348,10 @@ class DutRegistry:
                         "port": ctx.remote["port"],
                         "device": ctx.remote["device"],
                         "is_mesh": ctx.remote["is_mesh"],
+                        # The client holds captures of its own and needs the
+                        # registry's rule for when they stop applying, not a
+                        # second guess at it.
+                        "console_id": console_id(ctx.remote),
                         "role": ctx.remote_role,
                         "uplink": ctx.remote_uplink,
                         "downlink": ctx.remote_downlink,

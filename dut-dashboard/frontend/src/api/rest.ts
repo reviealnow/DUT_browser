@@ -340,6 +340,11 @@ export type DutInfo = {
     port: number;
     device: string;
     is_mesh: boolean;
+    /** Opaque name for the console these readings were taken on. Changes when
+     *  the registry decides a stored capture no longer applies (another Pi,
+     *  another device, mesh flipped, a different backhaul fallback) and does
+     *  not change for a credential-only edit. Compare it; never parse it. */
+    console_id: string;
     /** "root" once a capture found no uplink, "node" when it found one, null
      *  while nothing has been captured — an absent uplink is an answer, and
      *  the card must not show it as a missing measurement. */
