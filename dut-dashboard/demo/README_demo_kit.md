@@ -319,12 +319,17 @@ that page is measured or synthetic.
    for the generator to fill. Charts are hand-rendered inline SVG and carry
    their source data as JSON, matching the frontend rule in
    `dut-dashboard/CLAUDE.md` — do not reach for a charting library.
-3. Add a builder to `build_demo_data.py` (`PAGE = {"your-page.html": ...}` in
-   `main`), calling `Anonymiser.prepare(...)` once with every identifier the
-   page will emit before any of them is written out — that up-front pass is
-   what makes the aliases order-independent.
+3. Add a builder to the module-level `PAGE_BUILDERS` in `build_demo_data.py`,
+   calling `Anonymiser.prepare(...)` once with every identifier the page will
+   emit before any of them is written out — that up-front pass is what makes the
+   aliases order-independent. A page that is synthetic in full takes
+   `build_static` and keeps its whole payload in `demo-fixtures.json`.
 4. Mark anything the product does not do with a `◇ concept` chip.
-5. Add the page to the table above.
+5. Decide which **role** the page portrays, and check every control it draws is
+   one that role can use — see the parity bar above.
+6. Add the page to the table above, a tile to `index.html`, and its file to
+   `SCREEN_FILES` in `verify/harness.mjs`, so the navigation verifier really
+   clicks it. Then add the sidebar entry to **every other page**.
 
 ## Known limits
 
