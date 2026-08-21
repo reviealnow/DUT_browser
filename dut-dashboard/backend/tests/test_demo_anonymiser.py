@@ -709,11 +709,18 @@ def test_the_regeneration_source_carries_every_fleet_state(anon_module) -> None:
     remotes = [f for f in fleet if f.get("remote")]
 
     assert remotes, "no remote node survives a rebuild"
-    assert {f["remote"]["isMesh"] for f in remotes} == {True, False}, "no standalone AP"
-    assert {f["remote"].get("role") for f in remotes} >= {"node", "root"}
-    assert any(f["remote"].get("captured") for f in remotes), "nothing to capture on connect"
+    assert {f["backhaul"]["applicable"] for f in fleet} == {True, False}, "no standalone AP"
+    assert {f["backhaul"]["role"] for f in fleet} >= {"node", "root"}
+    assert any(f["backhaul"].get("pendingRead") for f in remotes), "nothing to capture on connect"
     assert any(f.get("remote") and not f["open"] for f in fleet), "no disconnected remote"
     assert any(not f.get("remote") for f in fleet), "no mother-server card"
+    # A cabled DUT's backhaul is measured by the same two console commands as a
+    # node's, and the strip shows it on the mother-server card. Without one
+    # here the kit is back to portraying that measurement as an SSH-only
+    # capability, which is what it stopped being.
+    assert any(
+        not f.get("remote") and f["backhaul"]["captured"] for f in fleet
+    ), "no cabled DUT with a backhaul reading"
     assert len({f["status"] for f in fleet}) >= 3, {f["status"] for f in fleet}
     assert any(not f["open"] for f in fleet), "no disconnected card"
 

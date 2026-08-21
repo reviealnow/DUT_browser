@@ -229,22 +229,30 @@ const report = reporter();
     && rowsOf(c)["Uplink to parent"]?.includes("dBm"));
   const root = cards.find(c => rowsOf(c)["Uplink to parent"] === "None — this is the root");
 
-  // FleetStrip renders the four remote rows only when the DUT has an SSH
-  // console. A strip of mother-server cards alone would tell a viewer the
-  // product cannot reach a DUT over a Pi at all.
-  report.ok("a mother-server card carries no remote rows",
-    !!mother && !("SSH session" in rowsOf(mother)));
+  // FleetStrip renders the two SSH rows only when the DUT has an SSH console.
+  // A strip of mother-server cards alone would tell a viewer the product
+  // cannot reach a DUT over a Pi at all.
+  report.ok("a mother-server card carries no SSH rows",
+    !!mother && !("SSH session" in rowsOf(mother)) && !("Node console" in rowsOf(mother)));
   report.ok("a remote node shows all four remote rows",
     !!node && ["SSH session", "Node console", "Uplink to parent", "Children on backhaul"]
       .every(k => k in rowsOf(node)));
+  // The backhaul rows are not remote-node rows. Both commands behind them run
+  // over a cabled console as well as an SSH one, and the fleet's root is
+  // frequently the DUT on this desk — the card that used to be the one place
+  // the measurement could never appear.
+  report.ok("a mother-server card still reports both backhaul directions",
+    !!mother && ["Uplink to parent", "Children on backhaul"].every(k => k in rowsOf(mother)));
 
   // Up and down are separate measurements from separate commands; a root has
   // no parent and says so rather than reading as an uncaptured value.
   report.ok("the root's uplink is an answer, not a gap", !!root);
   report.ok("the root still reports children",
     !!root && rowsOf(root)["Children on backhaul"].includes("dBm"));
-  report.ok("only remote cards offer Refresh RSSI",
-    !!node?.querySelector("[data-act=rssi]") && !mother?.querySelector("[data-act=rssi]"));
+  report.ok("a cabled card offers Refresh RSSI too",
+    !!node?.querySelector("[data-act=rssi]") && !!mother?.querySelector("[data-act=rssi]"));
+  report.ok("and it is offered live, not disabled, on an open cabled console",
+    !mother?.querySelector("[data-act=rssi]").disabled);
 
   // The strip renders FleetCard, which gates each control on the role its own
   // route needs: Console is engineer, but on a REMOTE node Connect, Close serial
