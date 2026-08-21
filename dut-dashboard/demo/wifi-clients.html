@@ -107,6 +107,7 @@ dialog::backdrop{background:rgba(20,30,55,.35)}
     <div class="brand"><span class="brand-mark">D</span><span class="brand-name">DUT_browser</span></div>
     <div class="nav-group">Monitoring</div>
     <a class="nav-item" href="overview.html" data-screen="Overview"><span class="nav-icon">▣</span>Overview</a>
+    <a class="nav-item" href="fleet.html" data-screen="Fleet"><span class="nav-icon">🛰</span>Fleet</a>
     <a class="nav-item" href="cpu-memory.html" data-screen="CPU / Memory"><span class="nav-icon">📈</span>CPU / Memory</a>
     <button class="nav-item" aria-current="page"><span class="nav-icon">📶</span>Wi-Fi Clients</button>
     <a class="nav-item" href="ssid-capability.html" data-screen="SSID Capability"><span class="nav-icon">🔍</span>SSID Capability</a>
@@ -375,7 +376,8 @@ document.querySelectorAll("[data-screen]:not([href])").forEach(el => {
        told the viewer that the screen next to it did not exist. The two entries
        without a file — Logs / Crash Events and Settings — are the only ones
        that take the other branch. */
-    const map = { "Overview": "overview.html", "Site Survey": "site-survey.html",
+    const map = { "Overview": "overview.html", "Fleet": "fleet.html",
+                  "Site Survey": "site-survey.html",
                   "Wi-Fi Clients": "wifi-clients.html", "CPU / Memory": "cpu-memory.html",
                   "SSID Capability": "ssid-capability.html", "Downloads": "downloads.html",
                   "Serial Console": "serial-console.html", "Files": "files.html",
@@ -383,7 +385,7 @@ document.querySelectorAll("[data-screen]:not([href])").forEach(el => {
     $("navNote").innerHTML = map[name]
       ? `<b>${name}</b> is in this kit — open <b>${map[name]}</b> beside this file.`
       : `<b>${name}</b> is a screen in the product with no file in this kit; `
-        + `open <b>index.html</b> for the ten that ship.`;
+        + `open <b>index.html</b> for the eleven that ship.`;
     $("navNote").scrollIntoView({ behavior: "smooth", block: "nearest" });
   });
 });

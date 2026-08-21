@@ -14,6 +14,7 @@ double-click, works offline, and survives being forwarded.
 | Page | Shows |
 |---|---|
 | `overview.html` | Fleet strip, KPI row, 40-hour CPU and client trends, the cached channel recommendation, crash feed |
+| `fleet.html` | Every registered DUT at full width: the mesh backhaul in both directions, per-child, with Capture all |
 | `site-survey.html` | Per-band channel charts over a real 2,438-observation scan, band filter, SSID/BSSID search, the full neighbour table |
 | `wifi-clients.html` | The per-client table with row-expand deep stats, grouped by band, with Kick |
 | `files.html` | The workspace file table with drag-and-drop upload, sortable columns, tags, inline preview |
@@ -35,6 +36,17 @@ Overview shows only the **cached** recommendation, as `OverviewBandReco` does;
 the chart, the band filter and Re-scan live on Site Survey, where the product
 puts them. Keeping that split is what stops the kit inventing an Overview the
 app does not have.
+
+**Overview and Fleet show the same six DUTs**, because the product does:
+`FleetCard` renders both views, and two components would have been two accounts
+of one device. The strip compresses a backhaul capture into two lines; the
+section has the width for the whole of it — the uplink's SNR, radio band and
+parent BSSID, and a row per child rather than every child's RSSI joined into one
+string. So `demo-fixtures.json` carries the fleet twice on purpose: under
+`fleet.html` in the registry's own shape (structured `uplink` / `downlink`
+objects, as `DutInfo["remote"]` has them) and under `overview.html` already
+compressed. `backend/tests/test_demo_anonymiser.py` derives the second from the
+first rather than trusting that whoever edited one remembered the other.
 
 ## Usage
 
@@ -64,12 +76,13 @@ Pages whose content is synthetic in full take no bundle at all:
 ```bash
 python3 build_demo_data.py --page files.html
 python3 build_demo_data.py --page bulletin.html
+python3 build_demo_data.py --page fleet.html
 ```
 
-**Ten of the eleven pages are generated. `index.html` is not** — it is the front
-door, linking the screens and saying which are measured, with no capture behind
-it and no `demo-data` block to fill. Edit it by hand; the generator refuses it by
-name rather than failing on the missing block.
+**Eleven of the twelve pages are generated. `index.html` is not** — it is the
+front door, linking the screens and saying which are measured, with no capture
+behind it and no `demo-data` block to fill. Edit it by hand; the generator
+refuses it by name rather than failing on the missing block.
 
 ### After editing `demo-fixtures.json`
 
@@ -158,9 +171,10 @@ npm test             # behaviour, then navigation
 ```
 
 `verify-behaviour.mjs` loads each shipped page into a real DOM and **clicks its
-own controls**: Send on Serial Console, Rehearse on Firmware with each pairing
-the service refuses, the expand controls on Downloads, the table on SSID
-Capability. `verify-navigation.mjs` clicks every sidebar entry on every page and
+own controls**: Send on Serial Console, each pairing the firmware service
+refuses, the expand controls on Downloads, the table on SSID Capability, and on
+Fleet the four states a card can be in and the two reasons Refresh RSSI is
+refused. `verify-navigation.mjs` clicks every sidebar entry on every page and
 checks each one either opens a file that exists or explains why there is none.
 
 Every assertion in there was a review finding first, and each is the kind
@@ -227,13 +241,21 @@ creates work for whoever has to make it true later.
   the candidate set. The goal is that identifiers are never published — not that
   someone with the source bundle is defeated.
 * **Synthetic**, and kept in `demo-fixtures.json` away from anything measured —
-  the fleet list (a one-DUT bench cannot produce a fleet), the crash lines (the
-  reference capture contained none), the DUT-status tile (connection state is
-  live UI no capture records), and **all** of `files.html` and `bulletin.html`.
+  the fleet list (a one-DUT bench cannot produce a fleet, and a mesh backhaul
+  needs at least two), the crash lines (the reference capture contained none),
+  the DUT-status tile (connection state is live UI no capture records), and
+  **all** of `fleet.html`, `files.html` and `bulletin.html`.
   A file list and a note board are *content*, not measurement, so there is no
   measured claim to keep faithful; and the real ones on this bench are test
   scaffolding carrying colleagues' names, which is not something to publish.
-  Both pages say so in their own provenance line.
+  Each page says so in its own provenance line.
+
+  `fleet.html` is invented for the other reason — there is no capture of a mesh
+  to be faithful to — but its *shape* is not: the fields, both capture
+  directions, which control each card offers and what each refusal says are
+  `FleetSection.tsx` and `FleetCard.tsx`. Its MACs carry the `02:` prefix and its
+  backhaul SSIDs the `DemoAP-*` namespace, the same shapes `Anonymiser` emits, so
+  a real BSSID typed in off the bench is visible rather than plausible.
 * **Matched to an observable contract, not copied line by line.** Five review
   rounds settled where the line sits. These must match the product exactly,
   because a difference misrepresents what it can do: whether a control or
@@ -256,14 +278,17 @@ creates work for whoever has to make it true later.
   or state that was not read first.**
 * **Marked `◇ concept`** — an idea shown for discussion, not shipped
   behaviour. Everything without a chip mirrors what the product actually does.
-  Fleet drag-to-reorder and drag-to-filter on a channel chart are concepts;
-  Console / Close serial / Connect, Re-scan, the band filter, the SSID/BSSID
-  search, click-a-bar-to-preview and Copy are real.
+  Drag-to-reorder on the Overview strip and drag-to-filter on a channel chart
+  are concepts; Console / Close serial / Connect, Refresh RSSI, Capture all,
+  Re-scan, the band filter, the SSID/BSSID search, click-a-bar-to-preview and
+  Copy are real. `fleet.html` carries no chip at all — and reordering is not one
+  of the things it is missing, because the Fleet section does not reorder either.
 
   Re-scan **replays the one captured scan** rather than generating a second set
-  of numbers. Manufacturing measurements to make a button look livelier would
-  erase the line between measured and synthetic that the rest of this section
-  draws.
+  of numbers, and Refresh RSSI / Capture all replay the one backhaul reading for
+  the same reason. Manufacturing measurements to make a button look livelier
+  would erase the line between measured and synthetic that the rest of this
+  section draws.
 
 Bar heights in the channel chart are **raw neighbour counts**, as in
 `SiteSurveyCard.tsx`; the recommendation's `occupancy` is a signal-weighted

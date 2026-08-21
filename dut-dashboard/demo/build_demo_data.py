@@ -1176,6 +1176,12 @@ def build_static(bundle: Path | None, anon: Anonymiser,
     file list or note board to stay faithful to, and the real ones on this bench
     are test scaffolding carrying colleagues' names. Their fixtures are the
     whole payload, and each page says so in its provenance line.
+
+    `fleet.html` lands here for a different reason: a bench with one DUT
+    attached cannot produce a fleet, and a mesh backhaul needs at least two, so
+    there is no capture to be faithful to either. What is not invented is the
+    shape — the fields, both capture directions and every refusal are
+    FleetSection's.
     """
     return {}
 
@@ -1311,7 +1317,8 @@ def inject(page: Path, payload: dict, kept_label: str = "hand-maintained") -> No
 
 #: Which builder fills each page. Module level so the set of generated pages can
 #: be asserted against HAND_MAINTAINED rather than discovered by running it.
-PAGE_BUILDERS = {"overview.html": build, "site-survey.html": build_survey,
+PAGE_BUILDERS = {"overview.html": build, "fleet.html": build_static,
+                 "site-survey.html": build_survey,
                  "wifi-clients.html": build_clients,
                  "files.html": build_static, "bulletin.html": build_static,
                  "downloads.html": build_downloads,
@@ -1327,7 +1334,7 @@ def sync_fixtures() -> int:
     `demo-fixtures.json` is the source of the synthetic data, but the pages ship
     it inlined, so editing the fixture alone changes nothing anyone can open —
     and until the next regeneration the two disagree, with the fixture's version
-    the one that wins. That regeneration needs a bundle for seven of the ten
+    the one that wins. That regeneration needs a bundle for seven of the eleven
     pages, which is a capture, a DUT and a session; requiring it to publish a
     hand-written crash line is why the fleet strip was last edited into the page
     directly, where the next rebuild would have knocked it back.
