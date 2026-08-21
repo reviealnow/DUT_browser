@@ -16,6 +16,7 @@ import { canAccess, NAV_ITEMS, SectionId } from "../components/shell/navigation"
 import { AuthProvider, useAuth } from "../monitoring/AuthContext";
 import { useAppVersion } from "../monitoring/useAppVersion";
 import { DutMonitorProvider } from "../monitoring/DutMonitorContext";
+import { RemoteRssiProvider } from "../monitoring/RemoteRssiContext";
 import { DutMonitorState, DutStatus, useDutMonitor } from "../monitoring/useDutMonitor";
 import { useWifiScan, wifiScanForDut, WifiScanProvider } from "../monitoring/WifiScanContext";
 import { runConnectCaptures } from "../monitoring/siteSurveyStore";
@@ -138,6 +139,10 @@ function AppShellInner() {
   return (
     <DutMonitorProvider value={monitor}>
       <WifiScanProvider>
+      {/* Above both fleet views: the strip and the Fleet section are never
+          mounted together, so a capture started in one must survive the switch
+          to the other. */}
+      <RemoteRssiProvider>
       <div className="app">
         <Sidebar
           active={active}
@@ -260,6 +265,7 @@ function AppShellInner() {
           </main>
         </div>
       </div>
+      </RemoteRssiProvider>
       </WifiScanProvider>
     </DutMonitorProvider>
   );

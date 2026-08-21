@@ -9,10 +9,11 @@ import {
   openSerial,
   RemoteRssiResult,
 } from "../api/rest";
+import { ROLE_RANK, useAuth } from "../monitoring/AuthContext";
 import { runConnectCaptures } from "../monitoring/siteSurveyStore";
 import { DutStatus } from "../monitoring/useDutMonitor";
 import { FleetEntry } from "../monitoring/useFleetMonitor";
-import { RemoteRssiState } from "../monitoring/useRemoteRssi";
+import { RemoteRssiState } from "../monitoring/RemoteRssiContext";
 import { FleetBandBadge } from "./BandRecoSummary";
 
 type StatusMeta = { label: string; pill: "ok" | "idle" | "danger" };
@@ -59,6 +60,15 @@ export default function FleetCard({
   onConsole: () => void;
   onClosed: () => Promise<void>;
 }) {
+  const { role } = useAuth();
+  // Gate each control on the role its own route needs, not on one blanket
+  // check: the serial router is engineer, every /api/fleet route is admin, and
+  // the Serial Console section itself is engineer. A button that can only
+  // answer 403 is worse than no button (the same call DutSwitcher makes).
+  // This was already true of the strip before the Fleet section existed —
+  // guests were being shown Connect, Close serial and Refresh RSSI.
+  const canDrive = ROLE_RANK[role] >= ROLE_RANK[entry.remote ? "admin" : "engineer"];
+  const canOpenConsole = ROLE_RANK[role] >= ROLE_RANK["engineer"];
   const [closing, setClosing] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -232,15 +242,17 @@ export default function FleetCard({
       </button>
       {variant === "grid" && entry.remote ? <FleetLinkDetail rssi={rssi} /> : null}
       <div className="fleet-card-actions">
-        <button
-          type="button"
-          className="btn"
-          title={`Open ${entry.label} serial console`}
-          onClick={onConsole}
-        >
-          Console
-        </button>
-        {entry.serialOpen ? (
+        {canOpenConsole ? (
+          <button
+            type="button"
+            className="btn"
+            title={`Open ${entry.label} serial console`}
+            onClick={onConsole}
+          >
+            Console
+          </button>
+        ) : null}
+        {!canDrive ? null : entry.serialOpen ? (
           <button
             type="button"
             className="btn"
@@ -272,7 +284,7 @@ export default function FleetCard({
             Connect
           </button>
         )}
-        {entry.remote ? (
+        {entry.remote && canDrive ? (
           <button
             type="button"
             className="btn"

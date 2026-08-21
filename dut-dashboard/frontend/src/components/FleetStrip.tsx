@@ -1,6 +1,6 @@
 import { useFleetMonitor } from "../monitoring/useFleetMonitor";
 import { useFleetRecommendations } from "../monitoring/useLastRecommendation";
-import { useRemoteRssi } from "../monitoring/useRemoteRssi";
+import { useRemoteRssi } from "../monitoring/RemoteRssiContext";
 import FleetCard from "./FleetCard";
 
 /**
