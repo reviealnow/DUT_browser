@@ -16,6 +16,7 @@ from app.dut.registry import (
     REMOTE_PORT_MAX,
     REMOTE_PORT_MIN,
     REMOTE_TOKEN_RE,
+    console_token,
 )
 from app.services import auth_service
 from app.services.wifi_clients import (
@@ -131,6 +132,9 @@ def connect_node(dut_id: str, request: Request, _admin: dict = _ADMIN) -> dict:
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # This node may have been captured over a cable at this desk — a supported
+    # thing to do, and a different console from the one just opened.
+    request.app.state.dut_registry.note_console_open(dut_id, "ssh")
     return {"ok": True, "dut": dut_id, "mode": "ssh"}
 
 
@@ -268,6 +272,12 @@ def capture_rssi(dut_id: str, request: Request, _admin: dict = _ADMIN) -> dict:
     context.backhaul_uplink = uplink
     context.backhaul_role = role
     context.backhaul_captured = True
+    # Which console these numbers came from, taken from the transport the
+    # worker actually holds rather than from how the DUT is configured. A
+    # registered node opened on a cable is captured over the cable, and a
+    # reading filed against its Pi would be served back as that Pi's the next
+    # time the node connects — the mislabelling console_id exists to prevent.
+    context.backhaul_console = console_token(context, worker.mode)
 
     downlink = None
     if downlink_iface:

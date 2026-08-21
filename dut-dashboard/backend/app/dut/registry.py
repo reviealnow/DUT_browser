@@ -192,21 +192,32 @@ class DutContext:
     # are otherwise identical (role, uplink and downlink all None) and the card
     # would have to call both of them "Not captured".
     backhaul_captured: bool = False
+    # The console the stored capture was actually read from — see console_token.
+    # Held rather than re-derived, because the transport a reading came from is
+    # not recoverable from the configuration afterwards.
+    backhaul_console: str | None = None
 
 
-def capture_identity(ctx: DutContext) -> str:
-    """Which console this DUT's stored capture was read from.
+def console_token(ctx: DutContext, mode: str | None = None) -> str:
+    """Which console a reading on this DUT came from, or would come from now.
 
-    One rule for both kinds of DUT, published once. A remote node's console is
-    its SSH configuration (`console_id`). A cabled DUT's is the serial device it
-    was last opened on: moving the cable to another device under the same DUT id
-    is the local equivalent of re-pointing a node at another Pi, and the port is
-    the only part of it the app can see.
+    A remote node's console is its SSH configuration (`console_id`). A cabled
+    DUT's is the serial device it was last opened on: moving the cable to
+    another device under the same DUT id is the local equivalent of re-pointing
+    a node at another Pi, and the port is the only part of it the app can see.
+
+    **The transport is not a property of the configuration.** A DUT registered
+    with an SSH console can be opened on a cable at this desk — `/api/serial/open`
+    takes any DUT id and `capture_command` writes to whichever transport the
+    worker actually holds — and then the reading came from the cable, however
+    the DUT is configured. `mode` is the worker's transport where the caller
+    knows it; without it, the configuration is the best guess available.
     """
-    if ctx.remote is None:
-        return _identity_token(["local", ctx.last_serial["port"] if ctx.last_serial else None])
-    # Not None: console_id answers None only for a remote that is None.
-    return console_id(ctx.remote)
+    over_ssh = ctx.remote is not None if mode is None else mode == "ssh"
+    if over_ssh and ctx.remote is not None:
+        # Not None: console_id answers None only for a remote that is None.
+        return console_id(ctx.remote)
+    return _identity_token(["local", ctx.last_serial["port"] if ctx.last_serial else None])
 
 
 def _forget_backhaul(ctx: DutContext) -> None:
@@ -222,6 +233,18 @@ def _forget_backhaul(ctx: DutContext) -> None:
     ctx.backhaul_downlink = None
     ctx.backhaul_role = None
     ctx.backhaul_captured = False
+    ctx.backhaul_console = None
+
+
+def _forget_if_another_console(ctx: DutContext, opening: str) -> None:
+    """Revoke a stored capture when the console being opened is not its own.
+
+    One rule, two callers — a serial open and an SSH connect — because a DUT can
+    be opened either way regardless of how it is configured, and each of those
+    opens is the moment the card starts describing a different device.
+    """
+    if ctx.backhaul_console is not None and ctx.backhaul_console != opening:
+        _forget_backhaul(ctx)
 
 
 class DutRegistry:
@@ -317,19 +340,32 @@ class DutRegistry:
             ctx = self._duts.get(dut_id)
             if ctx is None:
                 return
-            previous = ctx.last_serial["port"] if ctx.last_serial else None
             # The cabled half of the rule `configure_remote` applies to a node:
             # a different serial device is a different console, so whatever was
-            # captured on the old one stops describing this DUT. Only for a DUT
-            # with no remote — a node's identity is its SSH configuration, and
-            # dropping its reading because a baudrate was re-recorded would cost
-            # a serial RPC for nothing. Baud is excluded here for the same
-            # reason it is absent from CONSOLE_IDENTITY_FIELDS: it changes how
+            # captured on the old one stops describing this DUT. This fires for
+            # a registered node too, and must: opening one on a cable at this
+            # desk is a supported thing to do, and the reading it is holding
+            # came from a Pi. Baud is not part of the comparison, for the same
+            # reason it is absent from CONSOLE_IDENTITY_FIELDS — it changes how
             # to talk to a console, not which one it is.
-            if ctx.remote is None and previous != cleaned["port"]:
-                _forget_backhaul(ctx)
+            _forget_if_another_console(ctx, _identity_token(["local", cleaned["port"]]))
             ctx.last_serial = cleaned
             self._save_locked()
+
+    def note_console_open(self, dut_id: str, mode: str) -> None:
+        """A console was opened by a path with nothing else to persist.
+
+        The serial path already goes through `record_serial_params`, which has a
+        port to remember as well. An SSH connect has nothing to store and still
+        changes which console a held reading would be shown against — a node
+        captured over a cable and then reconnected to its Pi must not serve the
+        cable's numbers as the Pi's.
+        """
+        with self._lock:
+            ctx = self._duts.get(dut_id)
+            if ctx is None:
+                return
+            _forget_if_another_console(ctx, console_token(ctx, mode))
 
     def record_mgmt_url(self, dut_id: str, mgmt_url: str) -> None:
         """Set a DUT's management API origin and persist it. Empty clears it."""
@@ -415,8 +451,10 @@ class DutRegistry:
                         "captured": ctx.backhaul_captured,
                         # The client holds captures of its own and needs the
                         # registry's rule for when they stop applying, not a
-                        # second guess at it.
-                        "console_id": capture_identity(ctx),
+                        # second guess at it. The console a reading came from,
+                        # once there is one — which is not always the console
+                        # the configuration implies.
+                        "console_id": ctx.backhaul_console or console_token(ctx),
                         "role": ctx.backhaul_role,
                         "uplink": ctx.backhaul_uplink,
                         "downlink": ctx.backhaul_downlink,
