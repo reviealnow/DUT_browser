@@ -1,6 +1,12 @@
 import { createContext, ReactNode, useCallback, useContext, useState } from "react";
 
-import { captureRemoteRssi, humanizeApiError, RemoteRssiResult } from "../api/rest";
+import {
+  captureRemoteRssi,
+  getDuts,
+  humanizeApiError,
+  RemoteRssiResult,
+  RemoteUplink,
+} from "../api/rest";
 import { FleetEntry } from "./useFleetMonitor";
 
 /**
@@ -75,6 +81,17 @@ export type RemoteRssiState = {
  */
 function identityOf(entry: FleetEntry): string {
   return entry.backhaul.consoleId;
+}
+
+/**
+ * Whether an uplink carries something a root can be identified by.
+ *
+ * The backend names a root's backhaul VAP from a peer BSSID, or from an ESSID
+ * and band. Both are nullable on an uplink it still calls a node's, so "there
+ * is an uplink" is not the same claim as "a root could use it".
+ */
+function usableUplink(uplink: RemoteUplink | null): boolean {
+  return !!uplink && !!(uplink.peer_mac || uplink.essid);
 }
 
 /** What the registry persisted from the last capture, before this one. */
@@ -152,6 +169,12 @@ export function RemoteRssiProvider({ children }: { children: ReactNode }) {
       // different statement from "something was, later than this root" — and
       // only the second is a reason to read a root again. A sentinel of
       // Infinity conflated them and sent a lone root round twice.
+      // Which DUTs already had a usable uplink stored before this sweep began.
+      // A root read at step 0 could use those, so they are not something the
+      // sweep "learned" and are not a reason to read anything twice.
+      const knownAtStart = new Map<string, boolean>(
+        mesh.map((entry) => [entry.id, usableUplink(entry.backhaul.uplink)]),
+      );
       let step = 0;
       const readAt = new Map<string, number>();
       // Every DUT this sweep has already spent a console on, successfully or
@@ -167,11 +190,26 @@ export function RemoteRssiProvider({ children }: { children: ReactNode }) {
         }
       };
 
+      /** Did a DUT whose capture just failed leave a usable uplink behind?
+       *
+       *  One registry read, no console: `/rssi` stores the uplink before it
+       *  runs its second command, so a partial success is visible here. If even
+       *  this fails we have learned nothing about what was learned — fall back
+       *  to the assumption that costs a capture rather than the one that leaves
+       *  a root blind. */
+      const taughtSomething = async (dutId: string) => {
+        try {
+          const fresh = (await getDuts()).find((dut) => dut.id === dutId);
+          return fresh ? usableUplink(fresh.backhaul.uplink) : false;
+        } catch {
+          return true;
+        }
+      };
+
       const capture = async (dutId: string) => {
         const entry = mesh.find((e) => e.id === dutId)!;
         const at = step++;
         attempted.add(dutId);
-        const wasKnownRoot = roles.get(dutId) === "root";
         try {
           const result = await refresh(entry);
           roles.set(dutId, result.role);
@@ -180,21 +218,25 @@ export function RemoteRssiProvider({ children }: { children: ReactNode }) {
           // root's backhaul VAP from a peer BSSID, or from an ESSID and band —
           // and both of those are nullable on an uplink it still calls a node's.
           // A node that reported neither taught the registry nothing.
-          const uplink = result.uplink;
-          if (result.role === "node" && uplink && (uplink.peer_mac || uplink.essid)) {
+          if (usableUplink(result.uplink)) {
             learned(at);
           }
         } catch (err) {
           // A rejected capture does not mean the registry learned nothing:
           // `/rssi` stores the uplink *before* it runs the second command, so a
           // node whose `wlanconfig` failed has already taught it everything a
-          // root needs. We cannot tell that case from a console that never
-          // answered, so assume the useful one — the cost of being wrong is one
-          // extra capture, and the cost of the other assumption is a root left
-          // holding a downlink read while it was still blind. A root is the
-          // exception: its capture has no uplink to store, so a failed one
-          // cannot have taught the registry anything.
-          if (!wasKnownRoot) {
+          // root needs — while one whose console never answered taught it
+          // nothing. Those were indistinguishable from here, so this assumed
+          // the useful one and every failure cost some root a second capture.
+          //
+          // They are distinguishable now: the registry publishes each DUT's
+          // stored uplink for every DUT, so ask it. That is one HTTP GET and no
+          // console at all — the reason to bother is that the alternative is
+          // two synchronous serial RPCs and another pause of a DUT's sysmon
+          // parsing, for a clue that may not exist. Only a *new* uplink counts:
+          // one this DUT already had before the sweep was available to every
+          // root read in it, including those read first.
+          if (!knownAtStart.get(dutId) && (await taughtSomething(dutId))) {
             learned(at);
           }
           // Sequential, but not fragile: a closed console or a DUT removed
