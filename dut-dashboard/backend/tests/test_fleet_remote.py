@@ -811,8 +811,12 @@ class LocalDutCaptureTests(unittest.TestCase):
                 request = mock.Mock()
                 request.app.state.dut_registry = registry
 
-                capture_rssi("mesh1", request)
+                result = capture_rssi("mesh1", request)
 
+                self.assertEqual(
+                    result["console_id"], registry_mod.console_token(context, "serial"),
+                    "the answer must name the console that answered, not the one asked about",
+                )
                 over_the_cable = registry.describe()[0]["backhaul"]["console_id"]
                 self.assertNotEqual(
                     over_the_cable, registry_mod.console_id(REMOTE),
@@ -861,6 +865,42 @@ class LocalDutCaptureTests(unittest.TestCase):
                 self.assertIsNone(published["role"], "the Pi's reading served as the cable's")
                 self.assertIsNone(published["uplink"])
                 self.assertFalse(published["captured"])
+
+    def test_a_console_that_changes_mid_capture_stores_nothing(self) -> None:
+        """Two commands take seconds, and the console can move between them.
+
+        The reading is filed under the console it started on, so if that stops
+        being this DUT's console before it is stored, the registry would serve
+        one device's numbers as another's — the identity handed straight back
+        to the wrong card, rather than protecting it. Nothing partial is kept.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            with _registries_under(Path(directory)) as make_registry:
+                registry = make_registry()
+                context = registry.register_dut("bench", "Bench AP")
+                registry.record_serial_params("bench", "/dev/cu.first", 115200)
+
+                def capture(cmd: str, *args, **kwargs) -> str:
+                    if cmd.startswith("iwconfig"):
+                        # Somebody re-cables and reopens the DUT while this runs.
+                        registry.record_serial_params("bench", "/dev/cu.second", 115200)
+                        return IWCONFIG_AP6420
+                    return "ADDR AID CHAN\n"
+
+                context.serial_worker = mock.Mock()
+                context.serial_worker.mode = "serial"
+                context.serial_worker.capture_command.side_effect = capture
+                request = mock.Mock()
+                request.app.state.dut_registry = registry
+
+                with self.assertRaises(HTTPException) as caught:
+                    capture_rssi("bench", request)
+
+                self.assertEqual(caught.exception.status_code, 409)
+                published = registry.describe()[0]["backhaul"]
+                self.assertFalse(published["captured"], "a reading kept from a console that moved")
+                self.assertIsNone(published["uplink"])
+                self.assertIsNone(published["role"])
 
     def test_an_ssh_reading_survives_reconnecting_to_the_same_pi(self) -> None:
         """The reset must cost a capture only when the console really changed;

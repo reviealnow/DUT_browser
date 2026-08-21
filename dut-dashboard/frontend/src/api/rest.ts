@@ -401,6 +401,11 @@ export type RemoteDownlink = {
 export type RemoteRssiResult = {
   dut: string;
   applicable: boolean;
+  /** The console this reading came from, as the backend filed it — not the one
+   *  the caller asked about. A DUT's transport can change between the two (a
+   *  node connected to its Pi after being read on a cable), and a client that
+   *  assumes otherwise throws away its own successful capture. */
+  console_id: string;
   /** True for any capture that read the DUT's VAPs, so a card can say "no
    *  backhaul found here" instead of "not captured". See `DutInfo["backhaul"]`. */
   captured: boolean;

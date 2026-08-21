@@ -202,10 +202,32 @@ def capture_rssi(dut_id: str, request: Request, _admin: dict = _ADMIN) -> dict:
         # have said so, which is a field of a remote node's configuration.
         return {
             "dut": dut_id, "applicable": False, "captured": False,
-            "role": None, "uplink": None, "downlink": None,
+            "console_id": console_token(context), "role": None,
+            "uplink": None, "downlink": None,
         }
 
     worker = context.serial_worker
+    # Which console this reading is coming from, settled before the first
+    # command rather than after the last: the worker holds one transport for
+    # the whole call, while the configuration around it can be edited under us.
+    console = console_token(context, worker.mode)
+
+    def still_the_same_console() -> None:
+        """Refuse rather than file this reading against a console it never ran on.
+
+        An admin can re-point this node, or open it somewhere else, while the
+        two commands are in flight. Then `configure_remote` clears whatever was
+        stored — and this capture would write a fresh reading straight back
+        under the new console's name, which is the one thing the identity is
+        for. Nothing partial is kept: the request fails and the operator
+        repeats it against a console that stopped moving.
+        """
+        if console_token(context, worker.mode) != console:
+            raise HTTPException(
+                status_code=409,
+                detail="This DUT's console changed while the capture ran; try again",
+            )
+
     try:
         links = parse_iwconfig_links(worker.capture_command("iwconfig"))
     except RuntimeError as exc:
@@ -269,6 +291,7 @@ def capture_rssi(dut_id: str, request: Request, _admin: dict = _ADMIN) -> dict:
     # console that dies between the two commands must not cost a reading that
     # succeeded — the request still fails, but the fresh value is kept rather
     # than the card being left on a stale one.
+    still_the_same_console()
     context.backhaul_uplink = uplink
     context.backhaul_role = role
     context.backhaul_captured = True
@@ -277,7 +300,7 @@ def capture_rssi(dut_id: str, request: Request, _admin: dict = _ADMIN) -> dict:
     # registered node opened on a cable is captured over the cable, and a
     # reading filed against its Pi would be served back as that Pi's the next
     # time the node connects — the mislabelling console_id exists to prevent.
-    context.backhaul_console = console_token(context, worker.mode)
+    context.backhaul_console = console
 
     downlink = None
     if downlink_iface:
@@ -299,11 +322,18 @@ def capture_rssi(dut_id: str, request: Request, _admin: dict = _ADMIN) -> dict:
             "peers": [_peer(c) for c in parse_wlanconfig_list(table, downlink_iface)],
         }
 
+    still_the_same_console()
     context.backhaul_downlink = downlink
     return {
         "dut": dut_id,
         "applicable": True,
         "captured": True,
+        # The console this reading came from, answered rather than left for the
+        # caller to snapshot before the request. A client that assumes the
+        # console it asked about is the one that answered files a capture taken
+        # after a transport switch under the identity from before it, and then
+        # discards its own successful reading as somebody else's.
+        "console_id": console,
         "role": role,
         "uplink": uplink,
         "downlink": downlink,
