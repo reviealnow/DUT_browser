@@ -41,7 +41,11 @@ export default function FleetSection({
   // The capture routes are admin-only, so an engineer is offered the view and
   // not a button that could only answer 403.
   const canCapture = role === "admin";
-  const meshOpen = fleet.filter((entry) => entry.remote?.isMesh && entry.serialOpen);
+  // Every DUT a backhaul capture applies to, cabled ones included — the two
+  // commands run over a serial console exactly as they do over SSH, and the
+  // only DUT that can say "not me" is a remote node an admin declared
+  // standalone. `applicable` is the registry's own word for that.
+  const meshOpen = fleet.filter((entry) => entry.backhaul.applicable && entry.serialOpen);
 
   const captureAll = useCallback(() => {
     setCapturingAll(true);
@@ -79,8 +83,8 @@ export default function FleetSection({
               disabled={capturingAll || meshOpen.length === 0}
               title={
                 meshOpen.length === 0
-                  ? "No mesh node has a console open"
-                  : "Capture every mesh node in turn — nodes first, then roots"
+                  ? "No DUT with a backhaul to measure has a console open"
+                  : "Capture every DUT in turn — nodes first, then roots"
               }
             >
               {capturingAll ? "Capturing…" : `Capture all (${meshOpen.length})`}
