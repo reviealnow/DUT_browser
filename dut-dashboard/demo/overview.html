@@ -181,12 +181,16 @@ button{font:inherit; color:inherit; cursor:pointer}
       <span class="pill pill-demo">● DEMO — canned data, no DUT attached</span>
       <span class="pill pill-muted" id="dutPill">DemoDUT-6E</span>
       <!-- admin, not engineer, and the strip below is why. FleetCard gates each
-           control on the role its own route needs: Console is engineer, but on a
-           REMOTE node Connect, Close serial and Refresh RSSI are admin, because
-           every /api/fleet route is. Portraying an engineer while drawing those
-           three would be showing controls the product hides from the role this
-           page claims to be. Fleet (fleet.html) is shown as admin for the same
-           reason and states the rule in full. -->
+           control on the role its own route needs: Console is engineer, and
+           Connect / Close serial are engineer on a cabled DUT but admin on a
+           REMOTE node. Refresh RSSI is admin on EVERY card — the capture is
+           /api/fleet whichever console it runs on, which is why FleetCard gives
+           it its own `canCapture` instead of letting it borrow `canDrive`. So
+           the strip would need this badge even if every DUT on it were cabled;
+           remoteness is not what settles it. Portraying an engineer while
+           drawing those controls would be showing what the product hides from
+           the role this page claims to be. Fleet (fleet.html) is shown as admin
+           for the same reason and states the rule in full. -->
       <span class="pill pill-admin" data-role="admin">admin</span>
     </header>
 
@@ -546,9 +550,11 @@ $("provenance").innerHTML =
   + `commit (see <b>demo/README_demo_kit.md</b>). The fleet list and crash lines are `
   + `synthetic — a one-DUT bench cannot produce a fleet, the reference capture had no `
   + `crash lines, and connection state is live UI no capture records. This page is shown as an `
-  + `<b>admin</b>: FleetCard gates each control on the role its own route needs, and on a remote `
-  + `node <b>Connect</b> / <b>Close serial</b> / <b>Refresh RSSI</b> are admin — <b>Console</b> is `
-  + `engineer, and a guest gets the strip with none of the buttons. The strip compresses a backhaul `
+  + `<b>admin</b>: FleetCard gates each control on the role its own route needs — <b>Console</b> is `
+  + `engineer, <b>Connect</b> / <b>Close serial</b> are engineer on a cabled DUT and admin on a `
+  + `remote node, and <b>Refresh RSSI</b> is admin on every card, because the capture is `
+  + `<span style="font-family:ui-monospace,Menlo,monospace">/api/fleet</span> whichever console it `
+  + `runs on. A guest gets the strip with none of the buttons. The strip compresses a backhaul `
   + `capture into two lines; <b>fleet.html</b> is the same six DUTs with the whole of it. Chips `
   + `marked <span class="concept">◇ concept</span> are ideas for discussion, not shipped behaviour.`;
 
