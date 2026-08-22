@@ -23,7 +23,7 @@ from app.api.workspace_api import router as workspace_router
 from app.config import ANALYZER_OUTPUT_DIR, FRONTEND_DIST, LOG_DIR, SURVEY_SNAPSHOT_DIR, UPLOAD_DIR
 from app.db.workspace import init_db
 from app.dut.registry import DEFAULT_DUT_ID, DutContext, DutRegistry, build_default_registry
-from app.services import auth_service
+from app.services import api_consumers, auth_service
 from app.services.analyzer_service import AnalyzerService
 from app.services.capability_report import build_capability_report
 from app.services.site_survey import channel_recommendation, get_site_survey
@@ -59,6 +59,31 @@ app.include_router(files_router, dependencies=[_ENGINEER])
 app.include_router(bulletin_router, dependencies=[_ENGINEER])
 app.include_router(settings_router)
 app.include_router(workspace_router, dependencies=[_ENGINEER])
+
+
+@app.middleware("http")
+async def note_api_consumers(request: Request, call_next):
+    """Write down the first time each caller asks for a watched path.
+
+    Here because deciding whether a published response shape may change means
+    knowing who reads it, and nothing else in the stack records that: the paths
+    in question need no session, and uvicorn's access log has the client address
+    but not the User-Agent. See `services/api_consumers` for what it keeps and
+    why it keeps so little.
+
+    Recorded before the handler runs, so a caller is named even when its request
+    fails, and inside a `try` that swallows nothing but its own faults: an
+    instrument that can break the thing it measures is worse than no instrument.
+    """
+    try:
+        api_consumers.note_request(
+            request.url.path,
+            request.client.host if request.client else None,
+            request.headers.get("user-agent", ""),
+        )
+    except Exception:  # noqa: BLE001 - never let the probe break a request
+        logging.getLogger(__name__).exception("api-consumer probe failed")
+    return await call_next(request)
 
 
 @app.on_event("startup")
