@@ -141,7 +141,11 @@ tbody tr.file-row:hover{background:var(--bg)}
       </div>
       <span class="spacer"></span>
       <span class="pill pill-demo">● DEMO — synthetic workspace content</span>
-      <span class="pill pill-muted">engineer</span>
+      <!-- admin, not engineer: the sidebar beside this page draws Upgrade
+           Firmware, which navigation.ts shows to admin only, so an engineer
+           badge here portrayed a session that cannot exist. The kit shows one
+           admin session throughout — overview.html states the rule in full. -->
+      <span class="pill pill-admin" data-role="admin">admin</span>
     </header>
 
     <div class="content">

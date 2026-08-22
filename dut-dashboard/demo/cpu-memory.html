@@ -117,6 +117,13 @@ button{font:inherit; color:inherit; cursor:pointer}
       <span class="spacer"></span>
       <span class="pill pill-demo">● DEMO — canned data, no DUT attached</span>
       <span class="pill pill-muted" id="dutPill">DemoDUT-5G</span>
+      <!-- The kit shows one admin session throughout; overview.html states the
+           rule in full. This page carried no role pill at all, which is not "no
+           claim": the product omits the pill only for the anonymous browser
+           (AppShell renders it under `{user ? …}`), and that browser is a guest,
+           who sees none of Serial Console, Downloads, Files, Bulletin, Settings
+           or Upgrade Firmware in the sidebar drawn beside it. -->
+      <span class="pill pill-admin" data-role="admin">admin</span>
     </header>
 
     <div class="content">

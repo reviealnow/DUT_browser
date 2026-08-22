@@ -174,8 +174,11 @@ npm test             # behaviour, then navigation
 own controls**: Send on Serial Console, each pairing the firmware service
 refuses, the expand controls on Downloads, the table on SSID Capability, and on
 Fleet the four states a card can be in and the two reasons Refresh RSSI is
-refused. `verify-navigation.mjs` clicks every sidebar entry on every page and
-checks each one either opens a file that exists or explains why there is none.
+refused. `verify-navigation.mjs` clicks every sidebar entry on every page,
+checks each one either opens a file that exists or explains why there is none,
+and checks the whole sidebar against `navigation.ts` — every entry the page's
+role badge can see, and no entry it cannot, in the product's order. See *A page
+portrays one role*.
 
 Every assertion in there was a review finding first, and each is the kind
 reading the source did not catch — a control that existed but did the wrong
@@ -202,6 +205,10 @@ A harness that cannot fail is worth nothing, so check that it can — two ways:
 npm run navigation   # "still a button, so it does not navigate", exit 1
 # 2. add a call to an undefined function to any page's script
 npm run behaviour    # "threw nothing while all that ran" fails, exit 1
+# 3. put any page's role badge back to engineer, or delete it
+npm run navigation   # "badged engineer but draws Upgrade Firmware", exit 1
+# 4. delete one sidebar entry, or move one out of NAV_ITEMS order
+npm run navigation   # "sidebar is …; admin sees …", exit 1
 ```
 
 ## What is real and what is not
@@ -268,18 +275,42 @@ creates work for whoever has to make it true later.
   durations, focus placement, animation, keyboard shortcuts that change no
   outcome, spacing and non-load-bearing microcopy.
 
-  **A page portrays one role, and its control set has to be that role's.** The
-  app has three, and a section renders different buttons for each, so a screen
-  showing a control its own role pill could not use is over-showing as surely as
-  one inventing a feature. Overview and Fleet are shown as **admin**, because
-  `FleetCard` gates per route — `Console` is engineer, but on a remote node
-  `Connect`, `Close serial` and `Refresh RSSI` are admin, since every
-  `/api/fleet` route is. Overview said *engineer* over a strip full of those
-  three for as long as the strip has existed; the review of #130 is where the
-  product's own gating caught up, and the demo with it. Files, Bulletin and
-  Downloads portray engineer, which is what their sections require, and Firmware
-  says admin. Both pages state their rule in the provenance line, and
-  `verify-behaviour.mjs` checks the pill against the buttons actually drawn.
+  **A page portrays one role, and everything on it has to be that role's** — the
+  controls it draws *and* the sidebar drawn beside them. The app has three roles,
+  a section renders different buttons for each, and `Sidebar.tsx` filters the nav
+  by the same role the topbar pill names, so a screen showing anything its own
+  pill could not reach is over-showing as surely as one inventing a feature.
+
+  Every screen in the kit badges **admin**, and that is forced rather than
+  chosen. Every page draws **Upgrade Firmware** in its sidebar, `minRole:
+  "admin"`, which no engineer ever sees; Overview and Fleet go further and draw
+  `Connect`, `Close serial` and `Refresh RSSI` on remote cards, and every
+  `/api/fleet` route is admin. (`Console` is engineer — `FleetCard` gates per
+  route, not per card.)
+
+  Both halves were wrong before this was written down. Overview said *engineer*
+  over a strip full of admin buttons for as long as the strip has existed — the
+  review of #130 is where the product's own gating caught up and the demo with
+  it — Files, Bulletin and Downloads said *engineer* over an admin sidebar, and
+  the remaining five carried no role pill at all. An absent pill is not "no
+  claim": the product omits it only for the anonymous browser (`AppShell` renders
+  it under `{user ? …}`), and that browser is a guest, who sees neither those
+  buttons nor half that sidebar.
+
+  This costs the kit any view of an engineer's dashboard. That is a real loss and
+  the honest price: a second, engineer-badged copy of a page is a *different*
+  screen, and inventing one is what this whole section forbids.
+
+  Two verifiers hold it, and they check different things. `verify-behaviour.mjs`
+  compares the pill against the buttons a card actually draws;
+  `verify-navigation.mjs` compares it against the sidebar, reading `ROLE_RANK`
+  and every entry's `label` and `minRole` **out of the product's own source** and
+  checking **both directions** — no page may draw an entry its badge cannot see,
+  and every page must draw *every* entry that badge can see, in `NAV_ITEMS`
+  order. The second direction is the one a page fails silently, and had: Fleet
+  was missing from every sidebar in the kit until this PR, because P69 dropped
+  the nav entry when it folded the fleet into the Overview strip, and nothing
+  noticed when the product brought it back.
 
   The failure mode runs **both ways**, and only one of them has a chip.
   Over-showing: a preview offered for a type the product will not render, a
