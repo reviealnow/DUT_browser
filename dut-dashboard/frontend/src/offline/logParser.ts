@@ -1,3 +1,21 @@
+/**
+ * Reading a sysMon capture in the browser.
+ *
+ * **This is the third parser of this log format, and the other two are in
+ * Python.** `= Test Time: N, <timestamp> =` is written by
+ * `dut-dashboard/scripts/sysMon.sh`, and read by:
+ *
+ *   - `backend/app/parser/sysmon_parser.py` (`SNAPSHOT_RE`) — live telemetry
+ *   - `tools/analyzer3.py` (`ts_pattern`) — offline analysis into PNGs
+ *   - this file — the same log, with no backend and no DUT
+ *
+ * The duplication is deliberate: this feature exists precisely so a log can be
+ * read with nothing running. Silent divergence between the three is not, and
+ * has already cost one defect — see `snapshotMarker` below. **Change the format
+ * and you are changing three parsers**; each of the three names the other two
+ * so the next person finds them.
+ */
+
 export type FieldKey =
   | "testNumber"
   | "testTimestamp"
@@ -53,38 +71,62 @@ export const NUMERIC_LOG_FIELDS = LOG_FIELDS.filter(
   (field) => !["testNumber", "testTimestamp", "consoleTimestamp"].includes(field.key),
 );
 
+/**
+ * A console line may carry a capture tool's own `[…]` timestamp in front of it.
+ *
+ * The dashboard's own logger writes lines verbatim (`SerialWorker._write_log_line`)
+ * so its captures have no prefix, and the excerpt shipped in the demo kit reads
+ * `MemFree:          371328 kB`. Something else — `screen -L`, a minicom with
+ * timestamping — does prefix, which is why the snapshot marker has always
+ * tolerated one.
+ *
+ * **Optional, and the same rule for every field.** The five memory fields
+ * required the prefix while the marker made it optional, so on a log this
+ * repository actually produces the marker matched and every memory value came
+ * back null: the chart and the table showed N/A for MemFree, MemAvailable,
+ * Slab, SReclaimable and SUnreclaim, on every real capture.
+ */
+const LINE_START = String.raw`^(?:\[[^\]]*\]\s*)?`;
+
+/** Anchored at a line start so a value cannot be read out of prose. */
+function fieldPattern(name: string, value: string): RegExp {
+  return new RegExp(`${LINE_START}${name}:\\s*${value}`, "m");
+}
+
 function readNumber(block: string, pattern: RegExp): number | null {
   const match = block.match(pattern);
   return match ? Number(match[1]) : null;
 }
 
 export function parseLog(text: string): { rows: LogRow[]; missing: number } {
-  const marker = /^(?:\[([^\]]+)\]\s*)?=\s*Test Time:\s*(\d+)\s*,\s*([^=\r\n]+?)\s*=\s*$/gm;
+  const snapshotMarker = new RegExp(
+    `${LINE_START}=\\s*Test Time:\\s*(\\d+)\\s*,\\s*([^=\\r\\n]+?)\\s*=\\s*$`,
+    "gm",
+  );
   const starts: Array<{ index: number; consoleTimestamp: string | null; sourceNumber: number; testTimestamp: string }> = [];
   let match: RegExpExecArray | null;
-  while ((match = marker.exec(text))) {
+  while ((match = snapshotMarker.exec(text))) {
+    const prefix = /^\[([^\]]*)\]/.exec(match[0]);
     starts.push({
       index: match.index,
-      consoleTimestamp: match[1]?.trim() ?? null,
-      sourceNumber: Number(match[2]),
-      testTimestamp: match[3].trim(),
+      consoleTimestamp: prefix ? prefix[1].trim() : null,
+      sourceNumber: Number(match[1]),
+      testTimestamp: match[2].trim(),
     });
   }
 
-  let expected = starts.length ? Math.min(...starts.map((start) => start.sourceNumber)) : 1;
-  let segmentStarted = false;
-  const selected = starts.filter((start) => {
-    if (segmentStarted && start.sourceNumber === 1 && expected > 2) {
-      expected = 2;
-      return true;
-    }
-    if (start.sourceNumber !== expected) return false;
-    segmentStarted = true;
-    expected += 1;
-    return true;
-  });
-
-  const rows = selected.map((start): LogRow => {
+  // Every marker is a snapshot the DUT wrote, so every marker is a row.
+  //
+  // This used to keep only a strictly consecutive run starting at the file's
+  // lowest number, which silently dropped real data twice over: a log whose
+  // numbers went 1, 3, 4 — one dropped serial line is enough — kept only the
+  // first, and a capture that began mid-run at 50, 51 and then saw sysMon
+  // restart at 1 lost the whole pre-restart segment. The user saw fewer points
+  // than the file contained, with nothing saying so.
+  //
+  // A number going backwards means sysMon restarted; that is a new segment, not
+  // a reason to discard either side of it.
+  const rows = starts.map((start): LogRow => {
     const nextStart = starts.find((candidate) => candidate.index > start.index);
     const block = text.slice(start.index, nextStart?.index ?? text.length);
     return {
@@ -95,11 +137,11 @@ export function parseLog(text: string): { rows: LogRow[]; missing: number } {
       cpu1: readNumber(block, /CPU1:.*?([\d.]+)%\s+idle/),
       cpu2: readNumber(block, /CPU2:.*?([\d.]+)%\s+idle/),
       cpu3: readNumber(block, /CPU3:.*?([\d.]+)%\s+idle/),
-      memFree: readNumber(block, /\]\s+MemFree:\s+(\d+)\s+kB/),
-      memAvailable: readNumber(block, /\]\s+MemAvailable:\s+(\d+)\s+kB/),
-      slab: readNumber(block, /\]\s+Slab:\s+(\d+)\s+kB/),
-      sReclaimable: readNumber(block, /\]\s+SReclaimable:\s+(\d+)\s+kB/),
-      sUnreclaim: readNumber(block, /\]\s+SUnreclaim:\s+(\d+)\s+kB/),
+      memFree: readNumber(block, fieldPattern("MemFree", String.raw`(\d+)\s+kB`)),
+      memAvailable: readNumber(block, fieldPattern("MemAvailable", String.raw`(\d+)\s+kB`)),
+      slab: readNumber(block, fieldPattern("Slab", String.raw`(\d+)\s+kB`)),
+      sReclaimable: readNumber(block, fieldPattern("SReclaimable", String.raw`(\d+)\s+kB`)),
+      sUnreclaim: readNumber(block, fieldPattern("SUnreclaim", String.raw`(\d+)\s+kB`)),
       conntrack: readNumber(block, /Total Conntrack Connections:\s*(\d+)/),
       tcp: readNumber(block, /Active TCP Sockets:\s*(\d+)/),
       udp: readNumber(block, /Active UDP Sockets:\s*(\d+)/),
@@ -109,8 +151,25 @@ export function parseLog(text: string): { rows: LogRow[]; missing: number } {
       staTotal: readNumber(block, /Connected STA Summary[^\r\n]*?Total:\s*(\d+)/),
     };
   });
+  // Gaps in what this log *does* report, not the distance between it and the
+  // widest schema this parser knows.
+  //
+  // Counting every null said "39 missing values" about three complete captures.
+  // Two reasons, neither of them damage: `consoleTimestamp` is absent from every
+  // log the dashboard writes itself, because its logger does not prefix lines;
+  // and four fields — conntrack, the two socket counts and the STA summary —
+  // have no producer anywhere in this repository. `scripts/sysMon.sh` does not
+  // emit them and neither Python parser knows them, so a DUT running a different
+  // vintage of the script may report them and the one here never will.
+  //
+  // A field no snapshot in this file carries is this log's shape. A field some
+  // snapshots carry and others do not is a gap, and that is what a reader is
+  // being told about.
+  const reported = LOG_FIELDS.filter((field) =>
+    rows.some((row) => row[field.key] !== null),
+  );
   const missing = rows.reduce(
-    (total, row) => total + LOG_FIELDS.filter((field) => row[field.key] === null).length,
+    (total, row) => total + reported.filter((field) => row[field.key] === null).length,
     0,
   );
   return { rows, missing };
