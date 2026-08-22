@@ -206,23 +206,26 @@ def capture_rssi(dut_id: str, request: Request, _admin: dict = _ADMIN) -> dict:
             "uplink": None, "downlink": None,
         }
 
+    registry = request.app.state.dut_registry
     worker = context.serial_worker
     # Which console this reading is coming from, settled before the first
     # command rather than after the last: the worker holds one transport for
     # the whole call, while the configuration around it can be edited under us.
     console = console_token(context, worker.mode)
 
-    def still_the_same_console() -> None:
-        """Refuse rather than file this reading against a console it never ran on.
+    def commit(store) -> None:
+        """Write a capture's fields, or refuse if the console moved under it.
 
         An admin can re-point this node, or open it somewhere else, while the
-        two commands are in flight. Then `configure_remote` clears whatever was
-        stored — and this capture would write a fresh reading straight back
-        under the new console's name, which is the one thing the identity is
-        for. Nothing partial is kept: the request fails and the operator
-        repeats it against a console that stopped moving.
+        two commands are in flight. Then the open revokes whatever was stored —
+        and a capture that wrote afterwards would put a reading straight back
+        under the name of a console that has gone, which is the one thing the
+        identity is for. The registry does the test and the write together
+        under its own lock; testing here and writing after would leave exactly
+        the gap this is about. Nothing partial is kept: the request fails and
+        the operator repeats it against a console that stopped moving.
         """
-        if console_token(context, worker.mode) != console:
+        if not store():
             raise HTTPException(
                 status_code=409,
                 detail="This DUT's console changed while the capture ran; try again",
@@ -242,7 +245,7 @@ def capture_rssi(dut_id: str, request: Request, _admin: dict = _ADMIN) -> dict:
             status_code=400,
             detail="Console reported no wireless interfaces; try again in a moment",
         )
-    peer_bssids, peer_networks = _known_uplinks(request.app.state.dut_registry, dut_id)
+    peer_bssids, peer_networks = _known_uplinks(registry, dut_id)
     found = classify_backhaul(links, peer_bssids, peer_networks)
 
     uplink = None
@@ -291,16 +294,12 @@ def capture_rssi(dut_id: str, request: Request, _admin: dict = _ADMIN) -> dict:
     # console that dies between the two commands must not cost a reading that
     # succeeded — the request still fails, but the fresh value is kept rather
     # than the card being left on a stale one.
-    still_the_same_console()
-    context.backhaul_uplink = uplink
-    context.backhaul_role = role
-    context.backhaul_captured = True
-    # Which console these numbers came from, taken from the transport the
-    # worker actually holds rather than from how the DUT is configured. A
-    # registered node opened on a cable is captured over the cable, and a
-    # reading filed against its Pi would be served back as that Pi's the next
-    # time the node connects — the mislabelling console_id exists to prevent.
-    context.backhaul_console = console
+    # Filed under the console the worker actually holds rather than under how
+    # the DUT is configured. A registered node opened on a cable is captured
+    # over the cable, and a reading filed against its Pi would be served back as
+    # that Pi's the next time the node connects — the mislabelling console_id
+    # exists to prevent.
+    commit(lambda: registry.store_backhaul_reading(dut_id, console, worker.mode, uplink, role))
 
     downlink = None
     if downlink_iface:
@@ -322,8 +321,7 @@ def capture_rssi(dut_id: str, request: Request, _admin: dict = _ADMIN) -> dict:
             "peers": [_peer(c) for c in parse_wlanconfig_list(table, downlink_iface)],
         }
 
-    still_the_same_console()
-    context.backhaul_downlink = downlink
+    commit(lambda: registry.store_backhaul_downlink(dut_id, console, worker.mode, downlink))
     return {
         "dut": dut_id,
         "applicable": True,

@@ -217,7 +217,8 @@ def console_token(ctx: DutContext, mode: str | None = None) -> str:
     if over_ssh and ctx.remote is not None:
         # Not None: console_id answers None only for a remote that is None.
         return console_id(ctx.remote)
-    return _identity_token(["local", ctx.last_serial["port"] if ctx.last_serial else None])
+    port = ctx.last_serial["port"] if ctx.last_serial else None
+    return _identity_token(["local", port])
 
 
 def _forget_backhaul(ctx: DutContext) -> None:
@@ -351,6 +352,50 @@ class DutRegistry:
             _forget_if_another_console(ctx, _identity_token(["local", cleaned["port"]]))
             ctx.last_serial = cleaned
             self._save_locked()
+
+    def _holding(self, dut_id: str, console: str, mode: str | None) -> DutContext | None:
+        """The context, iff `console` is still the console behind this DUT.
+
+        Call holding the lock. Separate from the writes it guards only so the
+        two of them can share it — the whole point is that the check and the
+        write are one operation.
+        """
+        ctx = self._duts.get(dut_id)
+        if ctx is None or console_token(ctx, mode) != console:
+            return None
+        return ctx
+
+    def store_backhaul_reading(
+        self, dut_id: str, console: str, mode: str | None, uplink: dict | None, role: str | None
+    ) -> bool:
+        """Commit a capture's uplink and role. False when the console moved.
+
+        Under the registry's lock, with every console-open hook, because a
+        capture takes seconds and a console can be opened in the middle of one.
+        Testing the console and then writing outside the lock is not a guard: a
+        console opened between the two revokes the old reading and this write
+        puts it straight back, still labelled with the console that has gone.
+        """
+        with self._lock:
+            ctx = self._holding(dut_id, console, mode)
+            if ctx is None:
+                return False
+            ctx.backhaul_uplink = uplink
+            ctx.backhaul_role = role
+            ctx.backhaul_captured = True
+            ctx.backhaul_console = console
+            return True
+
+    def store_backhaul_downlink(
+        self, dut_id: str, console: str, mode: str | None, downlink: dict | None
+    ) -> bool:
+        """Commit a capture's child list. False when the console moved."""
+        with self._lock:
+            ctx = self._holding(dut_id, console, mode)
+            if ctx is None:
+                return False
+            ctx.backhaul_downlink = downlink
+            return True
 
     def note_console_open(self, dut_id: str, mode: str) -> None:
         """A console was opened by a path with nothing else to persist.
