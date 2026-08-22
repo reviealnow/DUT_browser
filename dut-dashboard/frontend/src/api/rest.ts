@@ -35,6 +35,25 @@ export function humanizeApiError(error: unknown): string {
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed.detail === "string") {
       detail = parsed.detail;
+    } else if (parsed && Array.isArray(parsed.detail)) {
+      // FastAPI answers a body that fails a pydantic validator with 422 and a
+      // *list*: [{loc:["body","host"], msg:"Value error, must contain only …"}].
+      // Only `detail`-as-a-string was unwrapped, so those arrived as the raw
+      // JSON this function promises never to show — visible the moment a form
+      // posted a typed body (the fleet-node registration is the first).
+      const parts = parsed.detail
+        .map((item: { loc?: unknown[]; msg?: unknown }) => {
+          const field = Array.isArray(item?.loc) ? item.loc[item.loc.length - 1] : null;
+          // "Value error, " is pydantic's own prefix around the validator's
+          // message; the message underneath is the one written for a reader.
+          const msg =
+            typeof item?.msg === "string" ? item.msg.replace(/^Value error,\s*/, "") : "";
+          return typeof field === "string" && msg ? `${field}: ${msg}` : msg;
+        })
+        .filter((part: string) => part.length > 0);
+      if (parts.length > 0) {
+        detail = parts.join("; ");
+      }
     }
   } catch {
     // Not JSON — keep the raw message as the fallback detail.
@@ -310,13 +329,142 @@ export async function getWifiClientStats(mac: string, dutId = DEFAULT_DUT_ID): P
 export type DutInfo = {
   id: string;
   label: string;
-  mode: "serial" | "replay" | null;
+  mode: "serial" | "replay" | "ssh" | null;
   serial_open: boolean;
   log_path: string | null;
   removable: boolean;
   /** Last successful serial-open params, remembered for one-click Connect. */
   last_serial: { port: string; baudrate: number } | null;
+  /** Where this DUT's console lives, or null when it is cabled to this
+   *  machine. Connecting and disconnecting it are SSH operations; the backhaul
+   *  capture is not, which is why the capture is not nested in here. */
+  remote: {
+    host: string;
+    port: number;
+    device: string;
+    is_mesh: boolean;
+  } | null;
+  /** The last backhaul capture, for every DUT — a cabled DUT is frequently the
+   *  root of the mesh, and its measurement needs somewhere to be served from. */
+  backhaul: {
+    /** Whether asking is meaningful. False only where an admin declared a
+     *  remote node standalone; nothing declares a cabled DUT either way. */
+    applicable: boolean;
+    /** Whether a capture ever parsed this DUT's VAPs. Tells "measured, and
+     *  there is no backhaul here" from "nobody has measured this yet" — with
+     *  role, uplink and downlink all null, the two look identical. */
+    captured: boolean;
+    /** Opaque name for the console these readings were taken on. Changes when
+     *  the registry decides a stored capture no longer applies (another Pi,
+     *  another device, mesh flipped, a different backhaul fallback, a cable
+     *  moved to another serial port) and does not change for a credential-only
+     *  edit. Compare it; never parse it. */
+    console_id: string;
+    /** "node" when a capture found an uplink; "root" when it found none and
+     *  something backs the mesh claim (an admin's `is_mesh`, or a peer naming
+     *  one of this DUT's VAPs); null otherwise. An absent uplink is an answer,
+     *  and the card must not show it as a missing measurement — but "no
+     *  uplink" alone is not a root, or every standalone AP would be one. */
+    role: "root" | "node" | null;
+    uplink: RemoteUplink | null;
+    downlink: RemoteDownlink | null;
+  };
 };
+
+/** How well this node hears its parent. Read from `iwconfig` on the Managed
+ *  VAP: `wlanconfig` only ever answers the downward question. */
+export type RemoteUplink = {
+  iface: string;
+  rssi: number | null;
+  snr: number | null;
+  rssi_band: "near" | "mid" | "far" | null;
+  radio_band: "2.4GHz" | "5GHz" | "6GHz" | null;
+  /** The backhaul SSID, and the BSSID this node associates to. Together they
+   *  are what lets a root — which cannot name its own backhaul VAP — be told
+   *  which of its Master VAPs the fleet actually meshes on. */
+  essid: string | null;
+  peer_mac: string | null;
+};
+
+/** How well this node hears each child that joined its backhaul AP. */
+export type RemoteDownlink = {
+  iface: string;
+  /** "detected" when the VAP was paired with a live backhaul, "configured"
+   *  when it is only what an admin typed — which may not be a backhaul at
+   *  all, so the card has to say which one it measured. */
+  source: "detected" | "configured";
+  /** The SSID that interface actually serves. */
+  essid: string | null;
+  peers: { mac: string; rssi: number | null; rssi_band: "near" | "mid" | "far" | null }[];
+};
+
+export type RemoteRssiResult = {
+  dut: string;
+  applicable: boolean;
+  /** The console this reading came from, as the backend filed it — not the one
+   *  the caller asked about. A DUT's transport can change between the two (a
+   *  node connected to its Pi after being read on a cable), and a client that
+   *  assumes otherwise throws away its own successful capture. */
+  console_id: string;
+  /** True for any capture that read the DUT's VAPs, so a card can say "no
+   *  backhaul found here" instead of "not captured". See `DutInfo["backhaul"]`. */
+  captured: boolean;
+  role: "root" | "node" | null;
+  uplink: RemoteUplink | null;
+  downlink: RemoteDownlink | null;
+};
+
+/** What an admin has to supply to register a node. Mirrors `RemoteNodeBody`.
+ *
+ *  `key_path` is a path on the **dashboard's** machine, not on the Pi — the
+ *  backend is the one that runs `ssh -i`. The key itself never travels, and
+ *  neither `user` nor `key_path` is returned by `/api/duts`, so this type is
+ *  write-only: what comes back about a registered node is `DutInfo["remote"]`.
+ */
+export type RemoteNodeConfig = {
+  id: string;
+  label?: string;
+  host: string;
+  user: string;
+  key_path: string;
+  port: number;
+  device: string;
+  baudrate: number;
+  is_mesh: boolean;
+  /** Required when `is_mesh`; the backend refuses a mesh node without one. */
+  backhaul_iface: string | null;
+};
+
+/** At most four remote nodes (`MAX_REMOTE_NODES` in fleet_api.py). Mirrored so
+ *  the form can say so before the POST rather than only in the 400 that follows. */
+export const MAX_REMOTE_NODES = 4;
+
+/** Register a node, or re-configure one by posting the same id. */
+export async function configureRemoteNode(config: RemoteNodeConfig): Promise<void> {
+  await post("/api/fleet/nodes", config);
+}
+
+export async function connectRemoteNode(dutId: string): Promise<void> {
+  await post(`/api/fleet/nodes/${encodeURIComponent(dutId)}/connect`, {});
+}
+
+export async function disconnectRemoteNode(dutId: string): Promise<void> {
+  await post(`/api/fleet/nodes/${encodeURIComponent(dutId)}/disconnect`, {});
+}
+
+const remoteRssiInflight = new Map<string, Promise<RemoteRssiResult>>();
+
+/** Explicit/on-connect capture, coalesced per DUT so one console runs one command. */
+export function captureRemoteRssi(dutId: string): Promise<RemoteRssiResult> {
+  const current = remoteRssiInflight.get(dutId);
+  if (current) return current;
+  const request = post<RemoteRssiResult>(
+    `/api/fleet/nodes/${encodeURIComponent(dutId)}/rssi`,
+    {},
+  ).finally(() => remoteRssiInflight.delete(dutId));
+  remoteRssiInflight.set(dutId, request);
+  return request;
+}
 
 /** List the registered DUTs (for the switcher). */
 export async function getDuts(): Promise<DutInfo[]> {

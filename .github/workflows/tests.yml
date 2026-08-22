@@ -1,0 +1,88 @@
+# The four gates, run by a machine instead of by whoever remembers.
+#
+# Until now every one of them was hand-run: `pytest`, `tsc --noEmit`, the demo
+# kit's DOM verifier, and — new — the frontend unit tests. The repository's own
+# rule is that the tree is green at every commit, which is a promise no one can
+# keep by memory across three subprojects with three different runners.
+#
+# Three jobs rather than one, so a red tick says which gate failed without
+# anybody opening the log, and so the slowest (pip installing pandas and
+# matplotlib) does not hold up the two that finish in seconds.
+#
+# Every action is pinned to a commit SHA, as `demo-pages.yml` already does: a
+# tag can be moved, and these run with a checkout of the repository.
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [CPU_Plots]
+  workflow_dispatch:
+
+# A second push to the same branch makes the first run's answer irrelevant.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: pytest
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dut-dashboard/backend
+    # No MPLBACKEND here on purpose. A runner has no display and the suite does
+    # import matplotlib, so setting it looks obviously right — but the code
+    # already guarantees Agg twice over: `tools/context_render.py` calls
+    # `matplotlib.use("Agg")` itself, and `analyzer_service` puts MPLBACKEND in
+    # the environment it spawns the analyzer with. A third copy of that rule
+    # here would be one nobody could see from either of the other two, and CI
+    # is green without it.
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@7f4fc3e22c37d6ff65e88745f38bd3157c663f7c # v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: dut-dashboard/backend/requirements.txt
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -q
+
+  frontend:
+    name: typecheck + unit tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dut-dashboard/frontend
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dut-dashboard/frontend/package-lock.json
+      - run: npm ci
+      # Both, and in this order: a type error is the cheaper failure to read.
+      - run: npm run typecheck
+      - run: npm test
+
+  demo:
+    name: demo kit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dut-dashboard/demo/verify
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dut-dashboard/demo/verify/package-lock.json
+      - run: npm ci
+      # Loads the shipped pages in a real DOM and clicks their own controls.
+      # Reading the source is what let every past parity finding through.
+      - run: npm test

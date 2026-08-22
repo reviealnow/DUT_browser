@@ -74,6 +74,12 @@ h1{font-size:23px; margin:0; letter-spacing:-.02em}
       <span class="tile-sub">Fleet strip, KPIs, 40-hour CPU and client trends, the cached channel recommendation, crash feed.</span>
       <span class="tile-tag tag-measured">measured · partly synthetic</span>
     </a>
+    <a class="tile" href="fleet.html">
+      <span class="tile-icon">🛰</span>
+      <span class="tile-name">Fleet</span>
+      <span class="tile-sub">Every registered DUT at full width: the mesh backhaul in both directions, with a row per child.</span>
+      <span class="tile-tag tag-synthetic">synthetic content · real capture shape</span>
+    </a>
     <a class="tile" href="cpu-memory.html">
       <span class="tile-icon">📈</span>
       <span class="tile-name">CPU / Memory</span>
@@ -152,6 +158,12 @@ h1{font-size:23px; margin:0; letter-spacing:-.02em}
       Tiles marked <b>synthetic content</b> are invented end to end. A file list and a note board
       are <i>content</i>, not measurements — there is no reading to stay faithful to, and the real
       ones on this bench are test scaffolding carrying colleagues' names.
+    </p>
+    <p>
+      <b>Fleet</b> is invented too, for a different reason: a bench with one DUT attached cannot
+      produce a fleet, and a mesh backhaul needs at least two, so there is no reading to be
+      faithful to. Its <i>shape</i> is the product's — both capture directions, every field the
+      DUT reports about the link, and which control each card offers.
     </p>
     <p>
       <b>Upgrade Firmware</b> is labelled apart from those two, because only its content is

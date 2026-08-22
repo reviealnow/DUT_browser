@@ -23,6 +23,7 @@ from typing import Callable
 # A VAP header line, e.g.: ath16     IEEE 802.11axa  ESSID:"!!3290-1"
 _VAP_RE = re.compile(r'^(ath\d+)\s+IEEE\s+\S+\s+ESSID:"([^"]*)"')
 _CHAN_RE = re.compile(r"Frequency:[\d.]+\s*GHz\s*\(Channel\s*(\d+)\)")
+_FREQ_GHZ_RE = re.compile(r"Frequency[:=]\s*([\d.]+)\s*GHz")
 _MODE_RE = re.compile(r"Mode:(\w+)")
 
 # Association-row fields.
@@ -38,7 +39,14 @@ _BAND_RE = re.compile(r"Operating band\s*[:=]\s*(\S+)")
 
 
 def band_for_iface(iface: str) -> str:
-    """Map athN to a radio band (16 VAPs per band on this platform)."""
+    """Guess a radio band from athN, assuming 16 VAPs per band.
+
+    A **fallback only**, for output that carries no frequency. The assumption
+    holds on the AP6 840E and fails on the AP6 420, where ath8, ath14 and ath15
+    are all 5.22 GHz — this returns "2.4G" for every one of them. Prefer
+    `band_from_ghz()` wherever the source states a frequency, which `iwconfig`
+    always does.
+    """
     m = re.match(r"ath(\d+)", iface)
     if not m:
         return "?"
@@ -48,6 +56,15 @@ def band_for_iface(iface: str) -> str:
     if n < 32:
         return "5G"
     return "6G"
+
+
+def band_from_ghz(freq_ghz: float | None) -> str | None:
+    """A radio band from a stated frequency, in the short "5G" spelling this
+    module uses. The authoritative answer where one is available."""
+    if freq_ghz is None:
+        return None
+    band = _band_from_freq(int(freq_ghz * 1000))
+    return _norm_band(band) if band else None
 
 
 def _norm_band(band: str) -> str:
@@ -61,6 +78,17 @@ def signal_pct(rssi: int | None) -> int | None:
     if rssi is None:
         return None
     return max(0, min(100, 2 * (rssi + 100)))
+
+
+def signal_band(rssi: int | None) -> str | None:
+    """Coarse proximity wording for a raw RSSI; never imply measured distance."""
+    if rssi is None:
+        return None
+    if rssi >= -55:
+        return "near"
+    if rssi >= -70:
+        return "mid"
+    return "far"
 
 
 def vendor_for_mac(mac: str) -> str:
@@ -91,12 +119,20 @@ def discover_vaps(iwconfig_text: str) -> list[dict]:
             if current:
                 vaps.append(current)
             iface = head.group(1)
+            # The band starts as the iface-number guess and is replaced by the
+            # frequency below as soon as one is seen: iwconfig always states it,
+            # and the numbering assumption is wrong on some models.
             current = {"iface": iface, "ssid": head.group(2), "band": band_for_iface(iface), "channel": None, "mode": None}
             # channel/mode may be on the same logical block; check this line too
         if current:
             ch = _CHAN_RE.search(line)
             if ch and current["channel"] is None:
                 current["channel"] = int(ch.group(1))
+            freq = _FREQ_GHZ_RE.search(line)
+            if freq is not None:
+                stated = band_from_ghz(float(freq.group(1)))
+                if stated:
+                    current["band"] = stated
             md = _MODE_RE.search(line)
             if md and current["mode"] is None:
                 current["mode"] = md.group(1)
@@ -106,9 +142,14 @@ def discover_vaps(iwconfig_text: str) -> list[dict]:
     return [v for v in vaps if (v["mode"] or "Master") == "Master"]
 
 
-def parse_wlanconfig_list(text: str, iface: str) -> list[dict]:
+def parse_wlanconfig_list(text: str, iface: str, band: str | None = None) -> list[dict]:
     """Parse `wlanconfig <iface> list` into client dicts. Header-only (no clients)
-    returns []. Verbose SNR/band tail (if present) attaches to the latest client."""
+    returns []. Verbose SNR/band tail (if present) attaches to the latest client.
+
+    This command states no frequency, so `band` should be passed by a caller
+    that knows it — `discover_vaps()` reads it from iwconfig. Without it the
+    iface-number guess is all there is, and that guess is wrong on some models.
+    """
     clients: list[dict] = []
     for raw in text.splitlines():
         line = raw.rstrip()
@@ -123,7 +164,7 @@ def parse_wlanconfig_list(text: str, iface: str) -> list[dict]:
             nss = _NSS_RE.search(line)
             client = {
                 "iface": iface,
-                "band": band_for_iface(iface),
+                "band": band or band_for_iface(iface),
                 "mac": mac,
                 "vendor": vendor_for_mac(mac),
                 "aid": int(rest[0]) if rest and rest[0].isdigit() else None,
@@ -145,9 +186,13 @@ def parse_wlanconfig_list(text: str, iface: str) -> list[dict]:
             snr = _SNR_RE.search(line)
             if snr and clients[-1]["snr"] is None:
                 clients[-1]["snr"] = int(snr.group(1))
-            band = _BAND_RE.search(line)
-            if band:
-                clients[-1]["band"] = _norm_band(band.group(1))
+            # Not `band`: that name is the caller's argument, and rebinding it
+            # here made every later client in the same capture take a match
+            # object — or, with a tail carrying no band, the interface-number
+            # guess this argument exists to replace.
+            stated = _BAND_RE.search(line)
+            if stated:
+                clients[-1]["band"] = _norm_band(stated.group(1))
     return clients
 
 
@@ -178,6 +223,150 @@ def parse_apstats(text: str) -> dict:
     stats["tx_nss"] = int(nss.group(1)) if nss else None
     stats["rx_nss"] = int(nss.group(2)) if nss else None
     return stats
+
+
+# ---------------------------------------------------------------------------
+# Mesh backhaul link facts (verified on AP6 420 + AP6 840E, 2026-08)
+# ---------------------------------------------------------------------------
+
+# A VAP header from `iwconfig`. Deliberately not anchored to `ath\d+`: the
+# classifier below must not care what the radios are called.
+_IW_HEAD_RE = re.compile(r'^(\S+)\s+IEEE\s+\S+\s+ESSID:"([^"]*)"')
+_IW_SILENT_RE = re.compile(r"^\S+\s+no wireless extensions")
+_IW_FREQ_GHZ_RE = re.compile(r"Frequency[:=]\s*([\d.]+)\s*GHz")
+_IW_AP_RE = re.compile(r"Access Point:\s*([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}|Not-Associated)")
+_IW_LQ_RE = re.compile(r"Link Quality[:=](\d+)/(\d+)")
+_IW_SIGNAL_RE = re.compile(r"Signal level[:=](-?\d+)\s*dBm")
+_IW_NOISE_RE = re.compile(r"Noise level[:=](-?\d+)\s*dBm")
+
+
+def parse_iwconfig_links(text: str) -> list[dict]:
+    """Per-VAP link facts from `iwconfig`. Missing fields stay ``None``.
+
+    Lines are stripped before matching as cheap normalisation of console
+    output; no captured sample has needed it, so do not read it as a fix for
+    an observed defect.
+
+    ``associated`` is the field the caller should trust, and it is not "does
+    this VAP report a signal". A Master VAP reports one too — the noise floor,
+    at ``Link Quality=0/94`` — so its ``Signal level`` is never a measurement
+    of a link. It also reports an ``Access Point``, which is its own BSSID
+    rather than a peer. Only a Managed VAP with a live link quality and a real
+    peer MAC is hearing anything.
+    """
+    links: list[dict] = []
+    current: dict | None = None
+    for raw in text.splitlines():
+        line = raw.strip()
+        head = _IW_HEAD_RE.match(line)
+        if head is not None:
+            current = {
+                "iface": head.group(1),
+                "essid": head.group(2),
+                "mode": None,
+                "freq_ghz": None,
+                "band": None,
+                # iwconfig's "Access Point": the peer's BSSID on a Managed
+                # VAP, the VAP's own BSSID on a Master one. Named after the
+                # field rather than after either meaning.
+                "access_point": None,
+                "link_quality": None,
+                "link_quality_max": None,
+                "rssi": None,
+                "noise": None,
+                "snr": None,
+                "associated": False,
+            }
+            links.append(current)
+            continue
+        if _IW_SILENT_RE.match(line):
+            current = None  # a non-wireless device ends the block it follows
+            continue
+        if current is None:
+            continue
+        mode = _MODE_RE.search(line)
+        if mode is not None and current["mode"] is None:
+            current["mode"] = mode.group(1)
+        freq = _IW_FREQ_GHZ_RE.search(line)
+        if freq is not None and current["freq_ghz"] is None:
+            current["freq_ghz"] = float(freq.group(1))
+            current["band"] = _band_from_freq(int(current["freq_ghz"] * 1000))
+        access_point = _IW_AP_RE.search(line)
+        if access_point is not None and current["access_point"] is None:
+            value = access_point.group(1)
+            current["access_point"] = None if value == "Not-Associated" else value.lower()
+        quality = _IW_LQ_RE.search(line)
+        if quality is not None and current["link_quality"] is None:
+            current["link_quality"] = int(quality.group(1))
+            current["link_quality_max"] = int(quality.group(2))
+        signal = _IW_SIGNAL_RE.search(line)
+        if signal is not None and current["rssi"] is None:
+            current["rssi"] = int(signal.group(1))
+        noise = _IW_NOISE_RE.search(line)
+        if noise is not None and current["noise"] is None:
+            current["noise"] = int(noise.group(1))
+
+    for link in links:
+        link["associated"] = bool(
+            link["mode"] == "Managed"
+            and link["access_point"]
+            and (link["link_quality"] or 0) > 0
+        )
+        if not link["associated"]:
+            # Refuse to hand back a noise-floor reading dressed as a link.
+            link["rssi"] = None
+            link["snr"] = None
+        elif link["rssi"] is not None and link["noise"] is not None:
+            link["snr"] = link["rssi"] - link["noise"]
+    return links
+
+
+def classify_backhaul(
+    links: list[dict],
+    peer_bssids: "set[str] | frozenset[str]" = frozenset(),
+    peer_networks: "set[tuple[str, str | None]] | frozenset[tuple[str, str | None]]" = frozenset(),
+) -> dict:
+    """Split the backhaul into the link up and the VAP children associate to.
+
+    A mesh backhaul is a pair of VAPs sharing one ESSID on one band: the
+    Managed side carries this node's link to its parent, the Master side is
+    what its own children join. The pairing is what identifies them — not the
+    interface number, which is numbered differently on an AP6 420 than on an
+    AP6 840E, and not the SSID's text, which is operator-chosen and was
+    observed changing between two captures twenty minutes apart.
+
+    A root has no Managed VAP, so it has nothing local to pair against, and
+    "the Master VAP that has stations" does not identify one either — an
+    ordinary client VAP has those too. What does identify it is another DUT:
+    the BSSID a node reports as its uplink peer is this root's backhaul VAP,
+    exactly. `peer_bssids` carries those, and `peer_networks` — (ESSID, band)
+    pairs — is the fallback for firmware that does not report a peer MAC. The
+    band is part of that key because an SSID is not unique across radios: a
+    root advertising the backhaul SSID on 2.4 and 5 GHz would otherwise be
+    matched by whichever VAP iwconfig happened to list first. Both are
+    supplied by the caller, which is where knowledge of other DUTs belongs.
+    """
+    uplink = next((link for link in links if link["associated"]), None)
+    if uplink is None:
+        masters = [link for link in links if link["mode"] == "Master"]
+        downlink = next(
+            (link for link in masters if link["access_point"] in peer_bssids), None
+        ) or next(
+            (link for link in masters if (link["essid"], link["band"]) in peer_networks), None
+        )
+        return {"uplink": None, "downlink": downlink}
+    downlink = next(
+        (
+            link
+            for link in links
+            if link["mode"] == "Master"
+            and link["essid"] == uplink["essid"]
+            and link["band"] == uplink["band"]
+            and link["iface"] != uplink["iface"]
+        ),
+        None,
+    )
+    return {"uplink": uplink, "downlink": downlink}
 
 
 # ---------------------------------------------------------------------------

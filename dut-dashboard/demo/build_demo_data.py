@@ -13,6 +13,12 @@ markup stays hand-editable and regenerating data never clobbers a layout tweak.
 
 Usage:
     python3 build_demo_data.py --bundle /path/to/dut-session-<ts> [--page overview.html]
+    python3 build_demo_data.py --sync-fixtures   # demo-fixtures.json -> the pages
+
+The second form reads no capture. It exists because the synthetic half of the
+data lives in ``demo-fixtures.json`` while the pages ship it inlined, so an edit
+to the fixture is invisible until something writes it into the pages — and the
+only thing that did was a full regeneration, which needs a bundle.
 
 Anonymisation rules. Aliases are assigned over the **sorted** set of real
 values, so the result does not depend on the order rows happen to be walked,
@@ -1170,6 +1176,12 @@ def build_static(bundle: Path | None, anon: Anonymiser,
     file list or note board to stay faithful to, and the real ones on this bench
     are test scaffolding carrying colleagues' names. Their fixtures are the
     whole payload, and each page says so in its provenance line.
+
+    `fleet.html` lands here for a different reason: a bench with one DUT
+    attached cannot produce a fleet, and a mesh backhaul needs at least two, so
+    there is no capture to be faithful to either. What is not invented is the
+    shape — the fields, both capture directions and every refusal are
+    FleetSection's.
     """
     return {}
 
@@ -1247,12 +1259,55 @@ def _dual_radio_client(rows: list[dict], anon: Anonymiser) -> dict | None:
 HAND_MAINTAINED = frozenset({"index.html"})
 
 
-def inject(page: Path, payload: dict) -> None:
-    """Rewrite only the data block, so hand-edits to the markup survive."""
+def fixtures() -> dict[str, dict]:
+    """The synthetic half of the data, keyed by the page it belongs to.
+
+    `_comment` is prose for whoever opens the file, not a page; it is dropped
+    here so no caller has to know that, and so a sweep over the fixtures cannot
+    mistake it for a page it should be writing.
+    """
+    fixed = json.loads((HERE / "demo-fixtures.json").read_text(encoding="utf-8"))
+    return {page: keys for page, keys in fixed.items() if page != "_comment"}
+
+
+def inject(page: Path, payload: dict, kept_label: str = "hand-maintained") -> None:
+    """Rewrite the generated keys of the data block, and only those.
+
+    Hand-edits to the markup survive because only this block is rewritten.
+
+    This merges rather than replaces, which is a narrower claim than it first
+    looks. `build()` emits seven keys and `demo-fixtures.json` supplies three;
+    together they cover every key `overview.html` carries, so the previous
+    whole-block replacement lost nothing in the normal path. What it could not
+    survive is a key added to a page by hand that neither side knows about —
+    and since the fixture is where synthetic copy belongs, such a key is a
+    mistake waiting to be silently undone rather than a feature. Merging keeps
+    it long enough to be noticed.
+    """
     html = page.read_text(encoding="utf-8")
-    if not DATA_BLOCK_RE.search(html):
+    match = DATA_BLOCK_RE.search(html)
+    if not match:
         raise SystemExit(f"{page.name} has no <script id='demo-data'> block")
-    blob = json.dumps(payload, separators=(",", ":"))
+    try:
+        existing = json.loads(match.group(2))
+    except ValueError as exc:
+        # Falling back to {} here would merge over nothing and write the
+        # builder's keys alone — the whole-block replacement this function
+        # exists to stop, hidden behind a swallowed exception and reported as
+        # success. A block nobody can parse is a page to fix by hand.
+        raise SystemExit(
+            f"{page.name}: the data block is not valid JSON ({exc}); "
+            "refusing to overwrite it — fix or restore the block first"
+        ) from exc
+    kept = sorted(set(existing) - set(payload))
+    if kept:
+        # `kept_label` because the untouched keys are not the same thing in
+        # every mode: after a build they are keys neither the builder nor the
+        # fixture claims, but a fixture-only sync leaves every builder-owned key
+        # standing too, and calling those "hand-maintained" would be a false
+        # report of what just happened.
+        print(f"{page.name}: preserving {kept_label} {', '.join(kept)}")
+    blob = json.dumps({**existing, **payload}, separators=(",", ":"))
     page.write_text(
         DATA_BLOCK_RE.sub(lambda m: m.group(1) + blob + m.group(3), html, count=1),
         encoding="utf-8",
@@ -1262,7 +1317,8 @@ def inject(page: Path, payload: dict) -> None:
 
 #: Which builder fills each page. Module level so the set of generated pages can
 #: be asserted against HAND_MAINTAINED rather than discovered by running it.
-PAGE_BUILDERS = {"overview.html": build, "site-survey.html": build_survey,
+PAGE_BUILDERS = {"overview.html": build, "fleet.html": build_static,
+                 "site-survey.html": build_survey,
                  "wifi-clients.html": build_clients,
                  "files.html": build_static, "bulletin.html": build_static,
                  "downloads.html": build_downloads,
@@ -1270,6 +1326,47 @@ PAGE_BUILDERS = {"overview.html": build, "site-survey.html": build_survey,
                  "cpu-memory.html": build_cpu,
                  "ssid-capability.html": build_ssid,
                  "firmware.html": build_static}
+
+
+def sync_fixtures() -> int:
+    """Write the fixture-owned keys into every page that has them, no capture.
+
+    `demo-fixtures.json` is the source of the synthetic data, but the pages ship
+    it inlined, so editing the fixture alone changes nothing anyone can open —
+    and until the next regeneration the two disagree, with the fixture's version
+    the one that wins. That regeneration needs a bundle for seven of the eleven
+    pages, which is a capture, a DUT and a session; requiring it to publish a
+    hand-written crash line is why the fleet strip was last edited into the page
+    directly, where the next rebuild would have knocked it back.
+
+    This path needs none of that. `inject` merges, so writing the fixture's keys
+    alone leaves every builder-produced key exactly as committed, and the keys
+    it does write are the same ones a full regeneration would write over the
+    builder's output — `main` applies the fixture last for the same reason.
+
+    A sweep rather than a per-page flag: one fixture edit can touch several
+    pages, and the postcondition worth checking in CI is that the whole kit
+    agrees with the fixture file, not that one named page does. A list of pages
+    kept in a CI config is a second place to forget.
+    """
+    pages = fixtures()
+    for page in pages:
+        if page in HAND_MAINTAINED or page not in PAGE_BUILDERS:
+            raise SystemExit(
+                f"demo-fixtures.json names {page}, which is not a generated page; "
+                f"known: {', '.join(PAGE_BUILDERS)}"
+            )
+        if not (HERE / page).is_file():
+            raise SystemExit(f"demo-fixtures.json names {page}, which does not exist")
+
+    # Every name is checked before any page is written: a fixture naming one
+    # page that cannot be synced would otherwise leave the pages ahead of it in
+    # the file already rewritten and the ones after it stale — a half-synced kit
+    # reported as a failure, which is worse than either end of it.
+    for page, keys in pages.items():
+        inject(HERE / page, keys, kept_label="outside the fixture")
+    print(f"synced fixtures into {len(pages)} pages; no capture read")
+    return 0
 
 
 def main() -> int:
@@ -1280,28 +1377,48 @@ def main() -> int:
     ap.add_argument("--survey-bundle", type=Path, default=None,
                     help="take the neighbour scan from a second bundle when --bundle "
                          "has no usable one (both sources are recorded on the page)")
-    ap.add_argument("--page", default="overview.html",
+    # Default None rather than "overview.html" so `--sync-fixtures --page x` can
+    # be refused: a mode that covers every page has no page to be given, and
+    # comparing against the default would let an explicit `--page overview.html`
+    # through and quietly sweep the other five.
+    ap.add_argument("--page", default=None,
                     help="demo page to rewrite: overview.html, site-survey.html "
                          "or wifi-clients.html (default: overview.html)")
+    ap.add_argument("--sync-fixtures", action="store_true",
+                    help="write demo-fixtures.json into every page that has fixture "
+                         "keys, and stop. Needs no capture; touches only the keys "
+                         "the fixture owns, so builder-produced data stays as "
+                         "committed. Run after editing the fixture.")
     args = ap.parse_args()
 
+    if args.sync_fixtures:
+        unread = [name for name, value in (("--bundle", args.bundle),
+                                           ("--survey-bundle", args.survey_bundle),
+                                           ("--page", args.page)) if value is not None]
+        if unread:
+            raise SystemExit(
+                f"--sync-fixtures takes no {', '.join(unread)}: it reads no capture "
+                "and covers every page demo-fixtures.json names"
+            )
+        return sync_fixtures()
+
+    page = args.page or "overview.html"
     builders = PAGE_BUILDERS
-    if args.page in HAND_MAINTAINED:
+    if page in HAND_MAINTAINED:
         raise SystemExit(
-            f"{args.page} is hand-maintained and carries no data block — it is the "
+            f"{page} is hand-maintained and carries no data block — it is the "
             f"kit's front door, not a generated page. Edit it directly."
         )
-    if args.page not in builders:
-        raise SystemExit(f"no builder for {args.page}; known: {', '.join(builders)}")
+    if page not in builders:
+        raise SystemExit(f"no builder for {page}; known: {', '.join(builders)}")
 
-    if args.bundle is None and builders[args.page] is not build_static:
-        raise SystemExit(f"{args.page} is built from a capture — pass --bundle")
+    if args.bundle is None and builders[page] is not build_static:
+        raise SystemExit(f"{page} is built from a capture — pass --bundle")
 
     anon = Anonymiser()
-    payload = builders[args.page](args.bundle, anon, args.survey_bundle)
-    fixed = json.loads((HERE / "demo-fixtures.json").read_text(encoding="utf-8"))
-    payload.update(fixed.get(args.page, {}))     # synthetic copy, see README
-    inject(HERE / args.page, payload)
+    payload = builders[page](args.bundle, anon, args.survey_bundle)
+    payload.update(fixtures().get(page, {}))     # synthetic copy, see README
+    inject(HERE / page, payload)
     print(f"anonymised: {anon.counts() or 'nothing'}")
     return 0
 

@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DUT_browser — Fleet (demo)</title>
+<style>
+:root{
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:24px;
+  --space-6:32px; --space-7:48px;
+  --bg:#f4f6fa; --panel:#fff; --ink:#1b2333; --muted:#687389; --faint:#9aa4b8;
+  --accent:#1565c0; --accent-weak:#e8f0fb;
+  --ok:#0c7a43; --ok-weak:#e4f4ea;
+  --warn:#9a6a00; --warn-weak:#fbf0d9;
+  --danger:#b3261e; --danger-weak:#fce8e6;
+  --border:#e3e8f0;
+  --shadow:0 1px 2px rgba(20,30,55,.04), 0 6px 20px rgba(20,30,55,.06);
+  --radius:14px; --sidebar-w:232px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--ink); font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"PingFang TC","Noto Sans TC",sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+button{font:inherit; color:inherit; cursor:pointer}
+
+/* ---------- shell ---------- */
+.layout{display:grid; grid-template-columns:var(--sidebar-w) 1fr; min-height:100vh}
+.sidebar{background:var(--panel); border-right:1px solid var(--border); padding:var(--space-4) 0; position:sticky; top:0; height:100vh; overflow-y:auto}
+.brand{display:flex; align-items:center; gap:var(--space-2); padding:0 var(--space-4) var(--space-5)}
+.brand-mark{width:28px; height:28px; border-radius:8px; background:var(--accent); color:#fff; display:grid; place-items:center; font-weight:700; font-size:13px}
+.brand-name{font-weight:650; letter-spacing:-.01em}
+.nav-group{padding:var(--space-3) var(--space-4) var(--space-1); font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--faint); font-weight:650}
+.nav-item{text-decoration:none; display:flex; align-items:center; gap:var(--space-3); width:100%; border:0; background:none; text-align:left; padding:var(--space-2) var(--space-4); border-left:3px solid transparent; color:var(--muted)}
+.nav-item:hover{background:var(--bg); color:var(--ink)}
+.nav-item[aria-current="page"]{background:var(--accent-weak); border-left-color:var(--accent); color:var(--accent); font-weight:600}
+.nav-icon{width:18px; text-align:center; font-size:13px}
+
+.main{display:flex; flex-direction:column; min-width:0}
+.topbar{display:flex; align-items:center; gap:var(--space-3); padding:var(--space-4) var(--space-5); background:var(--panel); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:5}
+.topbar h1{font-size:17px; margin:0; letter-spacing:-.01em}
+.topbar .sub{color:var(--muted); font-size:12px}
+.spacer{flex:1}
+.pill{display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:999px; font-size:12px; font-weight:600; border:1px solid transparent; white-space:nowrap}
+.pill-demo{background:var(--warn-weak); color:var(--warn); border-color:#f0dfb4}
+.pill-ok{background:var(--ok-weak); color:var(--ok)}
+.pill-danger{background:var(--danger-weak); color:var(--danger)}
+.pill-muted{background:var(--bg); color:var(--muted); border-color:var(--border)}
+.pill-admin{background:#f3effb; color:#6b4fa8; border-color:#d9cdf0}
+
+.content{padding:var(--space-5); display:flex; flex-direction:column; gap:var(--space-5); max-width:1400px; width:100%}
+
+/* ---------- cards ---------- */
+.card{background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow)}
+.card-head{display:flex; align-items:center; gap:var(--space-3); padding:var(--space-4) var(--space-4) var(--space-2)}
+.card-head h2{font-size:14px; margin:0; letter-spacing:-.01em}
+.card-head .hint{color:var(--muted); font-size:12px; font-weight:400}
+.card-body{padding:var(--space-3) var(--space-4) var(--space-4)}
+
+.btn{border:1px solid var(--border); background:var(--panel); border-radius:9px; padding:5px 11px; font-size:12px; font-weight:600; color:var(--muted); transition:.12s}
+.btn:hover{border-color:var(--accent); color:var(--accent); background:var(--accent-weak)}
+.btn:active{transform:translateY(1px)}
+.btn[disabled]{opacity:.45; cursor:not-allowed}
+.btn-danger:hover{border-color:var(--danger); color:var(--danger); background:var(--danger-weak)}
+
+/* ---------- the section toolbar ---------- */
+.fleet-section-toolbar{display:flex; align-items:center; gap:var(--space-4); flex-wrap:wrap}
+.setting-hint{color:var(--muted); font-size:12px; flex:1; min-width:280px}
+.setting-label{font-size:12px; font-weight:650; color:var(--muted); letter-spacing:.02em}
+
+/* ---------- the fleet at full width ----------
+   A grid, not the Overview strip: the strip is a horizontal scroller sized for
+   a glance, and the capture below needs the column. */
+.fleet-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(330px,1fr)); gap:var(--space-4); align-items:start}
+.fleet-card{background:var(--panel); border:1px solid var(--border); border-top-width:4px; border-radius:var(--radius); box-shadow:var(--shadow); padding:var(--space-3); display:flex; flex-direction:column; gap:var(--space-2)}
+.fleet-name{font-weight:650; color:var(--ink); font-size:13px}
+.fleet-id{color:var(--faint); font-size:11px}
+.fleet-where{color:var(--faint); font-size:11px}
+.fleet-card-head{display:flex; align-items:flex-start; justify-content:space-between; gap:var(--space-2)}
+.fleet-cpu{display:flex; align-items:baseline; gap:var(--space-2)}
+.fleet-cpu-value{font-size:22px; font-weight:700; letter-spacing:-.02em}
+.fleet-cpu-sub{color:var(--muted); font-size:12px}
+.band-badge{display:inline-block; padding:2px 9px; border-radius:999px; font-size:11px; font-weight:600; align-self:flex-start}
+.band-ok{background:var(--ok-weak); color:var(--ok)}
+.band-warn{background:var(--warn-weak); color:var(--warn)}
+.band-muted{background:var(--bg); color:var(--muted); border:1px solid var(--border)}
+.stat-list{margin:0; display:flex; flex-direction:column; gap:2px}
+.stat-row{display:flex; justify-content:space-between; gap:var(--space-2); font-size:12px}
+.stat-row dt{color:var(--muted)}
+.stat-row dd{margin:0; color:var(--ink); text-align:right}
+.fleet-fact-ok{color:var(--ok)}
+.fleet-fact-idle{color:var(--muted)}
+.fleet-rssi-na{color:var(--muted); font-style:italic}
+.fleet-actions{display:flex; gap:var(--space-2); flex-wrap:wrap; margin-top:var(--space-1)}
+
+/* ---------- the capture, unfolded ---------- */
+.fleet-detail{display:flex; flex-direction:column; gap:var(--space-3); padding:var(--space-3); border-radius:10px; background:var(--bg); border:1px solid var(--border)}
+.fleet-detail-empty{color:var(--muted); font-size:12px}
+.fleet-detail-block{display:flex; flex-direction:column; gap:var(--space-2)}
+.fleet-detail-mac{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px}
+.filetable{width:100%; border-collapse:collapse; font-size:12px}
+.filetable th{text-align:left; color:var(--faint); font-size:10px; letter-spacing:.06em; font-weight:650; padding:0 var(--space-2) 4px 0; border-bottom:1px solid var(--border)}
+.filetable td{padding:4px var(--space-2) 4px 0; border-bottom:1px solid var(--border)}
+.filetable tr:last-child td{border-bottom:0}
+.fleet-peer-table td:not(:first-child), .fleet-peer-table th:not(:first-child){text-align:right; padding-right:0}
+
+.note{padding:var(--space-3) var(--space-4); border-radius:10px; background:var(--accent-weak); color:#12467f; font-size:12px; border:1px solid #cfe0f6}
+/* A "concept" chip marks an idea shown for discussion. Everything without one
+   mirrors behaviour the product actually ships — this page has none. */
+.concept{display:inline-flex; align-items:center; gap:5px; padding:1px 8px; border-radius:999px; font-size:11px; font-weight:650; color:#6b4fa8; background:#f3effb; border:1px dashed #b9a5e0; white-space:nowrap}
+.provenance{color:var(--faint); font-size:11px; line-height:1.6; padding-top:var(--space-2); border-top:1px solid var(--border)}
+.provenance b{color:var(--muted); font-weight:650}
+.toast{position:fixed; left:50%; bottom:24px; transform:translate(-50%,20px); background:var(--ink); color:#fff; padding:9px 16px; border-radius:999px; font-size:13px; opacity:0; pointer-events:none; transition:.2s; z-index:50; max-width:70vw; text-align:center}
+.toast.show{opacity:1; transform:translate(-50%,0)}
+.spin{display:inline-block; width:11px; height:11px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; animation:spin .7s linear infinite; vertical-align:-1px}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (max-width:860px){
+  .layout{grid-template-columns:1fr}
+  .sidebar{display:none}
+}
+</style>
+</head>
+<body>
+
+<!-- The fleet is synthetic in full — a bench with one DUT attached cannot
+     produce one — so demo-fixtures.json owns every value here and this block is
+     written from it by `build_demo_data.py --sync-fixtures`. -->
+<script id="demo-data" type="application/json">{"nodes":[{"label":"DemoDUT-6E","id":"default","status":"streaming","cpu":"34.3%","cpuSub":"2 cores","reco":"2 bands need a move","recoLevel":"warn","crashCount":3,"lastEvent":"12m ago","lastSnapshot":"2026-08-02 19:56:27","open":true,"lastSerial":"/dev/cu.PL2303G-1130","backhaul":{"applicable":true,"captured":true,"console_id":"serial:default","role":"node","uplink":{"iface":"ath0","rssi":-45,"snr":41,"rssi_band":"mid","radio_band":"5GHz","essid":"DemoAP-Mesh","peer_mac":"02:1f:6c:44:9a:31"},"downlink":{"iface":"ath1","source":"detected","essid":"DemoAP-Mesh","peers":[]},"capturedOnConnect":null}},{"label":"DemoNode-420","id":"lab-420","status":"streaming","cpu":"18.6%","cpuSub":"2 cores","reco":"all bands clear","recoLevel":"ok","crashCount":0,"lastEvent":"\u2014","lastSnapshot":"2026-08-01 09:14:02","open":true,"lastSerial":"/dev/cu.PL2303G-1130","remote":{"host":"10.0.0.24","port":22},"backhaul":{"applicable":true,"captured":true,"console_id":"ssh:lab-420","role":"node","uplink":{"iface":"ath0","rssi":-37,"snr":49,"rssi_band":"near","radio_band":"5GHz","essid":"DemoAP-Mesh","peer_mac":"02:1f:6c:44:9a:31"},"downlink":{"iface":"ath1","source":"detected","essid":"DemoAP-Mesh","peers":[]},"capturedOnConnect":null}},{"label":"DemoRoot-840E","id":"lab2","status":"streaming","cpu":"27.1%","cpuSub":"4 cores","reco":"no survey yet","recoLevel":"muted","crashCount":0,"lastEvent":"2m ago","lastSnapshot":"2026-08-02 19:58:41","open":true,"lastSerial":null,"remote":{"host":"10.0.0.24","port":22},"backhaul":{"applicable":true,"captured":true,"console_id":"ssh:lab2","role":"root","uplink":null,"downlink":{"iface":"ath1","source":"configured","essid":"DemoAP-Mesh","peers":[{"mac":"02:7a:3d:10:55:c2","rssi":-38,"rssi_band":"near"},{"mac":"02:c4:88:9e:12:07","rssi":-61,"rssi_band":"mid"},{"mac":"02:65:24:b8:3e:d1","rssi":-45,"rssi_band":"mid"}]},"capturedOnConnect":null}},{"label":"DemoAP-standalone","id":"ap-2","status":"idle","cpu":"\u2014","cpuSub":"no stream","reco":"no survey yet","recoLevel":"muted","crashCount":0,"lastEvent":"\u2014","lastSnapshot":"\u2014","open":false,"lastSerial":null,"remote":{"host":"10.0.0.24","port":22},"backhaul":{"applicable":false,"captured":false,"console_id":"ssh:ap-2","role":null,"uplink":null,"downlink":null,"capturedOnConnect":null}},{"label":"DemoNode-lab3","id":"lab3","status":"idle","cpu":"\u2014","cpuSub":"no stream","reco":"no survey yet","recoLevel":"muted","crashCount":0,"lastEvent":"\u2014","lastSnapshot":"\u2014","open":false,"lastSerial":null,"remote":{"host":"10.0.0.24","port":22},"backhaul":{"applicable":true,"captured":false,"console_id":"ssh:lab3","role":null,"uplink":null,"downlink":null,"capturedOnConnect":{"role":"node","uplink":{"iface":"ath0","rssi":-52,"snr":33,"rssi_band":"mid","radio_band":"5GHz","essid":"DemoAP-Mesh","peer_mac":"02:1f:6c:44:9a:31"},"downlink":{"iface":"ath1","source":"detected","essid":"DemoAP-Mesh","peers":[]}}}},{"label":"DemoDUT-bench3","id":"bench3","status":"offline","cpu":"\u2014","cpuSub":"no stream","reco":"1 band needs a move","recoLevel":"warn","crashCount":1,"lastEvent":"3m ago","lastSnapshot":"2026-08-06 10:41:55","open":false,"lastSerial":null,"backhaul":{"applicable":true,"captured":true,"console_id":"serial:bench3","role":null,"uplink":null,"downlink":null,"capturedOnConnect":null}}]}</script>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-mark">D</span>
+      <span class="brand-name">DUT_browser</span>
+    </div>
+    <div class="nav-group">Monitoring</div>
+    <a class="nav-item" href="overview.html" data-screen="Overview"><span class="nav-icon">▣</span>Overview</a>
+    <button class="nav-item" aria-current="page"><span class="nav-icon">🛰</span>Fleet</button>
+    <a class="nav-item" href="cpu-memory.html" data-screen="CPU / Memory"><span class="nav-icon">📈</span>CPU / Memory</a>
+    <a class="nav-item" href="wifi-clients.html" data-screen="Wi-Fi Clients"><span class="nav-icon">📶</span>Wi-Fi Clients</a>
+    <a class="nav-item" href="ssid-capability.html" data-screen="SSID Capability"><span class="nav-icon">🔍</span>SSID Capability</a>
+    <a class="nav-item" href="site-survey.html" data-screen="Site Survey"><span class="nav-icon">📡</span>Site Survey</a>
+    <button class="nav-item" data-screen="Logs / Crash Events"><span class="nav-icon">⚠</span>Logs / Crash Events</button>
+    <a class="nav-item" href="serial-console.html" data-screen="Serial Console"><span class="nav-icon">⌨</span>Serial Console</a>
+    <a class="nav-item" href="downloads.html" data-screen="Downloads"><span class="nav-icon">⬇</span>Downloads</a>
+    <div class="nav-group">Workspace</div>
+    <a class="nav-item" href="files.html" data-screen="Files"><span class="nav-icon">🗂</span>Files</a>
+    <a class="nav-item" href="bulletin.html" data-screen="Bulletin"><span class="nav-icon">📌</span>Bulletin</a>
+    <div class="nav-group">System</div>
+    <button class="nav-item" data-screen="Settings"><span class="nav-icon">⚙</span>Settings</button>
+    <a class="nav-item" href="firmware.html" data-screen="Upgrade Firmware"><span class="nav-icon">⚡</span>Upgrade Firmware</a>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div>
+        <h1>Fleet</h1>
+        <div class="sub">Every registered DUT and its mesh backhaul</div>
+      </div>
+      <span class="spacer"></span>
+      <span class="pill pill-demo">● DEMO — canned data, no DUT attached</span>
+      <span class="pill pill-muted" id="dutPill">DemoDUT-6E</span>
+      <span class="pill pill-admin" data-role="admin">admin</span>
+    </header>
+
+    <div class="content">
+
+      <section class="card">
+        <div class="card-head">
+          <h2>Fleet</h2>
+          <span class="hint" id="fleetSub"></span>
+        </div>
+        <div class="card-body">
+          <div class="fleet-section-toolbar">
+            <!-- FleetSection's own words. Nothing on this screen captures on
+                 entry: a capture occupies that DUT's serial console, so the
+                 section is a view of what was last measured. -->
+            <div class="setting-hint">
+              Backhaul figures are the last capture, not a live feed: reading one occupies that
+              DUT's serial console, so nothing here refreshes on its own.
+            </div>
+            <button class="btn" id="btnCaptureAll"></button>
+          </div>
+        </div>
+      </section>
+
+      <div class="fleet-grid" id="fleet"></div>
+
+      <div class="note">
+        <b>Two directions, two measurements.</b> A node's uplink is read with
+        <span style="font-family:ui-monospace,Menlo,monospace">iwconfig</span> on its Managed VAP;
+        the children are read with <span style="font-family:ui-monospace,Menlo,monospace">wlanconfig</span>
+        on the backhaul AP, which only ever answers the downward question. A root cannot name its own
+        backhaul VAP from its own console — it is identified from the <b>Parent BSSID</b> a child
+        reports, which is why <b>Capture all</b> reads nodes before roots.
+      </div>
+
+      <div class="note" id="navNote">
+        This is the <b>Fleet</b> screen of the demo kit. Each of the other screens in the
+        sidebar ships as its own self-contained file — click one to see which.
+      </div>
+
+      <div class="provenance" id="provenance"></div>
+
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+"use strict";
+const DATA = JSON.parse(document.getElementById("demo-data").textContent);
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[<&]/g, c => c === "<" ? "&lt;" : "&amp;");
+
+/* ---------------- toast ---------------- */
+let toastTimer;
+function toast(msg){
+  const el = $("toast");
+  el.textContent = msg; el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 3200);
+}
+
+/* Every control here is gated on the role ITS OWN route needs, not on one
+   blanket check: the serial router is engineer, every /api/fleet route is
+   admin, and the Serial Console section itself is engineer. So `Console` wants
+   engineer; `Connect`, `Close serial` and `Refresh RSSI` want engineer on a
+   local DUT and admin on a remote node; `Refresh RSSI` and the section's
+   `Capture all` always want admin. A button that can only answer 403 is worse
+   than no button.
+
+   This page is shown as an **admin** — the pill in the topbar says so — which
+   is the one role that sees the whole card, so nothing here is hidden. A guest
+   is offered the view and none of these buttons. */
+const CAN_CAPTURE = true;
+let fleet = DATA.nodes.map(d => JSON.parse(JSON.stringify(d)));
+
+/* FleetCard's STATUS_META, verbatim: the state is internal, the label is what
+   the product prints. */
+const STATUS = {
+  streaming: { label: "Streaming", pill: "pill-ok" },
+  idle:      { label: "No DUT",    pill: "pill-muted" },
+  offline:   { label: "Offline",   pill: "pill-danger" },
+};
+
+/* ---------------- the two compressed rows ----------------
+   FleetCard renders these on the card in BOTH variants, so they are derived
+   from the registry's one backhaul answer — never inferred again from console
+   location or stored as a second copy that could drift from it. */
+const rssiOf = (d) => d.backhaul;
+
+function uplinkText(r){
+  if (!r.applicable) return "Not applicable";
+  if (r.role === "root") return "None — this is the root";
+  if (r.uplink && r.uplink.rssi !== null) return `${r.uplink.rssi} dBm · ${r.uplink.rssi_band}`;
+  if (r.captured && r.role === null) return "None — no parent found";
+  return "Not captured";
+}
+
+function downlinkText(r){
+  if (!r.applicable) return "Not applicable";
+  if (!r.downlink) return r.captured ? "No backhaul VAP identified" : "Not captured";
+  const peers = r.downlink.peers.length === 0
+    ? "None"
+    : r.downlink.peers.map(p => p.rssi === null ? "—" : `${p.rssi} dBm`).join(" · ");
+  // An interface nobody verified is a backhaul gets said out loud, with the SSID
+  // it serves: on the bench a configured VAP was carrying an ordinary laptop.
+  const configured = r.downlink.source === "configured"
+    ? ` · ${r.downlink.iface} configured${r.downlink.essid ? ` (${r.downlink.essid})` : ""}`
+    : "";
+  return peers + configured;
+}
+
+/* ---------------- the capture, unfolded ----------------
+   FleetLinkDetail. Three fields the DUT reports and /api/fleet/nodes/{id}/rssi
+   returns — the uplink's snr, radio_band and peer_mac — have no reader anywhere
+   else, and per-child RSSI is what says WHICH child is hearing badly. The strip
+   joins every child into one string; this is the table. */
+function detailHtml(r){
+  if (!r.applicable) return "";
+  if (!r.captured){
+    return `<div class="fleet-detail fleet-detail-empty">
+      No capture yet — press Refresh RSSI with the console open.</div>`;
+  }
+  if (!r.uplink && !r.downlink){
+    return `<div class="fleet-detail fleet-detail-empty">
+      Captured: no parent, and nothing names one of this DUT's VAPs as a mesh backhaul.
+      Either it is standalone, or no node that joins it has been captured yet.</div>`;
+  }
+  const u = r.uplink;
+  const uplinkBlock = r.role === "root"
+    ? `<div class="setting-hint">None — this is the root of the mesh.</div>`
+    : !u
+      ? `<div class="setting-hint">Not captured.</div>`
+      : `<dl class="stat-list">
+          <div class="stat-row"><dt>Interface</dt><dd>${esc(u.iface)}</dd></div>
+          <div class="stat-row"><dt>Signal</dt>
+            <dd>${u.rssi === null ? "—" : `${u.rssi} dBm`}${u.rssi_band ? ` · ${esc(u.rssi_band)}` : ""}</dd></div>
+          <div class="stat-row"><dt>SNR</dt>
+            <dd>${u.snr === null ? "—" : `${u.snr} dB`}</dd></div>
+          <div class="stat-row"><dt>Band</dt><dd>${u.radio_band === null ? "—" : esc(u.radio_band)}</dd></div>
+          <div class="stat-row"><dt>Backhaul SSID</dt><dd>${u.essid === null ? "—" : esc(u.essid)}</dd></div>
+          <div class="stat-row"><dt>Parent BSSID</dt>
+            <dd class="fleet-detail-mac">${u.peer_mac === null ? "—" : esc(u.peer_mac)}</dd></div>
+        </dl>`;
+
+  const dl = r.downlink;
+  const downlinkBlock = !dl
+    ? `<div class="setting-hint">Not captured.</div>`
+    : `<div class="setting-hint">${esc(dl.iface)}${dl.essid ? ` · ${esc(dl.essid)}` : ""} · `
+      + `${dl.source === "detected"
+            ? "detected backhaul"
+            : "configured — nobody verified this interface is a backhaul"}</div>`
+      + (dl.peers.length === 0
+        ? `<div class="setting-hint">No children associated.</div>`
+        : `<table class="filetable fleet-peer-table">
+            <thead><tr><th>CHILD BSSID</th><th>SIGNAL</th><th>QUALITY</th></tr></thead>
+            <tbody>${dl.peers.map(p => `<tr>
+              <td class="fleet-detail-mac">${esc(p.mac)}</td>
+              <td>${p.rssi === null ? "—" : `${p.rssi} dBm`}</td>
+              <td>${p.rssi_band === null ? "—" : esc(p.rssi_band)}</td>
+            </tr>`).join("")}</tbody>
+          </table>`);
+
+  return `<div class="fleet-detail">
+    <div class="fleet-detail-block">
+      <div class="setting-label">Uplink to parent</div>${uplinkBlock}
+    </div>
+    <div class="fleet-detail-block">
+      <div class="setting-label">Children on backhaul</div>${downlinkBlock}
+    </div>
+  </div>`;
+}
+
+/* ---------------- the grid ---------------- */
+function renderFleet(){
+  const host = $("fleet");
+  host.innerHTML = "";
+  fleet.forEach((d, idx) => {
+    const el = document.createElement("div");
+    el.className = "fleet-card";
+    el.dataset.index = idx;
+    const r = d.remote || null;
+    const rssi = rssiOf(d);
+    // Where the console is attached — this machine or a remote Pi — is the one
+    // distinction the colour makes. It is NOT the mesh role: a root can hang off
+    // a Pi and a node can be cabled to this machine.
+    el.style.borderTopColor = r ? "var(--ok)" : "var(--accent)";
+    const meta = STATUS[d.status] || STATUS.idle;
+    el.innerHTML = `
+      <div class="fleet-card-head">
+        <div>
+          <div class="fleet-name">${esc(d.label)}</div>
+          <div class="fleet-id">${esc(d.id)}</div>
+          <div class="fleet-where">${r ? `Remote via ${esc(r.host)}:${esc(r.port)}` : "Mother server"}</div>
+        </div>
+        <span class="pill ${meta.pill}"><span class="dot"></span>${meta.label}</span>
+      </div>
+      <div class="fleet-cpu"><span class="fleet-cpu-value">${esc(d.cpu)}</span><span class="fleet-cpu-sub">${esc(d.cpuSub)}</span></div>
+      <span class="band-badge band-${esc(d.recoLevel)}">${esc(d.reco)}</span>
+      <dl class="stat-list">
+        ${r ? `
+        <div class="stat-row"><dt>SSH session</dt>
+          <dd class="${d.open ? "fleet-fact-ok" : "fleet-fact-idle"}">${d.open ? "Connected" : "Not connected"}</dd></div>
+        <div class="stat-row"><dt>Node console</dt><dd>${meta.label}</dd></div>` : ""}
+        <div class="stat-row"><dt>Uplink to parent</dt>
+          <dd class="${!rssi.applicable || rssi.role === "root" || (rssi.captured && rssi.role === null) ? "fleet-rssi-na" : ""}">${uplinkText(rssi)}</dd></div>
+        <div class="stat-row"><dt>Children on backhaul</dt>
+          <dd class="${!rssi.applicable || (rssi.captured && !rssi.downlink) ? "fleet-rssi-na" : ""}">${downlinkText(rssi)}</dd></div>
+      </dl>
+      <dl class="stat-list">
+        <div class="stat-row"><dt>Crash events</dt><dd>${d.crashCount}${d.crashCount > 0 ? " · since open" : ""}</dd></div>
+        <div class="stat-row"><dt>Last event</dt><dd>${esc(d.lastEvent)}</dd></div>
+        <div class="stat-row"><dt>Last snapshot</dt><dd>${esc(d.lastSnapshot)}</dd></div>
+      </dl>
+      ${detailHtml(rssi)}
+      <div class="fleet-actions">
+        <button class="btn" data-act="console">Console</button>
+        ${d.open
+          ? `<button class="btn btn-danger" data-act="close">Close serial</button>`
+          : `<button class="btn" data-act="connect" ${d.lastSerial || r ? "" : "disabled title='No remembered serial parameters — open this DUT once from the Serial Console.'"}>Connect</button>`}
+        <button class="btn" data-act="rssi" ${!rssi.applicable
+              ? "disabled title='Standalone AP has no mesh backhaul RSSI'"
+              : d.open ? "title='Capture backhaul RSSI now'" : "disabled title='console not open'"}>Refresh RSSI</button>
+      </div>`;
+    host.appendChild(el);
+  });
+  renderToolbar();
+}
+
+/* FleetSection's subtitle and its one section-level action. `meshOpen` is the
+   set the button captures, and the same set it is disabled on. */
+function meshOpen(){
+  return fleet.filter(d => d.backhaul.applicable && d.open);
+}
+function renderToolbar(){
+  $("fleetSub").textContent =
+    `${fleet.length} registered · ${fleet.filter(d => d.open).length} with a console open`;
+  const btn = $("btnCaptureAll");
+  btn.hidden = !CAN_CAPTURE;
+  if (!CAN_CAPTURE) return;
+  const ready = meshOpen();
+  btn.textContent = capturingAll ? "Capturing…" : `Capture all (${ready.length})`;
+  btn.disabled = capturingAll || ready.length === 0;
+  btn.title = ready.length === 0
+    ? "No mesh node has a console open"
+    : "Capture every mesh node in turn — nodes first, then roots";
+}
+
+/* ---------------- interactions ---------------- */
+let capturingAll = false;
+
+/** The capture a card would come back with. Replayed, never invented: the
+ *  product re-runs iwconfig and wlanconfig here, and manufacturing a second set
+ *  of numbers would erase the line between measured and synthetic that the rest
+ *  of this kit draws. */
+function applyCapture(d){
+  const pending = d.backhaul.capturedOnConnect;
+  if (!pending) return false;
+  d.backhaul.captured = true;
+  d.backhaul.role = pending.role;
+  d.backhaul.uplink = pending.uplink;
+  d.backhaul.downlink = pending.downlink;
+  d.backhaul.capturedOnConnect = null;
+  return true;
+}
+
+$("btnCaptureAll").addEventListener("click", () => {
+  /* RemoteRssiContext.refreshAll, in its own **two passes**, and sequential
+     because each capture is one console's synchronous RPC.
+
+     Pass 1 is everything not KNOWN to be a root — the children, and anything
+     never captured, because `role: null` is "nobody knows yet" rather than
+     "not a root". Ordering on the registry's role alone put an unclassified
+     root in the first pass, so on a cold fleet the order was whatever order the
+     DUTs happened to be registered in.
+
+     Pass 2 re-reads what is known to be a root BY THEN, which can include a DUT
+     pass 1 discovered was one — and only when that root was read *before* some
+     node reported an uplink, since the backend identifies a root's backhaul VAP
+     from uplinks other DUTs have already persisted. "No node reported at all"
+     is a different statement and is not a reason to read again: a lone cold
+     root learns nothing from a second reading. */
+  const ready = meshOpen();
+  const readAt = new Map();
+  const order = [];
+  let firstNodeAt = null;
+
+  const read = (d) => {
+    readAt.set(d.id, order.length);
+    order.push(d);
+    applyCapture(d);
+    if (firstNodeAt === null && d.backhaul.role !== "root" && d.backhaul.uplink){
+      firstNodeAt = readAt.get(d.id);
+    }
+  };
+  // Evaluated before anything is read, on the roles the registry knew.
+  let queue = ready.filter(d => d.backhaul.role !== "root");
+  let secondPass = false;
+
+  capturingAll = true;
+  renderToolbar();
+  const step = () => {
+    if (queue.length > 0){
+      read(queue.shift());
+      setTimeout(step, 450);
+      return;
+    }
+    if (!secondPass){
+      secondPass = true;
+      // On the roles as they are NOW — pass 1 may have reclassified one.
+      queue = ready.filter((d) => {
+        if (d.backhaul.role !== "root") return false;
+        const first = readAt.get(d.id);
+        return first === undefined                       // not read yet at all
+            || (firstNodeAt !== null && first < firstNodeAt);   // read blind
+      });
+      setTimeout(step, 450);
+      return;
+    }
+    capturingAll = false;
+    renderFleet();
+    toast(`Re-read ${order.length} backhaul${order.length === 1 ? "" : "s"} in turn: `
+        + order.map(d => d.label).join(" → "));
+  };
+  setTimeout(step, 450);
+});
+
+$("fleet").addEventListener("click", (ev) => {
+  const btn = ev.target.closest("[data-act]");
+  const card = ev.target.closest(".fleet-card");
+  if (!card) return;
+  const d = fleet[Number(card.dataset.index)];
+  if (!btn){
+    // FleetCard wraps the card BODY in a button that selects the DUT — and the
+    // detail block and the actions sit outside it, so reading a peer's RSSI does
+    // not switch the DUT under whoever is reading it.
+    if (ev.target.closest(".fleet-detail") || ev.target.closest(".fleet-actions")) return;
+    $("dutPill").textContent = d.label;
+    toast(`Selected ${d.label}`);
+    return;
+  }
+  const act = btn.dataset.act;
+  if (act === "console"){ $("dutPill").textContent = d.label; toast(`Serial Console → ${d.label}`); return; }
+  // FleetCard asks before it closes a session someone may be watching.
+  if (act === "close" && !window.confirm(`Close the serial session on ${d.label}?`)){
+    toast(`${d.label}: close cancelled`);
+    return;
+  }
+  if (act === "rssi"){
+    btn.innerHTML = `<span class="spin"></span> Reading`;
+    btn.disabled = true;
+    setTimeout(() => {
+      applyCapture(d);
+      renderFleet();
+      toast(`${d.label}: backhaul re-read`);
+    }, 750);
+    return;
+  }
+  btn.innerHTML = `<span class="spin"></span> ${act === "close" ? "Closing" : "Connecting"}`;
+  btn.disabled = true;
+  setTimeout(() => {
+    d.open = act !== "close";
+    // Connecting a remote node runs the backhaul capture, as FleetCard's
+    // onConnect does — the rows fill without anyone pressing Refresh RSSI.
+    if (d.open) applyCapture(d);
+    renderFleet();
+    const via = d.remote ? `SSH to ${d.remote.host}` : d.lastSerial;
+    toast(`${d.label}: ${d.open ? "console opened over " + via : "console closed"}`);
+  }, 750);
+});
+
+/* ---------------- boot ---------------- */
+renderFleet();
+
+$("provenance").innerHTML =
+  `<b>Demo kit</b> — canned data, no DUT attached. This screen is <b>synthetic in full</b>: a bench `
+  + `with one DUT attached cannot produce a fleet, and a mesh backhaul needs at least two, so there `
+  + `is no capture to stay faithful to. Every value comes from <b>demo-fixtures.json</b>, with SSIDs `
+  + `in the <b>DemoAP-*</b> namespace and MACs carrying the <b>02:</b> locally-administered prefix so `
+  + `they are visibly not real addresses. What is <b>not</b> invented is the shape: the fields, the `
+  + `two capture directions, which control is offered on which card and what each refusal says are `
+  + `<b>FleetSection.tsx</b>, <b>FleetCard.tsx</b> and <b>RemoteRssiContext.tsx</b>. `
+  + `This page is shown as an <b>admin</b>, which is the one role that sees a remote card whole: `
+  + `each control is gated on the role its own route needs — <b>Console</b> engineer, and `
+  + `<b>Connect</b> / <b>Close serial</b> / <b>Refresh RSSI</b> / <b>Capture all</b> admin on a `
+  + `remote node, because every <span style="font-family:ui-monospace,Menlo,monospace">/api/fleet</span> `
+  + `route is admin. A guest is offered the view and none of the buttons. `
+  + `The same six DUTs appear on <b>Overview</b>, `
+  + `compressed to the two lines that strip has room for. Chips marked `
+  + `<span class="concept">◇ concept</span> are ideas for discussion; this page has none — `
+  + `drag-to-reorder is an Overview concept and the Fleet section does not reorder.`;
+
+document.querySelectorAll("[data-screen]:not([href])").forEach(el => {
+  el.addEventListener("click", () => {
+    const name = el.dataset.screen;
+    /* Every screen in the kit, in sidebar order. This map used to be frozen at
+       whatever had shipped when the page was written, so a complete kit still
+       told the viewer that the screen next to it did not exist. The two entries
+       without a file — Logs / Crash Events and Settings — are the only ones
+       that take the other branch. */
+    const map = { "Overview": "overview.html", "Fleet": "fleet.html",
+                  "Site Survey": "site-survey.html",
+                  "Wi-Fi Clients": "wifi-clients.html", "CPU / Memory": "cpu-memory.html",
+                  "SSID Capability": "ssid-capability.html", "Downloads": "downloads.html",
+                  "Serial Console": "serial-console.html", "Files": "files.html",
+                  "Bulletin": "bulletin.html", "Upgrade Firmware": "firmware.html" };
+    $("navNote").innerHTML = map[name]
+      ? `<b>${name}</b> is in this kit — open <b>${map[name]}</b> beside this file.`
+      : `<b>${name}</b> is a screen in the product with no file in this kit; `
+        + `open <b>index.html</b> for the eleven that ship.`;
+    $("navNote").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  });
+});
+})();
+</script>
+</body>
+</html>

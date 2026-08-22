@@ -61,6 +61,13 @@ ADMIN_ROUTES = [
     "/api/firmware/config",
 ]
 
+FLEET_ADMIN_ROUTES = [
+    ("POST", "/api/fleet/nodes"),
+    ("POST", "/api/fleet/nodes/default/connect"),
+    ("POST", "/api/fleet/nodes/default/disconnect"),
+    ("POST", "/api/fleet/nodes/default/rssi"),
+]
+
 # ---------------------------------------------------------------------------
 # The whole role map, method by method.
 #
@@ -95,6 +102,11 @@ ROLE_MAP: dict[tuple[str, str], str | None] = {
     ("PUT", "/api/firmware/credentials"): "admin",
     ("PUT", "/api/firmware/mgmt-url"): "admin",
     ("POST", "/api/firmware/upgrade"): "admin",
+    # -- remote fleet: every route drives or configures an SSH console ------
+    ("POST", "/api/fleet/nodes"): "admin",
+    ("POST", "/api/fleet/nodes/{dut_id}/connect"): "admin",
+    ("POST", "/api/fleet/nodes/{dut_id}/disconnect"): "admin",
+    ("POST", "/api/fleet/nodes/{dut_id}/rssi"): "admin",
     # -- serial: drives the DUT ------------------------------------------
     ("GET", "/api/serial/ports"): "engineer",
     ("POST", "/api/serial/open"): "engineer",
@@ -282,6 +294,15 @@ class RouteProtectionTests(_ApiCase):
         for route in ADMIN_ROUTES:
             with self.subTest(route=route):
                 self.assertNotIn(self.client.get(route).status_code, (401, 403))
+
+    def test_every_fleet_route_is_admin_only(self) -> None:
+        for method, route in FLEET_ADMIN_ROUTES:
+            with self.subTest(method=method, route=route):
+                self.assertEqual(self.client.request(method, route).status_code, 401)
+        self._login("engineer")
+        for method, route in FLEET_ADMIN_ROUTES:
+            with self.subTest(method=method, route=route):
+                self.assertEqual(self.client.request(method, route).status_code, 403)
 
     def test_crash_keywords_get_is_open_but_put_is_engineer(self) -> None:
         """The split-gated settings route: everyone reads the same keyword list,
