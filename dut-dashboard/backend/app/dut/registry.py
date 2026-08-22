@@ -20,7 +20,8 @@ import hashlib
 import json
 import re
 import threading
-from dataclasses import dataclass
+import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from app.config import DUTS_FILE, snapshot_file_for
@@ -104,7 +105,9 @@ def console_id(remote: dict | None) -> str | None:
     """
     if remote is None:
         return None
-    return _identity_token([remote.get(field) for field in CONSOLE_IDENTITY_FIELDS])
+    # `name`, not `field`: this module imports dataclasses.field, and a loop
+    # variable shadowing it reads like a bug even where it is not one.
+    return _identity_token([remote.get(name) for name in CONSOLE_IDENTITY_FIELDS])
 
 
 def _clean_remote(value: object) -> dict | None:
@@ -196,6 +199,13 @@ class DutContext:
     # Held rather than re-derived, because the transport a reading came from is
     # not recoverable from the configuration afterwards.
     backhaul_console: str | None = None
+    # This registration, as distinct from this DUT id. An id is re-usable: remove
+    # `lab2` and register another device as `lab2` on the same adapter, and every
+    # part of the console's identity is byte-identical — so a browser still
+    # holding the old device's capture would go on showing it as this one's. The
+    # transport cannot tell those apart, and nothing else about a fresh context
+    # is unique, so the identity carries one value that is.
+    registration: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
 
 
 def console_token(ctx: DutContext, mode: str | None = None) -> str:
@@ -212,13 +222,15 @@ def console_token(ctx: DutContext, mode: str | None = None) -> str:
     worker actually holds — and then the reading came from the cable, however
     the DUT is configured. `mode` is the worker's transport where the caller
     knows it; without it, the configuration is the best guess available.
+
+    Every token carries `ctx.registration`, so two devices registered under one
+    id in turn never share one however identical their consoles are.
     """
     over_ssh = ctx.remote is not None if mode is None else mode == "ssh"
     if over_ssh and ctx.remote is not None:
-        # Not None: console_id answers None only for a remote that is None.
-        return console_id(ctx.remote)
+        return _identity_token([ctx.registration, "ssh", console_id(ctx.remote)])
     port = ctx.last_serial["port"] if ctx.last_serial else None
-    return _identity_token(["local", port])
+    return _identity_token([ctx.registration, "local", port])
 
 
 def _forget_backhaul(ctx: DutContext) -> None:
@@ -349,8 +361,12 @@ class DutRegistry:
             # came from a Pi. Baud is not part of the comparison, for the same
             # reason it is absent from CONSOLE_IDENTITY_FIELDS — it changes how
             # to talk to a console, not which one it is.
-            _forget_if_another_console(ctx, _identity_token(["local", cleaned["port"]]))
+            # Recorded first so the token comes from `console_token` rather than
+            # being assembled here: a second copy of that rule is a second
+            # answer to it, and this one had already drifted out of step with
+            # the first the moment the token grew a part.
             ctx.last_serial = cleaned
+            _forget_if_another_console(ctx, console_token(ctx, "serial"))
             self._save_locked()
 
     def _holding(self, dut_id: str, console: str, mode: str | None) -> DutContext | None:
