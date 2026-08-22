@@ -1,6 +1,7 @@
 import { ChangeEvent, DragEvent, useEffect, useMemo, useState } from "react";
 
 import { Card, EmptyState, KpiCard } from "./shell/Card";
+import ChartData from "./charts/ChartData";
 import { FieldKey, LOG_FIELDS, NUMERIC_LOG_FIELDS, parseLog } from "../offline/logParser";
 import { loadOfflineDuts, OfflineDutRecord, removeOfflineDut, saveOfflineDut } from "../offline/offlineDb";
 
@@ -66,6 +67,11 @@ function OfflineChart({ series, unit }: { series: ChartSeries[]; unit: string })
           <span key={item.id}><i style={{ background: COLORS[index % COLORS.length] }} />{item.name}</span>
         ))}
       </div>
+      {/* Every hand-rendered chart here also publishes its source data, so a
+          later move to a charting library needs no change to how the data is
+          produced (`dut-dashboard/CLAUDE.md`, the offline-first constraint).
+          The shared component does it; this is not a second way of doing it. */}
+      <ChartData id="offline-analyzer-chart-data" data={{ unit, series }} />
     </div>
   );
 }
@@ -112,9 +118,18 @@ export default function OfflineAnalyzerSection() {
       return;
     }
     const next = [...duts];
+    // A file with no snapshot in it is not a sysMon log, whatever it is called.
+    // Saved anyway, it became a permanent DUT with an empty chart under a
+    // success message — the import reported what it had done rather than what
+    // it had found.
+    const empty: string[] = [];
     try {
       for (const file of accepted) {
         const result = parseLog(await file.text());
+        if (result.rows.length === 0) {
+          empty.push(file.name);
+          continue;
+        }
         const dut: StoredDut = {
           id: crypto.randomUUID(),
           name: uniqueName(file.name, next),
@@ -131,10 +146,19 @@ export default function OfflineAnalyzerSection() {
       return;
     }
     const added = next.slice(duts.length);
+    const refused = empty.length
+      ? ` No sysMon snapshots in ${empty.join(", ")} — nothing saved for ${empty.length === 1 ? "it" : "those"}.`
+      : "";
+    if (added.length === 0) {
+      setNotice(refused.trim() || "No sysMon snapshots found in those files.");
+      return;
+    }
     setDuts(next);
     setSelectedIds((ids) => [...ids, ...added.map((dut) => dut.id)]);
     setActiveId(added[added.length - 1].id);
-    setNotice(`${added.length} log${added.length === 1 ? "" : "s"} imported and saved in this browser.`);
+    setNotice(
+      `${added.length} log${added.length === 1 ? "" : "s"} imported and saved in this browser.${refused}`,
+    );
   }
 
   function handleFiles(event: ChangeEvent<HTMLInputElement>) {
@@ -161,7 +185,15 @@ export default function OfflineAnalyzerSection() {
 
   async function deleteActive() {
     if (!activeDut || !window.confirm(`Delete ${activeDut.name}?`)) return;
-    await removeOfflineDut(activeDut.id);
+    try {
+      await removeOfflineDut(activeDut.id);
+    } catch {
+      // The record is still there, so the list must still show it. Dropping it
+      // from the view would report a deletion that did not happen, and the DUT
+      // would be back on the next reload with no explanation.
+      setNotice(`${activeDut.name} could not be deleted from this browser's storage.`);
+      return;
+    }
     const next = duts.filter((dut) => dut.id !== activeDut.id);
     setDuts(next);
     setSelectedIds((ids) => ids.filter((id) => id !== activeDut.id));
