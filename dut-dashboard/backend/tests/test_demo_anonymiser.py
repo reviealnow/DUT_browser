@@ -774,7 +774,7 @@ def test_the_page_and_its_sources_carry_exactly_the_same_keys(anon_module) -> No
 # the other.
 
 
-def _compress_uplink(remote: dict) -> str:
+def _compress_uplink(backhaul: dict) -> str:
     """FleetCard's "Uplink to parent" line, from the registry's record.
 
     Order matters and is the component's: not-a-mesh is answered before
@@ -782,28 +782,30 @@ def _compress_uplink(remote: dict) -> str:
     a capture established that, so reporting it as a missing measurement would
     be a different claim.
     """
-    if not remote["isMesh"]:
+    if not backhaul["applicable"]:
         return "Not applicable"
-    if remote["role"] == "root":
+    if backhaul["role"] == "root":
         return "None — this is the root"
-    uplink = remote["uplink"]
-    if not uplink or uplink["rssi"] is None:
-        return "Not captured"
-    return f"{uplink['rssi']} dBm · {uplink['rssi_band']}"
+    uplink = backhaul["uplink"]
+    if uplink and uplink["rssi"] is not None:
+        return f"{uplink['rssi']} dBm · {uplink['rssi_band']}"
+    if backhaul["captured"] and backhaul["role"] is None:
+        return "None — no parent found"
+    return "Not captured"
 
 
-def _compress_downlink(remote: dict) -> str:
+def _compress_downlink(backhaul: dict) -> str:
     """FleetCard's "Children on backhaul" line, minus the configured suffix.
 
     The strip carries that suffix as its own fields (`downlinkSource`,
     `downlinkIface`, `downlinkEssid`) because the page builds the sentence, so
     it is compared separately below rather than glued on here.
     """
-    if not remote["isMesh"]:
+    if not backhaul["applicable"]:
         return "Not applicable"
-    downlink = remote["downlink"]
+    downlink = backhaul["downlink"]
     if not downlink:
-        return "Not captured"
+        return "No backhaul VAP identified" if backhaul["captured"] else "Not captured"
     if not downlink["peers"]:
         return "None"
     return " · ".join("—" if p["rssi"] is None else f"{p['rssi']} dBm"
@@ -823,31 +825,29 @@ def test_the_fleet_says_the_same_thing_on_both_screens() -> None:
     for dut_id, node in section.items():
         card = strip[dut_id]
         assert {k: node[k] for k in shared} == {k: card[k] for k in shared}, dut_id
-        assert ("remote" in node) == ("remote" in card), dut_id
-        if "remote" not in node:
-            continue
+        assert node.get("remote") == card.get("remote"), dut_id
 
-        remote, compressed = node["remote"], card["remote"]
-        for key in ("host", "port", "isMesh", "role"):
-            assert remote[key] == compressed[key], f"{dut_id}.{key}"
-        assert compressed["uplink"] == _compress_uplink(remote), dut_id
-        assert compressed["downlink"] == _compress_downlink(remote), dut_id
+        backhaul, compressed = node["backhaul"], card["backhaul"]
+        for key in ("applicable", "captured", "role"):
+            assert backhaul[key] == compressed[key], f"{dut_id}.{key}"
+        assert compressed["uplink"] == _compress_uplink(backhaul), dut_id
+        assert compressed["downlink"] == _compress_downlink(backhaul), dut_id
 
-        source = (remote["downlink"] or {}).get("source", "detected")
+        source = (backhaul["downlink"] or {}).get("source", "detected")
         assert compressed["downlinkSource"] == source, dut_id
         if source == "configured":
-            assert compressed["downlinkIface"] == remote["downlink"]["iface"], dut_id
-            assert compressed["downlinkEssid"] == remote["downlink"]["essid"], dut_id
+            assert compressed["downlinkIface"] == backhaul["downlink"]["iface"], dut_id
+            assert compressed["downlinkEssid"] == backhaul["downlink"]["essid"], dut_id
 
         # What pressing Connect would capture. Both screens run it on connect, as
         # FleetCard's onConnect does, so both have to agree about the reading.
-        pending = remote["capturedOnConnect"]
-        assert bool(pending) == bool(compressed.get("captured")), dut_id
+        pending = backhaul["capturedOnConnect"]
+        assert bool(pending) == bool(compressed.get("pendingRead")), dut_id
         if pending:
-            after = {**remote, "role": pending["role"], "uplink": pending["uplink"],
-                     "downlink": pending["downlink"]}
-            assert compressed["captured"]["uplink"] == _compress_uplink(after), dut_id
-            assert compressed["captured"]["downlink"] == _compress_downlink(after), dut_id
+            after = {**backhaul, "captured": True, "role": pending["role"],
+                     "uplink": pending["uplink"], "downlink": pending["downlink"]}
+            assert compressed["pendingRead"]["uplink"] == _compress_uplink(after), dut_id
+            assert compressed["pendingRead"]["downlink"] == _compress_downlink(after), dut_id
 
 
 def test_the_fleet_page_carries_every_state_the_section_can_show() -> None:
@@ -861,9 +861,9 @@ def test_the_fleet_page_carries_every_state_the_section_can_show() -> None:
     """
     fixture = json.loads((DEMO.parent / "demo-fixtures.json").read_text(encoding="utf-8"))
     nodes = fixture["fleet.html"]["nodes"]
-    remotes = [n["remote"] for n in nodes if "remote" in n]
-    uplinks = [r["uplink"] for r in remotes if r["uplink"]]
-    downlinks = [r["downlink"] for r in remotes if r["downlink"]]
+    backhauls = [n["backhaul"] for n in nodes]
+    uplinks = [b["uplink"] for b in backhauls if b["uplink"]]
+    downlinks = [b["downlink"] for b in backhauls if b["downlink"]]
 
     assert any(all(u[f] is not None for f in ("snr", "radio_band", "peer_mac", "essid"))
                for u in uplinks), "no uplink exercises the fields only this page renders"
@@ -872,13 +872,15 @@ def test_the_fleet_page_carries_every_state_the_section_can_show() -> None:
         "every child hears the same, so per-child RSSI shows nothing the strip did not"
     assert {d["source"] for d in downlinks} == {"detected", "configured"}, \
         "the unverified-interface disclosure has no card to appear on"
-    assert any(r["isMesh"] and not r["uplink"] and not r["downlink"] for r in remotes), \
+    assert any(b["applicable"] and not b["captured"] for b in backhauls), \
         "no mesh node in the never-captured state"
-    assert any(not r["isMesh"] for r in remotes), "no standalone AP"
+    assert any(not b["applicable"] for b in backhauls), "no standalone AP"
+    assert any(b["captured"] and b["role"] is None and not b["uplink"]
+               for b in backhauls), "no captured DUT with no parent"
     assert any("remote" not in n for n in nodes), "no mother-server card"
-    assert any(r["capturedOnConnect"] for r in remotes), "nothing to capture on connect"
+    assert any(b["capturedOnConnect"] for b in backhauls), "nothing to capture on connect"
 
-    assert any(r["role"] == "root" for r in remotes), "no root, so nothing can be a parent"
+    assert any(b["role"] == "root" for b in backhauls), "no root, so nothing can be a parent"
 
     # Every identifier here is synthetic and visibly so — MACs carry the 02:
     # locally-administered prefix and backhaul SSIDs the DemoAP-* namespace, the

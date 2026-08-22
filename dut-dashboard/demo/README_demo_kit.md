@@ -43,10 +43,11 @@ of one device. The strip compresses a backhaul capture into two lines; the
 section has the width for the whole of it — the uplink's SNR, radio band and
 parent BSSID, and a row per child rather than every child's RSSI joined into one
 string. So `demo-fixtures.json` carries the fleet twice on purpose: under
-`fleet.html` in the registry's own shape (structured `uplink` / `downlink`
-objects, as `DutInfo["remote"]` has them) and under `overview.html` already
-compressed. `backend/tests/test_demo_anonymiser.py` derives the second from the
-first rather than trusting that whoever edited one remembered the other.
+`fleet.html` in the registry's own shape (console location under `remote`, and
+the structured capture under `backhaul` for every DUT) and under
+`overview.html` already compressed. `backend/tests/test_demo_anonymiser.py`
+derives the second from the first rather than trusting that whoever edited one
+remembered the other.
 
 ## Usage
 

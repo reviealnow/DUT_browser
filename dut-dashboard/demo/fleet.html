@@ -126,7 +126,7 @@ button{font:inherit; color:inherit; cursor:pointer}
 <!-- The fleet is synthetic in full — a bench with one DUT attached cannot
      produce one — so demo-fixtures.json owns every value here and this block is
      written from it by `build_demo_data.py --sync-fixtures`. -->
-<script id="demo-data" type="application/json">{"nodes":[{"label":"DemoDUT-6E","id":"default","status":"streaming","cpu":"34.3%","cpuSub":"2 cores","reco":"2 bands need a move","recoLevel":"warn","crashCount":3,"lastEvent":"12m ago","lastSnapshot":"2026-08-02 19:56:27","open":true,"lastSerial":"/dev/cu.PL2303G-1130"},{"label":"DemoNode-420","id":"lab-420","status":"streaming","cpu":"18.6%","cpuSub":"2 cores","reco":"all bands clear","recoLevel":"ok","crashCount":0,"lastEvent":"\u2014","lastSnapshot":"2026-08-01 09:14:02","open":true,"lastSerial":"/dev/cu.PL2303G-1130","remote":{"host":"10.0.0.24","port":22,"role":"node","isMesh":true,"uplink":{"iface":"ath0","rssi":-37,"snr":49,"rssi_band":"near","radio_band":"5GHz","essid":"DemoAP-Mesh","peer_mac":"02:1f:6c:44:9a:31"},"downlink":{"iface":"ath1","source":"detected","essid":"DemoAP-Mesh","peers":[]},"capturedOnConnect":null}},{"label":"DemoRoot-840E","id":"lab2","status":"streaming","cpu":"27.1%","cpuSub":"4 cores","reco":"no survey yet","recoLevel":"muted","crashCount":0,"lastEvent":"2m ago","lastSnapshot":"2026-08-02 19:58:41","open":true,"lastSerial":null,"remote":{"host":"10.0.0.24","port":22,"role":"root","isMesh":true,"uplink":null,"downlink":{"iface":"ath1","source":"configured","essid":"DemoAP-Mesh","peers":[{"mac":"02:7a:3d:10:55:c2","rssi":-38,"rssi_band":"near"},{"mac":"02:c4:88:9e:12:07","rssi":-61,"rssi_band":"mid"}]},"capturedOnConnect":null}},{"label":"DemoAP-standalone","id":"ap-2","status":"idle","cpu":"\u2014","cpuSub":"no stream","reco":"no survey yet","recoLevel":"muted","crashCount":0,"lastEvent":"\u2014","lastSnapshot":"\u2014","open":false,"lastSerial":null,"remote":{"host":"10.0.0.24","port":22,"role":null,"isMesh":false,"uplink":null,"downlink":null,"capturedOnConnect":null}},{"label":"DemoNode-lab3","id":"lab3","status":"idle","cpu":"\u2014","cpuSub":"no stream","reco":"no survey yet","recoLevel":"muted","crashCount":0,"lastEvent":"\u2014","lastSnapshot":"\u2014","open":false,"lastSerial":null,"remote":{"host":"10.0.0.24","port":22,"role":null,"isMesh":true,"uplink":null,"downlink":null,"capturedOnConnect":{"role":"node","uplink":{"iface":"ath0","rssi":-52,"snr":33,"rssi_band":"mid","radio_band":"5GHz","essid":"DemoAP-Mesh","peer_mac":"02:1f:6c:44:9a:31"},"downlink":{"iface":"ath1","source":"detected","essid":"DemoAP-Mesh","peers":[]}}}},{"label":"DemoDUT-bench3","id":"bench3","status":"offline","cpu":"\u2014","cpuSub":"no stream","reco":"1 band needs a move","recoLevel":"warn","crashCount":1,"lastEvent":"3m ago","lastSnapshot":"2026-08-06 10:41:55","open":false,"lastSerial":null}]}</script>
+<script id="demo-data" type="application/json">{"nodes":[{"label":"DemoDUT-6E","id":"default","status":"streaming","cpu":"34.3%","cpuSub":"2 cores","reco":"2 bands need a move","recoLevel":"warn","crashCount":3,"lastEvent":"12m ago","lastSnapshot":"2026-08-02 19:56:27","open":true,"lastSerial":"/dev/cu.PL2303G-1130","backhaul":{"applicable":true,"captured":true,"console_id":"serial:default","role":"node","uplink":{"iface":"ath0","rssi":-45,"snr":41,"rssi_band":"mid","radio_band":"5GHz","essid":"DemoAP-Mesh","peer_mac":"02:1f:6c:44:9a:31"},"downlink":{"iface":"ath1","source":"detected","essid":"DemoAP-Mesh","peers":[]},"capturedOnConnect":null}},{"label":"DemoNode-420","id":"lab-420","status":"streaming","cpu":"18.6%","cpuSub":"2 cores","reco":"all bands clear","recoLevel":"ok","crashCount":0,"lastEvent":"\u2014","lastSnapshot":"2026-08-01 09:14:02","open":true,"lastSerial":"/dev/cu.PL2303G-1130","remote":{"host":"10.0.0.24","port":22},"backhaul":{"applicable":true,"captured":true,"console_id":"ssh:lab-420","role":"node","uplink":{"iface":"ath0","rssi":-37,"snr":49,"rssi_band":"near","radio_band":"5GHz","essid":"DemoAP-Mesh","peer_mac":"02:1f:6c:44:9a:31"},"downlink":{"iface":"ath1","source":"detected","essid":"DemoAP-Mesh","peers":[]},"capturedOnConnect":null}},{"label":"DemoRoot-840E","id":"lab2","status":"streaming","cpu":"27.1%","cpuSub":"4 cores","reco":"no survey yet","recoLevel":"muted","crashCount":0,"lastEvent":"2m ago","lastSnapshot":"2026-08-02 19:58:41","open":true,"lastSerial":null,"remote":{"host":"10.0.0.24","port":22},"backhaul":{"applicable":true,"captured":true,"console_id":"ssh:lab2","role":"root","uplink":null,"downlink":{"iface":"ath1","source":"configured","essid":"DemoAP-Mesh","peers":[{"mac":"02:7a:3d:10:55:c2","rssi":-38,"rssi_band":"near"},{"mac":"02:c4:88:9e:12:07","rssi":-61,"rssi_band":"mid"},{"mac":"02:65:24:b8:3e:d1","rssi":-45,"rssi_band":"mid"}]},"capturedOnConnect":null}},{"label":"DemoAP-standalone","id":"ap-2","status":"idle","cpu":"\u2014","cpuSub":"no stream","reco":"no survey yet","recoLevel":"muted","crashCount":0,"lastEvent":"\u2014","lastSnapshot":"\u2014","open":false,"lastSerial":null,"remote":{"host":"10.0.0.24","port":22},"backhaul":{"applicable":false,"captured":false,"console_id":"ssh:ap-2","role":null,"uplink":null,"downlink":null,"capturedOnConnect":null}},{"label":"DemoNode-lab3","id":"lab3","status":"idle","cpu":"\u2014","cpuSub":"no stream","reco":"no survey yet","recoLevel":"muted","crashCount":0,"lastEvent":"\u2014","lastSnapshot":"\u2014","open":false,"lastSerial":null,"remote":{"host":"10.0.0.24","port":22},"backhaul":{"applicable":true,"captured":false,"console_id":"ssh:lab3","role":null,"uplink":null,"downlink":null,"capturedOnConnect":{"role":"node","uplink":{"iface":"ath0","rssi":-52,"snr":33,"rssi_band":"mid","radio_band":"5GHz","essid":"DemoAP-Mesh","peer_mac":"02:1f:6c:44:9a:31"},"downlink":{"iface":"ath1","source":"detected","essid":"DemoAP-Mesh","peers":[]}}}},{"label":"DemoDUT-bench3","id":"bench3","status":"offline","cpu":"\u2014","cpuSub":"no stream","reco":"1 band needs a move","recoLevel":"warn","crashCount":1,"lastEvent":"3m ago","lastSnapshot":"2026-08-06 10:41:55","open":false,"lastSerial":null,"backhaul":{"applicable":true,"captured":true,"console_id":"serial:bench3","role":null,"uplink":null,"downlink":null,"capturedOnConnect":null}}]}</script>
 
 <div class="layout">
   <aside class="sidebar">
@@ -229,8 +229,9 @@ function toast(msg){
    blanket check: the serial router is engineer, every /api/fleet route is
    admin, and the Serial Console section itself is engineer. So `Console` wants
    engineer; `Connect`, `Close serial` and `Refresh RSSI` want engineer on a
-   local DUT and admin on a remote node; and the section's `Capture all` wants
-   admin. A button that can only answer 403 is worse than no button.
+   local DUT and admin on a remote node; `Refresh RSSI` and the section's
+   `Capture all` always want admin. A button that can only answer 403 is worse
+   than no button.
 
    This page is shown as an **admin** — the pill in the topbar says so — which
    is the one role that sees the whole card, so nothing here is hidden. A guest
@@ -248,25 +249,21 @@ const STATUS = {
 
 /* ---------------- the two compressed rows ----------------
    FleetCard renders these on the card in BOTH variants, so they are derived
-   from the same structured capture the detail block below unfolds — never
-   stored as a second copy that could drift from it. useRemoteRssi.seed() is
-   what makes `applicable` the registry's is_mesh and `role` its persisted role:
-   an absent uplink is an answer, not a missing measurement. */
-const rssiOf = (d) => d.remote
-  ? { applicable: d.remote.isMesh, role: d.remote.role,
-      uplink: d.remote.uplink, downlink: d.remote.downlink }
-  : null;
+   from the registry's one backhaul answer — never inferred again from console
+   location or stored as a second copy that could drift from it. */
+const rssiOf = (d) => d.backhaul;
 
 function uplinkText(r){
   if (!r.applicable) return "Not applicable";
   if (r.role === "root") return "None — this is the root";
-  if (!r.uplink || r.uplink.rssi === null) return "Not captured";
-  return `${r.uplink.rssi} dBm · ${r.uplink.rssi_band}`;
+  if (r.uplink && r.uplink.rssi !== null) return `${r.uplink.rssi} dBm · ${r.uplink.rssi_band}`;
+  if (r.captured && r.role === null) return "None — no parent found";
+  return "Not captured";
 }
 
 function downlinkText(r){
   if (!r.applicable) return "Not applicable";
-  if (!r.downlink) return "Not captured";
+  if (!r.downlink) return r.captured ? "No backhaul VAP identified" : "Not captured";
   const peers = r.downlink.peers.length === 0
     ? "None"
     : r.downlink.peers.map(p => p.rssi === null ? "—" : `${p.rssi} dBm`).join(" · ");
@@ -284,10 +281,15 @@ function downlinkText(r){
    else, and per-child RSSI is what says WHICH child is hearing badly. The strip
    joins every child into one string; this is the table. */
 function detailHtml(r){
-  if (!r || !r.applicable) return "";
-  if (!r.uplink && !r.downlink){
+  if (!r.applicable) return "";
+  if (!r.captured){
     return `<div class="fleet-detail fleet-detail-empty">
       No capture yet — press Refresh RSSI with the console open.</div>`;
+  }
+  if (!r.uplink && !r.downlink){
+    return `<div class="fleet-detail fleet-detail-empty">
+      Captured: no parent, and nothing names one of this DUT's VAPs as a mesh backhaul.
+      Either it is standalone, or no node that joins it has been captured yet.</div>`;
   }
   const u = r.uplink;
   const uplinkBlock = r.role === "root"
@@ -360,30 +362,30 @@ function renderFleet(){
       </div>
       <div class="fleet-cpu"><span class="fleet-cpu-value">${esc(d.cpu)}</span><span class="fleet-cpu-sub">${esc(d.cpuSub)}</span></div>
       <span class="band-badge band-${esc(d.recoLevel)}">${esc(d.reco)}</span>
-      ${r ? `
       <dl class="stat-list">
+        ${r ? `
         <div class="stat-row"><dt>SSH session</dt>
           <dd class="${d.open ? "fleet-fact-ok" : "fleet-fact-idle"}">${d.open ? "Connected" : "Not connected"}</dd></div>
-        <div class="stat-row"><dt>Node console</dt><dd>${meta.label}</dd></div>
+        <div class="stat-row"><dt>Node console</dt><dd>${meta.label}</dd></div>` : ""}
         <div class="stat-row"><dt>Uplink to parent</dt>
-          <dd class="${!rssi.applicable || rssi.role === "root" ? "fleet-rssi-na" : ""}">${uplinkText(rssi)}</dd></div>
+          <dd class="${!rssi.applicable || rssi.role === "root" || (rssi.captured && rssi.role === null) ? "fleet-rssi-na" : ""}">${uplinkText(rssi)}</dd></div>
         <div class="stat-row"><dt>Children on backhaul</dt>
-          <dd class="${!rssi.applicable ? "fleet-rssi-na" : ""}">${downlinkText(rssi)}</dd></div>
-      </dl>` : ""}
+          <dd class="${!rssi.applicable || (rssi.captured && !rssi.downlink) ? "fleet-rssi-na" : ""}">${downlinkText(rssi)}</dd></div>
+      </dl>
       <dl class="stat-list">
         <div class="stat-row"><dt>Crash events</dt><dd>${d.crashCount}${d.crashCount > 0 ? " · since open" : ""}</dd></div>
         <div class="stat-row"><dt>Last event</dt><dd>${esc(d.lastEvent)}</dd></div>
         <div class="stat-row"><dt>Last snapshot</dt><dd>${esc(d.lastSnapshot)}</dd></div>
       </dl>
-      ${r ? detailHtml(rssi) : ""}
+      ${detailHtml(rssi)}
       <div class="fleet-actions">
         <button class="btn" data-act="console">Console</button>
         ${d.open
           ? `<button class="btn btn-danger" data-act="close">Close serial</button>`
           : `<button class="btn" data-act="connect" ${d.lastSerial || r ? "" : "disabled title='No remembered serial parameters — open this DUT once from the Serial Console.'"}>Connect</button>`}
-        ${r ? `<button class="btn" data-act="rssi" ${!r.isMesh
+        <button class="btn" data-act="rssi" ${!rssi.applicable
               ? "disabled title='Standalone AP has no mesh backhaul RSSI'"
-              : d.open ? "title='Capture backhaul RSSI now'" : "disabled title='console not open'"}>Refresh RSSI</button>` : ""}
+              : d.open ? "title='Capture backhaul RSSI now'" : "disabled title='console not open'"}>Refresh RSSI</button>
       </div>`;
     host.appendChild(el);
   });
@@ -393,7 +395,7 @@ function renderFleet(){
 /* FleetSection's subtitle and its one section-level action. `meshOpen` is the
    set the button captures, and the same set it is disabled on. */
 function meshOpen(){
-  return fleet.filter(d => d.remote && d.remote.isMesh && d.open);
+  return fleet.filter(d => d.backhaul.applicable && d.open);
 }
 function renderToolbar(){
   $("fleetSub").textContent =
@@ -417,12 +419,13 @@ let capturingAll = false;
  *  of numbers would erase the line between measured and synthetic that the rest
  *  of this kit draws. */
 function applyCapture(d){
-  const pending = d.remote && d.remote.capturedOnConnect;
+  const pending = d.backhaul.capturedOnConnect;
   if (!pending) return false;
-  d.remote.role = pending.role;
-  d.remote.uplink = pending.uplink;
-  d.remote.downlink = pending.downlink;
-  d.remote.capturedOnConnect = null;
+  d.backhaul.captured = true;
+  d.backhaul.role = pending.role;
+  d.backhaul.uplink = pending.uplink;
+  d.backhaul.downlink = pending.downlink;
+  d.backhaul.capturedOnConnect = null;
   return true;
 }
 
@@ -451,12 +454,12 @@ $("btnCaptureAll").addEventListener("click", () => {
     readAt.set(d.id, order.length);
     order.push(d);
     applyCapture(d);
-    if (firstNodeAt === null && d.remote.role !== "root" && d.remote.uplink){
+    if (firstNodeAt === null && d.backhaul.role !== "root" && d.backhaul.uplink){
       firstNodeAt = readAt.get(d.id);
     }
   };
   // Evaluated before anything is read, on the roles the registry knew.
-  let queue = ready.filter(d => d.remote.role !== "root");
+  let queue = ready.filter(d => d.backhaul.role !== "root");
   let secondPass = false;
 
   capturingAll = true;
@@ -471,7 +474,7 @@ $("btnCaptureAll").addEventListener("click", () => {
       secondPass = true;
       // On the roles as they are NOW — pass 1 may have reclassified one.
       queue = ready.filter((d) => {
-        if (d.remote.role !== "root") return false;
+        if (d.backhaul.role !== "root") return false;
         const first = readAt.get(d.id);
         return first === undefined                       // not read yet at all
             || (firstNodeAt !== null && first < firstNodeAt);   // read blind
