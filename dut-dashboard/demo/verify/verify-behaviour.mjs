@@ -255,15 +255,33 @@ const report = reporter();
     !mother?.querySelector("[data-act=rssi]").disabled);
 
   // The strip renders FleetCard, which gates each control on the role its own
-  // route needs: Console is engineer, but on a REMOTE node Connect, Close serial
-  // and Refresh RSSI are admin. So the role this page portrays and the buttons
-  // it draws have to agree — it used to say "engineer" over a strip full of
-  // admin-only controls, which is the demo showing what the product hides.
-  const drives = (card) => ["connect", "close", "rssi"]
-    .some(act => card.querySelector(`[data-act=${act}]`));
+  // route needs: Console is engineer, Connect and Close serial are admin on a
+  // REMOTE node, and Refresh RSSI is admin on EVERY card because the capture is
+  // /api/fleet whichever console it runs on. So the role this page portrays and
+  // the buttons it draws have to agree — it used to say "engineer" over a strip
+  // full of admin-only controls, which is the demo showing what the product
+  // hides.
+  //
+  // `adminOnly` lists the controls that actually NEED admin, rather than the
+  // ones that merely drive the DUT, and it reads the cabled card as well as the
+  // remote one. Both halves were once weaker than they looked: the earlier form
+  // was `.some(["connect","close","rssi"])` over `node` alone, so it neither
+  // noticed a cabled card at all nor could have failed on one — a cabled card
+  // that had lost Refresh RSSI still passed on its Close serial, which an
+  // engineer may press. Once the cabled DUT's backhaul became capturable,
+  // remoteness stopped being what forces this badge.
+  const adminOnly = (card) => [
+    // The capture is /api/fleet on every card, cabled or remote.
+    ...(card.querySelector("[data-act=rssi]") ? ["rssi"] : []),
+    // Connect / Close serial are engineer on a cabled DUT; only a remote node's
+    // pair are admin, because they open and close an SSH session.
+    ...(card.querySelector(".fleet-where").textContent.includes("Remote via")
+      ? ["connect", "close"].filter((act) => card.querySelector(`[data-act=${act}]`))
+      : []),
+  ];
   report.ok("the role the page portrays covers every control it draws",
     document.querySelector(".pill-admin")?.textContent.trim() === "admin" &&
-    drives(node),
+    adminOnly(node).length > 0 && adminOnly(mother).length > 0,
     document.querySelector(".topbar")?.textContent.trim());
 
   // Refresh RSSI re-reads the backhaul and touches nothing else. Sharing the

@@ -285,9 +285,19 @@ creates work for whoever has to make it true later.
   Every screen in the kit badges **admin**, and that is forced rather than
   chosen. Every page draws **Upgrade Firmware** in its sidebar, `minRole:
   "admin"`, which no engineer ever sees; Overview and Fleet go further and draw
-  `Connect`, `Close serial` and `Refresh RSSI` on remote cards, and every
-  `/api/fleet` route is admin. (`Console` is engineer — `FleetCard` gates per
-  route, not per card.)
+  `Connect` and `Close serial` on remote cards, and **`Refresh RSSI` on every
+  card** — plus Fleet's `Capture all` — because every `/api/fleet` route is
+  admin whichever console the capture runs on. (`Console` is engineer —
+  `FleetCard` gates per **route**, not per card, which is why `canCapture` is
+  its own check and does not borrow `canDrive`.)
+
+  That last part is not how it started, and the difference matters to anyone
+  re-deriving these badges: `Refresh RSSI` reached every card only when the
+  cabled DUT's backhaul became capturable, and until then the reasoning written
+  here, on both pages, and in the verifier said *remote node*, which would let a
+  reader conclude a cabled-only strip could be badged engineer. It cannot — and
+  the badges themselves were right throughout, which is exactly why the stale
+  reason survived a review: nothing you could see on a page had moved.
 
   Both halves were wrong before this was written down. Overview said *engineer*
   over a strip full of admin buttons for as long as the strip has existed — the

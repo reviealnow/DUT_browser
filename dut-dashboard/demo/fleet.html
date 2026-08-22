@@ -228,10 +228,12 @@ function toast(msg){
 /* Every control here is gated on the role ITS OWN route needs, not on one
    blanket check: the serial router is engineer, every /api/fleet route is
    admin, and the Serial Console section itself is engineer. So `Console` wants
-   engineer; `Connect`, `Close serial` and `Refresh RSSI` want engineer on a
-   local DUT and admin on a remote node; `Refresh RSSI` and the section's
-   `Capture all` always want admin. A button that can only answer 403 is worse
-   than no button.
+   engineer; `Connect` and `Close serial` want engineer on a local DUT and admin
+   on a remote node; `Refresh RSSI` and the section's `Capture all` want admin
+   on EVERY card, cabled or remote, because the capture is /api/fleet whichever
+   console it runs on — which is why FleetCard gives it its own `canCapture`
+   rather than letting it borrow `canDrive`. A button that can only answer 403
+   is worse than no button.
 
    This page is shown as an **admin** — the pill in the topbar says so — which
    is the one role that sees the whole card, so nothing here is hidden. A guest
@@ -545,11 +547,12 @@ $("provenance").innerHTML =
   + `they are visibly not real addresses. What is <b>not</b> invented is the shape: the fields, the `
   + `two capture directions, which control is offered on which card and what each refusal says are `
   + `<b>FleetSection.tsx</b>, <b>FleetCard.tsx</b> and <b>RemoteRssiContext.tsx</b>. `
-  + `This page is shown as an <b>admin</b>, which is the one role that sees a remote card whole: `
-  + `each control is gated on the role its own route needs — <b>Console</b> engineer, and `
-  + `<b>Connect</b> / <b>Close serial</b> / <b>Refresh RSSI</b> / <b>Capture all</b> admin on a `
-  + `remote node, because every <span style="font-family:ui-monospace,Menlo,monospace">/api/fleet</span> `
-  + `route is admin. A guest is offered the view and none of the buttons. `
+  + `This page is shown as an <b>admin</b>, which is the one role that sees any card whole: `
+  + `each control is gated on the role its own route needs — <b>Console</b> engineer, `
+  + `<b>Connect</b> / <b>Close serial</b> engineer on a cabled DUT and admin on a remote node, and `
+  + `<b>Refresh RSSI</b> / <b>Capture all</b> admin on every card cabled or remote, because every `
+  + `<span style="font-family:ui-monospace,Menlo,monospace">/api/fleet</span> `
+  + `route is admin whichever console the capture runs on. A guest is offered the view and none of the buttons. `
   + `The same six DUTs appear on <b>Overview</b>, `
   + `compressed to the two lines that strip has room for. Chips marked `
   + `<span class="concept">◇ concept</span> are ideas for discussion; this page has none — `
