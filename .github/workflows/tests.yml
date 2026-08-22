@@ -34,6 +34,13 @@ jobs:
     defaults:
       run:
         working-directory: dut-dashboard/backend
+    # No MPLBACKEND here on purpose. A runner has no display and the suite does
+    # import matplotlib, so setting it looks obviously right — but the code
+    # already guarantees Agg twice over: `tools/context_render.py` calls
+    # `matplotlib.use("Agg")` itself, and `analyzer_service` puts MPLBACKEND in
+    # the environment it spawns the analyzer with. A third copy of that rule
+    # here would be one nobody could see from either of the other two, and CI
+    # is green without it.
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-python@7f4fc3e22c37d6ff65e88745f38bd3157c663f7c # v5
