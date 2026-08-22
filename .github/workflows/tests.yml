@@ -34,11 +34,6 @@ jobs:
     defaults:
       run:
         working-directory: dut-dashboard/backend
-    env:
-      # No display on a runner, and the analyzer imports matplotlib. Agg is what
-      # it uses to write PNGs anyway; naming it here keeps an import from
-      # picking a GUI backend and failing on something unrelated to the test.
-      MPLBACKEND: Agg
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-python@7f4fc3e22c37d6ff65e88745f38bd3157c663f7c # v5
