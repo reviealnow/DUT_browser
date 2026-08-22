@@ -15,6 +15,7 @@ name: Tests
 
 on:
   pull_request:
+    branches: [CPU_Plots]
   push:
     branches: [CPU_Plots]
   workflow_dispatch:
