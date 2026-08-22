@@ -1,6 +1,12 @@
 import { createContext, ReactNode, useCallback, useContext, useState } from "react";
 
-import { captureRemoteRssi, humanizeApiError, RemoteRssiResult } from "../api/rest";
+import {
+  captureRemoteRssi,
+  getDuts,
+  humanizeApiError,
+  RemoteRssiResult,
+  RemoteUplink,
+} from "../api/rest";
 import { FleetEntry } from "./useFleetMonitor";
 
 /**
@@ -18,26 +24,31 @@ import { FleetEntry } from "./useFleetMonitor";
  * RPC discipline in `dut-dashboard/CLAUDE.md` — so it runs only when asked.
  */
 export type RemoteRssiState = {
-  /** The newest capture for this DUT, or what the registry already knew. */
-  get: (entry: FleetEntry) => RemoteRssiResult | null;
+  /** The newest capture for this DUT, or what the registry already knew. Never
+   *  null: a DUT nobody has measured has `captured: false`, which is a
+   *  different statement from a measurement that found no backhaul. */
+  get: (entry: FleetEntry) => RemoteRssiResult;
   capturing: (dutId: string) => boolean;
   /** Rejects on failure — the caller owns how that is shown. Takes the entry,
    *  not the id, so the result can be filed against the console it was actually
    *  read from (see `identityOf`). */
   refresh: (entry: FleetEntry) => Promise<RemoteRssiResult>;
   /**
-   * Every mesh node with a console open, **children before roots**.
+   * Every DUT a capture applies to with a console open, **children before
+   * roots**. Cabled DUTs included: nothing declares one standalone, and the
+   * fleet's root is frequently the one on this desk.
    *
    * Not a formality: a root cannot name its own backhaul VAP from its own
    * console, and is identified from the uplink a child reports. A root captured
-   * first falls back to whatever interface was configured, which is a silent
-   * empty child list when that guess is wrong.
+   * first falls back to whatever interface was configured — a silent empty
+   * child list when that guess is wrong, and a cabled DUT has no guess at all.
    *
-   * A DUT that has never been captured has `role: null`, which is not "not a
-   * root" — it is "nobody knows yet". Ordering on the registry's role alone put
-   * an unclassified root in the first pass, so on a cold fleet the order was
-   * whatever order the DUTs happened to be registered in. Hence two passes: the
-   * second captures the roots, including any that pass 1 only just discovered.
+   * `role: null` is not "not a root": it is either "nobody has looked yet" or
+   * "looked, and nothing yet says this DUT is in the mesh". Ordering on the
+   * registry's role alone put such a DUT in the first pass only, so on a cold
+   * fleet the order was whatever order the DUTs happened to be registered in.
+   * Hence two passes: the second captures everything not confirmed a node,
+   * including any root pass 1 only just discovered.
    *
    * A root is captured **twice only when the first reading could not be
    * trusted** — when it ran before any node in this sweep had reported an
@@ -58,9 +69,10 @@ export type RemoteRssiState = {
  * Which console a reading came from — not just which DUT id.
  *
  * An id is re-usable: re-pointing a node at another Pi under the same id is a
- * supported edit (the Settings card calls it "Update node"). Keyed by id alone,
- * this cache would hand the new device the old device's role, uplink and
- * children — including when a capture started before the change lands after it.
+ * supported edit (the Settings card calls it "Update node"), and a cabled DUT's
+ * console moves when its cable does. Keyed by id alone, this cache would hand
+ * the new device the old device's role, uplink and children — including when a
+ * capture started before the change lands after it.
  *
  * The value is the registry's own `console_id`, not a rule re-derived here.
  * Deriving it twice is what went wrong: the registry drops a stored capture on
@@ -68,20 +80,39 @@ export type RemoteRssiState = {
  * reading the backend had just revoked. One rule, published, compared.
  */
 function identityOf(entry: FleetEntry): string {
-  return entry.remote ? entry.remote.consoleId : "local";
+  return entry.backhaul.consoleId;
+}
+
+/**
+ * What a root could identify its backhaul VAP by, given this uplink — `null`
+ * when the answer is "nothing".
+ *
+ * The backend names a root's VAP from a peer BSSID, or from an ESSID and band.
+ * Both are nullable on an uplink it still calls a node's, so "there is an
+ * uplink" is not the same claim as "a root could use it".
+ *
+ * A key rather than a boolean because the sweep has to tell a clue it already
+ * had from one it has just been given: a node re-reporting the uplink the
+ * registry already held teaches nothing a root read earlier did not already
+ * have available to it.
+ */
+function uplinkClue(uplink: RemoteUplink | null): string | null {
+  if (!uplink || !(uplink.peer_mac || uplink.essid)) {
+    return null;
+  }
+  return `${uplink.peer_mac ?? ""}|${uplink.essid ?? ""}|${uplink.radio_band ?? ""}`;
 }
 
 /** What the registry persisted from the last capture, before this one. */
-function seed(entry: FleetEntry): RemoteRssiResult | null {
-  if (!entry.remote) {
-    return null;
-  }
+function seed(entry: FleetEntry): RemoteRssiResult {
   return {
     dut: entry.id,
-    applicable: entry.remote.isMesh,
-    role: entry.remote.role,
-    uplink: entry.remote.uplink,
-    downlink: entry.remote.downlink,
+    applicable: entry.backhaul.applicable,
+    captured: entry.backhaul.captured,
+    console_id: entry.backhaul.consoleId,
+    role: entry.backhaul.role,
+    uplink: entry.backhaul.uplink,
+    downlink: entry.backhaul.downlink,
   };
 }
 
@@ -111,18 +142,24 @@ export function RemoteRssiProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(
     async (entry: FleetEntry) => {
       const dutId = entry.id;
-      const identity = identityOf(entry);
       mark(dutId, true);
       try {
         const result = await captureRemoteRssi(dutId);
         // `captureRemoteRssi` coalesces per DUT and answers with the id it
         // captured; keying on that rather than on the id we asked for is what
         // stops a result landing on the wrong card when the fleet changes
-        // under an in-flight request. The identity is the one the capture was
-        // *started* against, so a reading that lands after the node was
-        // re-pointed is filed against the console it actually came from and
-        // simply stops matching.
-        setResults((current) => new Map(current).set(result.dut, { identity, result }));
+        // under an in-flight request.
+        //
+        // The identity comes from the answer too, and must: the entry this was
+        // called with is a snapshot from before the request, and a DUT's
+        // console can change between the two. Connect on a node last read over
+        // a cable is exactly that — the card is refreshed to the SSH console
+        // first, then this runs with the pre-connect entry — and filing the
+        // SSH reading under the cable's name made `get` reject a capture that
+        // had just succeeded, leaving the card on "Not captured".
+        setResults((current) =>
+          new Map(current).set(result.dut, { identity: result.console_id, result }),
+        );
         return result;
       } finally {
         mark(dutId, false);
@@ -133,10 +170,10 @@ export function RemoteRssiProvider({ children }: { children: ReactNode }) {
 
   const refreshAll = useCallback(
     async (entries: FleetEntry[]) => {
-      const mesh = entries.filter((entry) => entry.remote?.isMesh && entry.serialOpen);
+      const mesh = entries.filter((entry) => entry.backhaul.applicable && entry.serialOpen);
       const failures: string[] = [];
       const roles = new Map<string, "root" | "node" | null>(
-        mesh.map((entry) => [entry.id, entry.remote!.role]),
+        mesh.map((entry) => [entry.id, entry.backhaul.role]),
       );
 
       // When each DUT was read, and the earliest step after which the registry
@@ -148,8 +185,27 @@ export function RemoteRssiProvider({ children }: { children: ReactNode }) {
       // different statement from "something was, later than this root" — and
       // only the second is a reason to read a root again. A sentinel of
       // Infinity conflated them and sent a lone root round twice.
+      // What clue each DUT's stored uplink already offered before this sweep
+      // began. A root read at step 0 could use any of these, so re-reading one
+      // is not something the sweep learned and is not a reason to read anything
+      // twice. One rule for both outcomes of a capture — applying it to the
+      // failures alone still sent a root round again for a node that succeeded
+      // and reported what the registry already held.
+      const knownAtStart = new Map<string, string | null>(
+        mesh.map((entry) => [entry.id, uplinkClue(entry.backhaul.uplink)]),
+      );
+      const isNewClue = (dutId: string, uplink: RemoteUplink | null) => {
+        const clue = uplinkClue(uplink);
+        return clue !== null && clue !== knownAtStart.get(dutId);
+      };
       let step = 0;
       const readAt = new Map<string, number>();
+      // Every DUT this sweep has already spent a console on, successfully or
+      // not. `readAt` cannot answer that — a capture that threw has no read
+      // time — and pass 2 now covers unclassified DUTs as well as roots, so
+      // without this a failed console would be dialled twice and reported
+      // twice for one sweep.
+      const attempted = new Set<string>();
       let learnedAt: number | null = null;
       const learned = (at: number) => {
         if (learnedAt === null || at < learnedAt) {
@@ -157,33 +213,49 @@ export function RemoteRssiProvider({ children }: { children: ReactNode }) {
         }
       };
 
+      /** Did a DUT whose capture just failed leave a usable uplink behind?
+       *
+       *  One registry read, no console: `/rssi` stores the uplink before it
+       *  runs its second command, so a partial success is visible here. If even
+       *  this fails we have learned nothing about what was learned — fall back
+       *  to the assumption that costs a capture rather than the one that leaves
+       *  a root blind. */
+      const taughtSomething = async (dutId: string) => {
+        try {
+          const fresh = (await getDuts()).find((dut) => dut.id === dutId);
+          return fresh ? isNewClue(dutId, fresh.backhaul.uplink) : false;
+        } catch {
+          return true;
+        }
+      };
+
       const capture = async (dutId: string) => {
         const entry = mesh.find((e) => e.id === dutId)!;
         const at = step++;
-        const wasKnownRoot = roles.get(dutId) === "root";
+        attempted.add(dutId);
         try {
           const result = await refresh(entry);
           roles.set(dutId, result.role);
           readAt.set(dutId, at);
-          // `role: "node"` is not the same claim. The backend identifies a
-          // root's backhaul VAP from a peer BSSID, or from an ESSID and band —
-          // and both of those are nullable on an uplink it still calls a node's.
-          // A node that reported neither taught the registry nothing.
-          const uplink = result.uplink;
-          if (result.role === "node" && uplink && (uplink.peer_mac || uplink.essid)) {
+          if (isNewClue(dutId, result.uplink)) {
             learned(at);
           }
         } catch (err) {
           // A rejected capture does not mean the registry learned nothing:
           // `/rssi` stores the uplink *before* it runs the second command, so a
           // node whose `wlanconfig` failed has already taught it everything a
-          // root needs. We cannot tell that case from a console that never
-          // answered, so assume the useful one — the cost of being wrong is one
-          // extra capture, and the cost of the other assumption is a root left
-          // holding a downlink read while it was still blind. A root is the
-          // exception: its capture has no uplink to store, so a failed one
-          // cannot have taught the registry anything.
-          if (!wasKnownRoot) {
+          // root needs — while one whose console never answered taught it
+          // nothing. Those were indistinguishable from here, so this assumed
+          // the useful one and every failure cost some root a second capture.
+          //
+          // They are distinguishable now: the registry publishes each DUT's
+          // stored uplink for every DUT, so ask it. That is one HTTP GET and no
+          // console at all — the reason to bother is that the alternative is
+          // two synchronous serial RPCs and another pause of a DUT's sysmon
+          // parsing, for a clue that may not exist. Only a *new* uplink counts:
+          // one this DUT already had before the sweep was available to every
+          // root read in it, including those read first.
+          if (await taughtSomething(dutId)) {
             learned(at);
           }
           // Sequential, but not fragile: a closed console or a DUT removed
@@ -205,17 +277,24 @@ export function RemoteRssiProvider({ children }: { children: ReactNode }) {
       for (const entry of mesh.filter((e) => roles.get(e.id) !== "root")) {
         await capture(entry.id);
       }
-      // Pass 2: the roots. One that pass 1 never touched is captured here for
-      // the first time. One that pass 1 discovered is captured again *only if*
-      // it was read before some node reported an uplink — otherwise its reading
-      // already stands, and a second would be two more serial RPCs and another
-      // pause of that DUT's sysmon parsing for a byte-identical answer. A lone
-      // root, with no node in the fleet to learn from, is the clearest case:
-      // there is nothing a second reading could know that the first did not.
-      for (const entry of mesh.filter((e) => roles.get(e.id) === "root")) {
+      // Pass 2: everything that is not a confirmed node — the roots, and the
+      // DUTs a blind pass-1 capture could not classify. One never touched in
+      // pass 1 is captured here for the first time. One pass 1 did read is
+      // captured again *only if* it was read before some node reported an
+      // uplink — otherwise its reading already stands, and a second would be
+      // two more serial RPCs and another pause of that DUT's sysmon parsing
+      // for a byte-identical answer. A lone root, with no node in the fleet to
+      // learn from, is the clearest case: there is nothing a second reading
+      // could know that the first did not.
+      //
+      // Unclassified DUTs belong here for the reason roots do, and more so: a
+      // cabled DUT declares nothing, so "no uplink and nothing names my VAPs"
+      // is exactly the answer a blind read gives — and the node that would
+      // name them may have been captured one step later in the same sweep.
+      for (const entry of mesh.filter((e) => roles.get(e.id) !== "node")) {
         const at = readAt.get(entry.id);
         const readBlind = at !== undefined && learnedAt !== null && at < learnedAt;
-        if (at === undefined || readBlind) {
+        if (!attempted.has(entry.id) || readBlind) {
           await capture(entry.id);
         }
       }

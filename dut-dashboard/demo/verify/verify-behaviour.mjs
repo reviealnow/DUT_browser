@@ -229,22 +229,30 @@ const report = reporter();
     && rowsOf(c)["Uplink to parent"]?.includes("dBm"));
   const root = cards.find(c => rowsOf(c)["Uplink to parent"] === "None — this is the root");
 
-  // FleetStrip renders the four remote rows only when the DUT has an SSH
-  // console. A strip of mother-server cards alone would tell a viewer the
-  // product cannot reach a DUT over a Pi at all.
-  report.ok("a mother-server card carries no remote rows",
-    !!mother && !("SSH session" in rowsOf(mother)));
+  // FleetStrip renders the two SSH rows only when the DUT has an SSH console.
+  // A strip of mother-server cards alone would tell a viewer the product
+  // cannot reach a DUT over a Pi at all.
+  report.ok("a mother-server card carries no SSH rows",
+    !!mother && !("SSH session" in rowsOf(mother)) && !("Node console" in rowsOf(mother)));
   report.ok("a remote node shows all four remote rows",
     !!node && ["SSH session", "Node console", "Uplink to parent", "Children on backhaul"]
       .every(k => k in rowsOf(node)));
+  // The backhaul rows are not remote-node rows. Both commands behind them run
+  // over a cabled console as well as an SSH one, and the fleet's root is
+  // frequently the DUT on this desk — the card that used to be the one place
+  // the measurement could never appear.
+  report.ok("a mother-server card still reports both backhaul directions",
+    !!mother && ["Uplink to parent", "Children on backhaul"].every(k => k in rowsOf(mother)));
 
   // Up and down are separate measurements from separate commands; a root has
   // no parent and says so rather than reading as an uncaptured value.
   report.ok("the root's uplink is an answer, not a gap", !!root);
   report.ok("the root still reports children",
     !!root && rowsOf(root)["Children on backhaul"].includes("dBm"));
-  report.ok("only remote cards offer Refresh RSSI",
-    !!node?.querySelector("[data-act=rssi]") && !mother?.querySelector("[data-act=rssi]"));
+  report.ok("a cabled card offers Refresh RSSI too",
+    !!node?.querySelector("[data-act=rssi]") && !!mother?.querySelector("[data-act=rssi]"));
+  report.ok("and it is offered live, not disabled, on an open cabled console",
+    !mother?.querySelector("[data-act=rssi]").disabled);
 
   // The strip renders FleetCard, which gates each control on the role its own
   // route needs: Console is engineer, but on a REMOTE node Connect, Close serial
@@ -393,8 +401,8 @@ const report = reporter();
   const root = byName("DemoRoot-840E");
   const peers = [...root.querySelectorAll(".fleet-peer-table tbody tr")];
   report.ok("every child is its own row, with its own signal and quality",
-    peers.length === 2 &&
-    new Set(peers.map(r => r.querySelectorAll("td")[1].textContent)).size === 2 &&
+    peers.length === 3 &&
+    new Set(peers.map(r => r.querySelectorAll("td")[1].textContent)).size === 3 &&
     peers.every(r => /^02:/.test(r.querySelector("td").textContent)),
     peers.map(r => r.textContent.trim()).join(" | "));
   report.ok("a root's uplink block is an answer, not a gap",
@@ -408,8 +416,8 @@ const report = reporter();
   report.ok("a detected one is not dressed up as the same thing",
     node.querySelector(".fleet-detail").textContent.includes("detected backhaul"));
 
-  // Three states that must not read alike: never captured, does not apply, and
-  // not a remote node at all.
+  // Four states that must not read alike: never captured, does not apply, a
+  // measured root, and a measured DUT with no parent that is not known root.
   const unconnected = byName("DemoNode-lab3");
   report.ok("a mesh node nobody captured says so instead of showing zeros",
     !!unconnected.querySelector(".fleet-detail-empty") &&
@@ -420,14 +428,20 @@ const report = reporter();
     cardRows(standalone)["Uplink to parent"] === "Not applicable" &&
     cardRows(standalone)["Children on backhaul"] === "Not applicable");
   const mother = byName("DemoDUT-6E");
-  report.ok("a mother-server card carries neither the remote rows nor a detail block",
-    !("SSH session" in cardRows(mother)) && !mother.querySelector(".fleet-detail"));
+  report.ok("a mother-server card carries no SSH rows but does unfold its backhaul",
+    !("SSH session" in cardRows(mother)) &&
+    detailRows(mother)["Parent BSSID"] === "02:1f:6c:44:9a:31");
+  const noParent = byName("DemoDUT-bench3");
+  report.ok("a captured cabled DUT with no parent is not called a root",
+    cardRows(noParent)["Uplink to parent"] === "None — no parent found" &&
+    cardRows(noParent)["Children on backhaul"] === "No backhaul VAP identified" &&
+    noParent.querySelector(".fleet-detail-empty").textContent.includes("Either it is standalone"));
 
   // FleetSection's one section-level action. The count is the set it captures,
   // and the order is load-bearing: a root cannot name its own backhaul VAP, so
   // capturing it before its children falls back to a configured guess.
   report.ok("Capture all counts only the mesh nodes with a console open",
-    document.getElementById("btnCaptureAll").textContent.trim() === "Capture all (2)",
+    document.getElementById("btnCaptureAll").textContent.trim() === "Capture all (3)",
     document.getElementById("btnCaptureAll").textContent);
   report.ok("…and says it reads nodes before roots",
     /nodes first, then roots/.test(document.getElementById("btnCaptureAll").title));
@@ -452,8 +466,11 @@ const report = reporter();
   report.ok("a closed console's is refused for the console",
     /console/i.test(unconnected.querySelector("[data-act=rssi]").title) &&
     unconnected.querySelector("[data-act=rssi]").disabled);
-  report.ok("only remote cards offer Refresh RSSI at all",
-    !mother.querySelector("[data-act=rssi]"));
+  report.ok("a cabled card offers Refresh RSSI too",
+    !!mother.querySelector("[data-act=rssi]") && !mother.querySelector("[data-act=rssi]").disabled);
+  report.ok("a closed cabled card refuses Refresh RSSI for the console",
+    !!noParent.querySelector("[data-act=rssi]")?.disabled &&
+    /console/i.test(noParent.querySelector("[data-act=rssi]")?.title || ""));
 
   // The detail sits OUTSIDE the button that selects the DUT, so reading a
   // peer's RSSI must not switch the DUT under whoever is reading it.
@@ -476,7 +493,8 @@ const report = reporter();
   await new Promise(r => setTimeout(r, 2600));
   const said = document.getElementById("toast").textContent;
   report.ok("Capture all reads the child before the root, each exactly once",
-    said.includes("DemoNode-420 → DemoRoot-840E") && said.includes("2 backhauls"), said);
+    said.includes("DemoDUT-6E → DemoNode-420 → DemoRoot-840E") &&
+    said.includes("3 backhauls"), said);
 
   // Connecting a remote node runs the capture, as FleetCard's onConnect does.
   click(window, byName("DemoNode-lab3").querySelector("[data-act=connect]"));
@@ -487,7 +505,7 @@ const report = reporter();
     detailRows(joined)["Parent BSSID"] === "02:1f:6c:44:9a:31",
     JSON.stringify(detailRows(joined)));
   report.ok("and the section's own count follows the console it just opened",
-    document.getElementById("btnCaptureAll").textContent.trim() === "Capture all (3)",
+    document.getElementById("btnCaptureAll").textContent.trim() === "Capture all (4)",
     document.getElementById("btnCaptureAll").textContent);
 
   // Close asks first, and the stub is a spy: observing only the end state

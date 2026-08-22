@@ -69,11 +69,58 @@ export default function FleetCard({
   // guests were being shown Connect, Close serial and Refresh RSSI.
   const canDrive = ROLE_RANK[role] >= ROLE_RANK[entry.remote ? "admin" : "engineer"];
   const canOpenConsole = ROLE_RANK[role] >= ROLE_RANK["engineer"];
+  // The capture is /api/fleet, which is admin whichever console it runs on —
+  // so it cannot borrow `canDrive`, which is engineer for a cabled DUT and
+  // would hand an engineer a button that can only answer 403.
+  const canCapture = ROLE_RANK[role] >= ROLE_RANK["admin"];
   const [closing, setClosing] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const rssi = rssiState.get(entry);
   const capturingRssi = rssiState.capturing(entry.id);
+  // What the two backhaul rows say when there is no number to show. Each of
+  // these is a different state and the card has to keep them apart: nobody has
+  // measured; measured and this DUT is the root; measured and nothing here
+  // belongs to a mesh at all. Reading them all as "Not captured" is how a
+  // healthy link and a standalone AP came to look the same.
+  const uplinkText =
+    !rssi.applicable
+      ? "Not applicable"
+      : rssi.role === "root"
+        ? "None — this is the root"
+        : rssi.uplink && rssi.uplink.rssi !== null
+          ? `${rssi.uplink.rssi} dBm · ${rssi.uplink.rssi_band}`
+          : rssi.captured && rssi.role === null
+            ? "None — no parent found"
+            : "Not captured";
+  const childrenText =
+    !rssi.applicable
+      ? "Not applicable"
+      : rssi.downlink
+        ? `${
+            rssi.downlink.peers.length === 0
+              ? "None"
+              : rssi.downlink.peers
+                  .map((p) => (p.rssi === null ? "—" : `${p.rssi} dBm`))
+                  .join(" · ")
+          }${
+            // An interface nobody verified is a backhaul gets said out loud,
+            // with the SSID it serves: on the bench a configured VAP was
+            // carrying an ordinary laptop.
+            rssi.downlink.source === "configured"
+              ? ` · ${rssi.downlink.iface} configured${
+                  rssi.downlink.essid ? ` (${rssi.downlink.essid})` : ""
+                }`
+              : ""
+          }`
+        : !rssi.captured
+          ? "Not captured"
+          : "No backhaul VAP identified";
+  // Grey for a settled non-answer — not applicable, no parent — but not for
+  // "Not captured", which is a prompt to press the button rather than a state
+  // of the DUT.
+  const uplinkMuted = !rssi.applicable || rssi.role === "root" || (rssi.captured && rssi.role === null);
+  const childrenMuted = !rssi.applicable || (rssi.captured && !rssi.downlink);
   const meta = STATUS_META[entry.status];
   const cpu = entry.cpuBusyPct === null ? "—" : `${entry.cpuBusyPct}%`;
   const cpuSub =
@@ -163,68 +210,48 @@ export default function FleetCard({
           <div className="kpi-sub">{cpuSub}</div>
         </div>
         <FleetBandBadge reco={reco} />
-        {entry.remote ? (
-          <dl className="stat-list fleet-remote-facts">
-            <div className="stat-row">
-              {/* Nothing here probes the Pi: this is whether the backend is
-                  holding an SSH console open, so it must not be worded as
-                  reachability, and "not connected" is a resting state rather
-                  than a fault. Whether bytes are actually arriving is the
-                  console row below. */}
-              <dt>SSH session</dt>
-              <dd className={entry.serialOpen ? "fleet-fact-ok" : "fleet-fact-idle"}>
-                {entry.serialOpen ? "Connected" : "Not connected"}
-              </dd>
-            </div>
-            <div className="stat-row">
-              <dt>Node console</dt>
-              <dd>{meta.label}</dd>
-            </div>
-            {/* Two directions, two rows, because they answer different
-                questions and come from different commands. One "Backhaul RSSI"
-                number could not say which way it pointed. */}
-            <div className="stat-row">
-              <dt>Uplink to parent</dt>
-              {/* A root has no parent, and a capture that parsed its VAPs
-                  established that. Saying "Not captured" there would report a
-                  known state as a missing one. */}
-              <dd className={rssi && (!rssi.applicable || rssi.role === "root") ? "fleet-rssi-na" : undefined}>
-                {rssi && !rssi.applicable
-                  ? "Not applicable"
-                  : rssi && rssi.role === "root"
-                    ? "None — this is the root"
-                    : !rssi || !rssi.uplink || rssi.uplink.rssi === null
-                      ? "Not captured"
-                      : `${rssi.uplink.rssi} dBm · ${rssi.uplink.rssi_band}`}
-              </dd>
-            </div>
-            <div className="stat-row">
-              <dt>Children on backhaul</dt>
-              <dd className={rssi && !rssi.applicable ? "fleet-rssi-na" : undefined}>
-                {rssi && !rssi.applicable
-                  ? "Not applicable"
-                  : !rssi || !rssi.downlink
-                    ? "Not captured"
-                    : `${
-                        rssi.downlink.peers.length === 0
-                          ? "None"
-                          : rssi.downlink.peers
-                              .map((p) => (p.rssi === null ? "—" : `${p.rssi} dBm`))
-                              .join(" · ")
-                      }${
-                        // An interface nobody verified is a backhaul gets said
-                        // out loud, with the SSID it serves: on the bench a
-                        // configured VAP was carrying an ordinary laptop.
-                        rssi.downlink.source === "configured"
-                          ? ` · ${rssi.downlink.iface} configured${
-                              rssi.downlink.essid ? ` (${rssi.downlink.essid})` : ""
-                            }`
-                          : ""
-                      }`}
-              </dd>
-            </div>
-          </dl>
-        ) : null}
+        <dl className="stat-list fleet-remote-facts">
+          {entry.remote ? (
+            <>
+              <div className="stat-row">
+                {/* Nothing here probes the Pi: this is whether the backend is
+                    holding an SSH console open, so it must not be worded as
+                    reachability, and "not connected" is a resting state rather
+                    than a fault. Whether bytes are actually arriving is the
+                    console row below. */}
+                <dt>SSH session</dt>
+                <dd className={entry.serialOpen ? "fleet-fact-ok" : "fleet-fact-idle"}>
+                  {entry.serialOpen ? "Connected" : "Not connected"}
+                </dd>
+              </div>
+              <div className="stat-row">
+                <dt>Node console</dt>
+                <dd>{meta.label}</dd>
+              </div>
+            </>
+          ) : null}
+          {/* Two directions, two rows, because they answer different questions
+              and come from different commands. One "Backhaul RSSI" number
+              could not say which way it pointed.
+
+              Shown for a cabled DUT too: the measurement is the same two
+              console commands, and the fleet's root is regularly the DUT on
+              this desk — which used to be the one device whose backhaul could
+              never be shown. What a cabled DUT does not carry is an admin's
+              word that it is meshed, so its rows say what was measured and
+              stop there. */}
+          <div className="stat-row">
+            <dt>Uplink to parent</dt>
+            {/* A root has no parent, and a capture that parsed its VAPs
+                established that. Saying "Not captured" there would report a
+                known state as a missing one. */}
+            <dd className={uplinkMuted ? "fleet-rssi-na" : undefined}>{uplinkText}</dd>
+          </div>
+          <div className="stat-row">
+            <dt>Children on backhaul</dt>
+            <dd className={childrenMuted ? "fleet-rssi-na" : undefined}>{childrenText}</dd>
+          </div>
+        </dl>
         <dl className="stat-list">
           <div className="stat-row">
             <dt>Crash events</dt>
@@ -240,7 +267,7 @@ export default function FleetCard({
           </div>
         </dl>
       </button>
-      {variant === "grid" && entry.remote ? <FleetLinkDetail rssi={rssi} /> : null}
+      {variant === "grid" ? <FleetLinkDetail rssi={rssi} /> : null}
       <div className="fleet-card-actions">
         {canOpenConsole ? (
           <button
@@ -284,13 +311,17 @@ export default function FleetCard({
             Connect
           </button>
         )}
-        {entry.remote && canDrive ? (
+        {canCapture ? (
           <button
             type="button"
             className="btn"
-            disabled={!entry.serialOpen || capturingRssi || !entry.remote.isMesh}
+            disabled={!entry.serialOpen || capturingRssi || !rssi.applicable}
             onClick={onRefreshRssi}
-            title={entry.remote.isMesh ? "Capture backhaul RSSI now" : "Standalone AP has no mesh backhaul RSSI"}
+            title={
+              rssi.applicable
+                ? "Capture backhaul RSSI now"
+                : "Standalone AP has no mesh backhaul RSSI"
+            }
           >
             {capturingRssi ? "Reading…" : "Refresh RSSI"}
           </button>
@@ -311,16 +342,27 @@ export default function FleetCard({
  * measurement that says *which* child is hearing badly, was legible only for
  * one child. Both are why this section exists.
  */
-function FleetLinkDetail({ rssi }: { rssi: RemoteRssiResult | null }) {
-  if (!rssi || !rssi.applicable) {
+function FleetLinkDetail({ rssi }: { rssi: RemoteRssiResult }) {
+  if (!rssi.applicable) {
     return null;
   }
   const uplink = rssi.uplink;
   const downlink = rssi.downlink;
-  if (!uplink && !downlink) {
+  if (!rssi.captured) {
     return (
       <div className="fleet-detail fleet-detail-empty">
         No capture yet — press Refresh RSSI with the console open.
+      </div>
+    );
+  }
+  if (!uplink && !downlink) {
+    // Measured, and neither direction is there. Not the same sentence as "no
+    // capture yet", and for a cabled DUT it is the ordinary reading of a
+    // standalone AP — which must not be dressed up as a mesh root.
+    return (
+      <div className="fleet-detail fleet-detail-empty">
+        Captured: no parent, and nothing names one of this DUT&apos;s VAPs as a mesh backhaul.
+        Either it is standalone, or no node that joins it has been captured yet.
       </div>
     );
   }

@@ -1,4 +1,9 @@
-"""Admin-only lifecycle and on-demand link capture for SSH-backed DUTs."""
+"""Admin-only remote-node lifecycle, and on-demand link capture for any DUT.
+
+Configuring, connecting and disconnecting a node are SSH operations and refuse
+a DUT that has no remote configuration. The backhaul capture is not: it is two
+console commands, and a cabled console runs them as well as an SSH one.
+"""
 
 from __future__ import annotations
 
@@ -11,6 +16,7 @@ from app.dut.registry import (
     REMOTE_PORT_MAX,
     REMOTE_PORT_MIN,
     REMOTE_TOKEN_RE,
+    console_token,
 )
 from app.services import auth_service
 from app.services.wifi_clients import (
@@ -126,6 +132,9 @@ def connect_node(dut_id: str, request: Request, _admin: dict = _ADMIN) -> dict:
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # This node may have been captured over a cable at this desk — a supported
+    # thing to do, and a different console from the one just opened.
+    request.app.state.dut_registry.note_console_open(dut_id, "ssh")
     return {"ok": True, "dut": dut_id, "mode": "ssh"}
 
 
@@ -146,13 +155,17 @@ def _known_uplinks(registry, exclude_dut_id: str) -> tuple[set[str], set[tuple]]
     can: the BSSID it associates to is that VAP. This reads what previous
     captures already stored, so it costs no console time — and it stays empty
     until some node has been captured, which is the ordering this depends on.
+
+    Every registered DUT is walked, cabled ones included: the fleet's root is
+    frequently the DUT on this desk, and it is named by a node exactly as a
+    remote root would be.
     """
     bssids: set[str] = set()
     networks: set[tuple] = set()
     for other_id in registry.ids():
         if other_id == exclude_dut_id:
             continue
-        uplink = registry.get(other_id).remote_uplink
+        uplink = registry.get(other_id).backhaul_uplink
         if not uplink:
             continue
         if uplink.get("peer_mac"):
@@ -172,15 +185,52 @@ def capture_rssi(dut_id: str, request: Request, _admin: dict = _ADMIN) -> dict:
     lives on its Managed VAP and is only visible through `iwconfig`, so asking
     wlanconfig for it returns an empty table and no error — which is how a
     perfectly healthy -37 dBm uplink reads as "not captured" forever.
+
+    Neither command needs SSH. Both go through `capture_command`, which answers
+    the same way on a locally cabled console, so a DUT with no remote is
+    captured here too — on this bench the mesh root is the AP6 on the desk, and
+    refusing it made the one measurement this endpoint exists for unobtainable
+    for the device most likely to be in front of someone. What a cabled DUT does
+    not have is the pair of declarations a node's SSH configuration carries:
+    nobody said it is meshed, and nobody named a fallback backhaul VAP. Both
+    absences are handled below rather than guessed at.
     """
     context = _context(request, dut_id)
     remote = context.remote
-    if remote is None:
-        raise HTTPException(status_code=400, detail="DUT has no remote SSH configuration")
-    if not remote["is_mesh"]:
-        return {"dut": dut_id, "applicable": False, "role": None, "uplink": None, "downlink": None}
+    if remote is not None and not remote["is_mesh"]:
+        # The only way to know a DUT has no mesh backhaul is for an admin to
+        # have said so, which is a field of a remote node's configuration.
+        return {
+            "dut": dut_id, "applicable": False, "captured": False,
+            "console_id": console_token(context), "role": None,
+            "uplink": None, "downlink": None,
+        }
 
+    registry = request.app.state.dut_registry
     worker = context.serial_worker
+    # Which console this reading is coming from, settled before the first
+    # command rather than after the last: the worker holds one transport for
+    # the whole call, while the configuration around it can be edited under us.
+    console = console_token(context, worker.mode)
+
+    def commit(store) -> None:
+        """Write a capture's fields, or refuse if the console moved under it.
+
+        An admin can re-point this node, or open it somewhere else, while the
+        two commands are in flight. Then the open revokes whatever was stored —
+        and a capture that wrote afterwards would put a reading straight back
+        under the name of a console that has gone, which is the one thing the
+        identity is for. The registry does the test and the write together
+        under its own lock; testing here and writing after would leave exactly
+        the gap this is about. Nothing partial is kept: the request fails and
+        the operator repeats it against a console that stopped moving.
+        """
+        if not store():
+            raise HTTPException(
+                status_code=409,
+                detail="This DUT's console changed while the capture ran; try again",
+            )
+
     try:
         links = parse_iwconfig_links(worker.capture_command("iwconfig"))
     except RuntimeError as exc:
@@ -195,7 +245,7 @@ def capture_rssi(dut_id: str, request: Request, _admin: dict = _ADMIN) -> dict:
             status_code=400,
             detail="Console reported no wireless interfaces; try again in a moment",
         )
-    peer_bssids, peer_networks = _known_uplinks(request.app.state.dut_registry, dut_id)
+    peer_bssids, peer_networks = _known_uplinks(registry, dut_id)
     found = classify_backhaul(links, peer_bssids, peer_networks)
 
     uplink = None
@@ -213,21 +263,43 @@ def capture_rssi(dut_id: str, request: Request, _admin: dict = _ADMIN) -> dict:
 
     # A root has no uplink to pair against, so its downward VAP can only come
     # from configuration. Detection wins where it works: interface numbering
-    # differs between models and firmware renumbers VAPs.
+    # differs between models and firmware renumbers VAPs. A cabled DUT has no
+    # configuration to fall back to — and wants none: the fallback is the least
+    # trustworthy source here (on this bench a configured VAP was serving a
+    # laptop), while detection from a peer's uplink names the VAP exactly.
     detected = found["downlink"]
-    downlink_iface = detected["iface"] if detected else remote.get("backhaul_iface")
+    downlink_iface = detected["iface"] if detected else (
+        remote.get("backhaul_iface") if remote is not None else None
+    )
 
     # The capture parsed real VAPs, so an absent uplink is an answer rather
     # than a gap: this DUT has no parent. The card must be able to tell those
     # apart, and only the side that read the VAPs can.
-    role = "node" if uplink is not None else "root"
+    #
+    # "No parent" is still not the same statement as "root of the mesh", and
+    # for a cabled DUT it is the difference between a fact and a guess: a
+    # standalone AP on someone's desk has no parent either. So a root is
+    # claimed only where something backs it — an admin having declared this
+    # node meshed, or a peer's uplink having named one of these VAPs. Neither,
+    # and the honest answer is that this capture found no backhaul at all,
+    # which `captured` keeps distinguishable from never having looked.
+    if uplink is not None:
+        role = "node"
+    elif remote is not None or detected is not None:
+        role = "root"
+    else:
+        role = None
 
     # Stored before the second capture. The uplink is already measured, and a
     # console that dies between the two commands must not cost a reading that
     # succeeded — the request still fails, but the fresh value is kept rather
     # than the card being left on a stale one.
-    context.remote_uplink = uplink
-    context.remote_role = role
+    # Filed under the console the worker actually holds rather than under how
+    # the DUT is configured. A registered node opened on a cable is captured
+    # over the cable, and a reading filed against its Pi would be served back as
+    # that Pi's the next time the node connects — the mislabelling console_id
+    # exists to prevent.
+    commit(lambda: registry.store_backhaul_reading(dut_id, console, worker.mode, uplink, role))
 
     downlink = None
     if downlink_iface:
@@ -249,10 +321,17 @@ def capture_rssi(dut_id: str, request: Request, _admin: dict = _ADMIN) -> dict:
             "peers": [_peer(c) for c in parse_wlanconfig_list(table, downlink_iface)],
         }
 
-    context.remote_downlink = downlink
+    commit(lambda: registry.store_backhaul_downlink(dut_id, console, worker.mode, downlink))
     return {
         "dut": dut_id,
         "applicable": True,
+        "captured": True,
+        # The console this reading came from, answered rather than left for the
+        # caller to snapshot before the request. A client that assumes the
+        # console it asked about is the one that answered files a capture taken
+        # after a transport switch under the identity from before it, and then
+        # discards its own successful reading as somebody else's.
+        "console_id": console,
         "role": role,
         "uplink": uplink,
         "downlink": downlink,

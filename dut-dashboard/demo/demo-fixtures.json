@@ -8,7 +8,7 @@
     "reference capture contained no crash lines, and connection state is live UI",
     "that no capture records. Each page prints which of its content is synthetic.",
     "MACs use the 02: locally-administered prefix so they are visibly not real.",
-    "fleet.html and overview.html describe the SAME six DUTs, because the product does: FleetCard renders both views and a card that disagreed with itself between them would be two accounts of one device. fleet.html.nodes carries the registry's own shape -- structured uplink/downlink objects, as DutInfo['remote'] has them -- and overview.html.fleet carries the two compressed lines the strip has room for. The compression rule is FleetCard's, and test_demo_anonymiser.py derives one from the other rather than trusting that both were edited.",
+    "fleet.html and overview.html describe the SAME six DUTs, because the product does: FleetCard renders both views and a card that disagreed with itself between them would be two accounts of one device. fleet.html.nodes carries the registry's own shape -- console location under remote and the structured capture under backhaul, including for cabled DUTs -- and overview.html.fleet carries the two compressed lines the strip has room for. The compression rule is FleetCard's, and test_demo_anonymiser.py derives one from the other rather than trusting that both were edited.",
     "files.html and bulletin.html are synthetic in full. A workspace file list and a note board are CONTENT, not measurements, so there is no measured claim to preserve. Names here are deliberate placeholders (Doe/Roe/Coe) and the note bodies are generic: an earlier revision reused real colleagues' names straight from the bench database, which is exactly what 'synthetic' was meant to prevent. Both pages say so in their provenance line.",
     "serial-console.html: the Monitor half is real log lines chosen by the identifier guard. The vi session under Terminal is a scripted recording -- the product runs xterm.js over a pty on /ws/term, which a single offline file cannot be, so the page replays and says so rather than pretending. The config shown is invented; its ssid is a DemoAP-* placeholder like everywhere else.",
     "firmware.html is synthetic: image names, checksums and the DUT address are invented. The transport contract is NOT — api takes the encrypted image, gui takes the signed .sig, and they are not interchangeable (firmware_service.py). A demo of a flasher that blurred that would be teaching the one mistake that cost this project two sessions."
@@ -33,7 +33,15 @@
         "lastEvent": "12m ago",
         "lastSnapshot": "2026-08-02 19:56:27",
         "open": true,
-        "lastSerial": "/dev/cu.PL2303G-1130"
+        "lastSerial": "/dev/cu.PL2303G-1130",
+        "backhaul": {
+          "applicable": true,
+          "captured": true,
+          "role": "node",
+          "uplink": "-45 dBm · mid",
+          "downlink": "None",
+          "downlinkSource": "detected"
+        }
       },
       {
         "label": "DemoNode-420",
@@ -50,9 +58,12 @@
         "lastSerial": "/dev/cu.PL2303G-1130",
         "remote": {
           "host": "10.0.0.24",
-          "port": 22,
+          "port": 22
+        },
+        "backhaul": {
+          "applicable": true,
+          "captured": true,
           "role": "node",
-          "isMesh": true,
           "uplink": "-37 dBm · near",
           "downlink": "None",
           "downlinkSource": "detected"
@@ -73,11 +84,14 @@
         "lastSerial": null,
         "remote": {
           "host": "10.0.0.24",
-          "port": 22,
+          "port": 22
+        },
+        "backhaul": {
+          "applicable": true,
+          "captured": true,
           "role": "root",
-          "isMesh": true,
           "uplink": "None — this is the root",
-          "downlink": "-38 dBm · -61 dBm",
+          "downlink": "-38 dBm · -61 dBm · -45 dBm",
           "downlinkSource": "configured",
           "downlinkIface": "ath1",
           "downlinkEssid": "DemoAP-Mesh"
@@ -98,9 +112,12 @@
         "lastSerial": null,
         "remote": {
           "host": "10.0.0.24",
-          "port": 22,
+          "port": 22
+        },
+        "backhaul": {
+          "applicable": false,
+          "captured": false,
           "role": null,
-          "isMesh": false,
           "uplink": "Not applicable",
           "downlink": "Not applicable",
           "downlinkSource": "detected"
@@ -121,13 +138,16 @@
         "lastSerial": null,
         "remote": {
           "host": "10.0.0.24",
-          "port": 22,
+          "port": 22
+        },
+        "backhaul": {
+          "applicable": true,
+          "captured": false,
           "role": null,
-          "isMesh": true,
           "uplink": "Not captured",
           "downlink": "Not captured",
           "downlinkSource": "detected",
-          "captured": {
+          "pendingRead": {
             "uplink": "-52 dBm · mid",
             "downlink": "None"
           }
@@ -145,7 +165,15 @@
         "lastEvent": "3m ago",
         "lastSnapshot": "2026-08-06 10:41:55",
         "open": false,
-        "lastSerial": null
+        "lastSerial": null,
+        "backhaul": {
+          "applicable": true,
+          "captured": true,
+          "role": null,
+          "uplink": "None — no parent found",
+          "downlink": "No backhaul VAP identified",
+          "downlinkSource": "detected"
+        }
       }
     ],
     "crash": [
@@ -180,7 +208,29 @@
         "lastEvent": "12m ago",
         "lastSnapshot": "2026-08-02 19:56:27",
         "open": true,
-        "lastSerial": "/dev/cu.PL2303G-1130"
+        "lastSerial": "/dev/cu.PL2303G-1130",
+        "backhaul": {
+          "applicable": true,
+          "captured": true,
+          "console_id": "serial:default",
+          "role": "node",
+          "uplink": {
+            "iface": "ath0",
+            "rssi": -45,
+            "snr": 41,
+            "rssi_band": "mid",
+            "radio_band": "5GHz",
+            "essid": "DemoAP-Mesh",
+            "peer_mac": "02:1f:6c:44:9a:31"
+          },
+          "downlink": {
+            "iface": "ath1",
+            "source": "detected",
+            "essid": "DemoAP-Mesh",
+            "peers": []
+          },
+          "capturedOnConnect": null
+        }
       },
       {
         "label": "DemoNode-420",
@@ -197,9 +247,13 @@
         "lastSerial": "/dev/cu.PL2303G-1130",
         "remote": {
           "host": "10.0.0.24",
-          "port": 22,
+          "port": 22
+        },
+        "backhaul": {
+          "applicable": true,
+          "captured": true,
+          "console_id": "ssh:lab-420",
           "role": "node",
-          "isMesh": true,
           "uplink": {
             "iface": "ath0",
             "rssi": -37,
@@ -233,9 +287,13 @@
         "lastSerial": null,
         "remote": {
           "host": "10.0.0.24",
-          "port": 22,
+          "port": 22
+        },
+        "backhaul": {
+          "applicable": true,
+          "captured": true,
+          "console_id": "ssh:lab2",
           "role": "root",
-          "isMesh": true,
           "uplink": null,
           "downlink": {
             "iface": "ath1",
@@ -243,7 +301,8 @@
             "essid": "DemoAP-Mesh",
             "peers": [
               { "mac": "02:7a:3d:10:55:c2", "rssi": -38, "rssi_band": "near" },
-              { "mac": "02:c4:88:9e:12:07", "rssi": -61, "rssi_band": "mid" }
+              { "mac": "02:c4:88:9e:12:07", "rssi": -61, "rssi_band": "mid" },
+              { "mac": "02:65:24:b8:3e:d1", "rssi": -45, "rssi_band": "mid" }
             ]
           },
           "capturedOnConnect": null
@@ -264,9 +323,13 @@
         "lastSerial": null,
         "remote": {
           "host": "10.0.0.24",
-          "port": 22,
+          "port": 22
+        },
+        "backhaul": {
+          "applicable": false,
+          "captured": false,
+          "console_id": "ssh:ap-2",
           "role": null,
-          "isMesh": false,
           "uplink": null,
           "downlink": null,
           "capturedOnConnect": null
@@ -287,9 +350,13 @@
         "lastSerial": null,
         "remote": {
           "host": "10.0.0.24",
-          "port": 22,
+          "port": 22
+        },
+        "backhaul": {
+          "applicable": true,
+          "captured": false,
+          "console_id": "ssh:lab3",
           "role": null,
-          "isMesh": true,
           "uplink": null,
           "downlink": null,
           "capturedOnConnect": {
@@ -324,7 +391,16 @@
         "lastEvent": "3m ago",
         "lastSnapshot": "2026-08-06 10:41:55",
         "open": false,
-        "lastSerial": null
+        "lastSerial": null,
+        "backhaul": {
+          "applicable": true,
+          "captured": true,
+          "console_id": "serial:bench3",
+          "role": null,
+          "uplink": null,
+          "downlink": null,
+          "capturedOnConnect": null
+        }
       }
     ]
   },

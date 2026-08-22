@@ -496,8 +496,10 @@ function RemoteNodesCard({
                     </td>
                     <td>
                       {/* `role` is null until a capture has run: an absent uplink is
-                          an answer, an absent capture is not. */}
-                      {node.remote!.is_mesh ? node.remote!.role ?? "not captured" : "standalone"}
+                          an answer, an absent capture is not. It lives outside
+                          `remote` because the measurement is not an SSH one —
+                          a cabled DUT is captured the same way. */}
+                      {node.remote!.is_mesh ? node.backhaul.role ?? "not captured" : "standalone"}
                     </td>
                     <td>{node.serial_open ? "open" : "closed"}</td>
                     <td>

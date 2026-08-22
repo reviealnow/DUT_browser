@@ -13,10 +13,12 @@ here was run; where something was verified indirectly it says so.
 |  | values | what it decides |
 |---|---|---|
 | **Console location** | this machine (local serial) · a remote Pi (SSH + `socat`) | the card's colour and its `Remote via host:port` line |
-| **Mesh role** | root (no uplink) · node (has one) | the `Uplink to parent` row |
+| **Mesh role** | root (no uplink) · node (has one) · neither, so far as anything can tell | the `Uplink to parent` row |
 
-They are independent. A mesh root can hang off a Pi, and one does on this bench.
-Do not read a card's colour as a topology claim.
+They are independent. A mesh root can hang off a Pi, and one does on this bench;
+the fleet's actual root has also been the AP6 cabled to this machine, which is
+why the backhaul capture is offered on a cabled DUT and not only on a registered
+node. Do not read a card's colour as a topology claim.
 
 ---
 
@@ -115,18 +117,54 @@ as its uplink peer *is* the root's backhaul VAP. Capture the root first and it
 falls back to whatever `backhaul_iface` was configured, which is a silent empty
 list when that guess is wrong.
 
+### The cabled DUT is captured the same way
+
+**Refresh RSSI works on a DUT with no SSH configuration at all.** The capture is
+two console commands — `iwconfig` and `wlanconfig <vap> list` — and a serial
+console answers them exactly as an SSH one does. This matters because the mesh
+root is frequently the DUT cabled to the machine running the dashboard, and
+until it was allowed here that was the one device whose backhaul could never be
+shown. Nothing needs registering: a cabled DUT with its console open is offered
+the button, and it is admin-only like every other `/api/fleet` route.
+
+What a cabled DUT does not carry is the pair of declarations a node's
+configuration does — nobody said it is meshed, and nobody named a fallback
+`backhaul_iface` — so its capture reports only what it measured:
+
+* an uplink, if it has a parent, exactly as a node's;
+* `root`, if it has no parent **and** another DUT's uplink names one of its
+  VAPs — which is how a cabled root gets its children;
+* neither, if it has no parent and nothing ties it to the mesh. That reads
+  `None — no parent found`, not `None — this is the root`: a standalone AP on a
+  desk has no parent either, and the two are not the same claim. Capture a node
+  that joins it and re-capture; **Capture all** already does this in one press.
+
+There is no `backhaul_iface` fallback for a cabled DUT, and none is wanted: on
+this bench the configured value pointed at a client VAP and rendered an ordinary
+laptop as a mesh child, while detection from a peer's uplink names the VAP
+exactly.
+
 ## 6. Reading a card
 
 | row | what it means |
 |---|---|
 | `Mother server` / `Remote via host:port` | where the console is attached |
-| `SSH session` | whether the backend holds an SSH console open. **Not** whether the Pi is reachable — nothing here probes it |
-| `Node console` | whether telemetry is arriving: `Streaming` / `No DUT` / `Offline` |
-| `Uplink to parent` | how well this node hears its parent. `None — this is the root` is an answer, not a missing measurement |
+| `SSH session` | whether the backend holds an SSH console open. **Not** whether the Pi is reachable — nothing here probes it. Remote nodes only |
+| `Node console` | whether telemetry is arriving: `Streaming` / `No DUT` / `Offline`. Remote nodes only |
+| `Uplink to parent` | how well this DUT hears its parent. `None — this is the root` is an answer, not a missing measurement |
 | `Children on backhaul` | how well it hears each child. A trailing `· athN configured` means that interface came from configuration and nobody verified it is a backhaul at all |
 
-`Not applicable` on both rows means the node is not a mesh node (`is_mesh:false`),
-which is a different statement from `Not captured`.
+The two backhaul rows are on **every** card, cabled DUTs included; the two SSH
+rows are only on a remote node's.
+
+Four things those rows can say, and they are four different statements:
+
+| reading | means |
+|---|---|
+| `Not captured` | nobody has run a capture on this DUT yet |
+| `Not applicable` | an admin registered this node with `is_mesh:false` |
+| `None — this is the root` | measured: no parent, and this DUT is in the mesh |
+| `None — no parent found` / `No backhaul VAP identified` | measured: no parent, and nothing yet ties this DUT to a mesh. Either it is standalone, or no node that joins it has been captured |
 
 ## 7. When it fails
 
@@ -137,7 +175,7 @@ which is a different statement from `Not captured`.
 | `Remote Pi is missing socat; install socat on the Pi and reconnect` | exactly that |
 | `socat … open("/dev/ttyUSBn"): Permission denied` | the login is not in `dialout`, or the device path is wrong |
 | Connect returns ok, the node drops seconds later | SSH succeeded and `socat` failed after it. The console-liveness row is what shows this |
-| `Uplink to parent` stays `Not captured` | no associated Managed VAP on that DUT, or the console is not open |
+| `Uplink to parent` stays `Not captured` | no capture has run: the console is not open, or nobody pressed the button. A capture that ran and found no parent says so in words instead |
 | `Children on backhaul` empty **and** marked `configured` | the configured interface is not the backhaul. Capture a node, then re-capture the root |
 
 **The serial port admits one process.** A `minicom` on the Pi will keep `socat`

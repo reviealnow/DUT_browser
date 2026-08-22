@@ -101,6 +101,17 @@ class Handler(BaseHTTPRequestHandler):
             body = json.dumps({"duts": [{
                 "id": "default", "label": "Mock DUT", "mode": "serial",
                 "serial_open": True, "log_path": None, "removable": False,
+                # `backhaul` is not optional in the answer this stands in for,
+                # and `useFleetMonitor` reads through it for every DUT. Omitted,
+                # the whole registry load throws inside a `catch` that keeps the
+                # last view — so the fleet would simply never appear, with
+                # nothing on screen or in the console saying why.
+                "remote": None,
+                "backhaul": {
+                    "applicable": True, "captured": False,
+                    "console_id": "mockconsole0000",
+                    "role": None, "uplink": None, "downlink": None,
+                },
             }]}).encode()
         elif self.path.startswith("/api/serial/ports"):
             body = json.dumps({"ports": [
