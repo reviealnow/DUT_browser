@@ -884,6 +884,27 @@ class LocalDutCaptureTests(unittest.TestCase):
                     "the new device answers to the old device's console name",
                 )
 
+    def test_opening_a_replay_log_revokes_the_reading_from_the_device(self) -> None:
+        """A log file is not the console the reading came from. Replay is the
+        one open that records no port of its own, so nothing else would notice
+        that what is behind this DUT id has stopped being a device at all."""
+        with tempfile.TemporaryDirectory() as directory:
+            with _registries_under(Path(directory)) as make_registry:
+                registry = make_registry()
+                context = registry.register_dut("bench", "Bench AP")
+                registry.record_serial_params("bench", "/dev/cu.bench", 115200)
+                context.backhaul_role = "node"
+                context.backhaul_uplink = {"iface": "ath15", "rssi": -37}
+                context.backhaul_captured = True
+                context.backhaul_console = registry_mod.console_token(context, "serial")
+
+                registry.note_console_open("bench", "replay")
+
+                published = registry.describe()[0]["backhaul"]
+                self.assertIsNone(published["role"], "a live reading published over a replay")
+                self.assertIsNone(published["uplink"])
+                self.assertFalse(published["captured"])
+
     def test_an_ssh_reading_survives_reconnecting_to_the_same_pi(self) -> None:
         """The reset must cost a capture only when the console really changed;
         a reconnect to the same Pi is the same console."""

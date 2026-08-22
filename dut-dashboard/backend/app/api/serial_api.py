@@ -296,6 +296,16 @@ def open_serial(body: SerialOpenRequest, request: Request, dut: str = DEFAULT_DU
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # Every open changes what is behind this DUT id, so every open is told about
+    # it: a backhaul reading from the device that used to be here must not go on
+    # being published as this one's. Replay is the case that needs saying out
+    # loud — a log file is not the console the reading came from, and it is the
+    # one open that records no port of its own to notice the change by.
+    #
+    # Ordered before the port is recorded on purpose: for a serial open this
+    # sees the *previous* port and is therefore a no-op, and the port change is
+    # `record_serial_params`' own business, applied with the same rule.
+    request.app.state.dut_registry.note_console_open(dut, body.mode)
     # Remember the params of a successful serial-mode open so the Fleet view can
     # offer one-click Connect. Replay opens have no reusable port — skip them.
     if body.mode == "serial" and body.port:

@@ -209,6 +209,37 @@ class SerialOpenRecordingTests(unittest.TestCase):
         self._open(mode="serial", port="", baudrate=115200)
         self.assertIsNone(self.reg.get(DEFAULT_DUT_ID).last_serial)
 
+    def test_a_replay_open_revokes_the_backhaul_reading_from_the_device(self) -> None:
+        """Replay records no port, so nothing else here notices that what is
+        behind this DUT id has stopped being a device at all. Driven through the
+        endpoint: the registry method only protects anybody if this path calls
+        it, and a test of the method alone stays green while the call goes."""
+        ctx = self.reg.get(DEFAULT_DUT_ID)
+        self.reg.record_serial_params(DEFAULT_DUT_ID, "/dev/cu.bench", 115200)
+        ctx.backhaul_role = "node"
+        ctx.backhaul_uplink = {"iface": "ath15", "rssi": -37}
+        ctx.backhaul_captured = True
+        ctx.backhaul_console = registry_mod.console_token(ctx, "serial")
+
+        self._open(mode="replay", replay_path="/tmp/x.log")
+
+        published = self.reg.describe()[0]["backhaul"]
+        self.assertIsNone(published["role"], "a live reading published over a replay")
+        self.assertIsNone(published["uplink"])
+        self.assertFalse(published["captured"])
+
+    def test_a_serial_reopen_on_the_same_port_keeps_the_reading(self) -> None:
+        """The revocation must cost a capture only when the console changed."""
+        ctx = self.reg.get(DEFAULT_DUT_ID)
+        self.reg.record_serial_params(DEFAULT_DUT_ID, "/dev/cu.bench", 115200)
+        ctx.backhaul_role = "node"
+        ctx.backhaul_captured = True
+        ctx.backhaul_console = registry_mod.console_token(ctx, "serial")
+
+        self._open(mode="serial", port="/dev/cu.bench", baudrate=115200)
+
+        self.assertEqual(self.reg.describe()[0]["backhaul"]["role"], "node")
+
 
 if __name__ == "__main__":
     unittest.main()

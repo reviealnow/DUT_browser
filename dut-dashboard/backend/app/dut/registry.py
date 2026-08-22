@@ -226,6 +226,12 @@ def console_token(ctx: DutContext, mode: str | None = None) -> str:
     Every token carries `ctx.registration`, so two devices registered under one
     id in turn never share one however identical their consoles are.
     """
+    if mode == "replay":
+        # A log file is not a console. No capture can be taken over one —
+        # `capture_command` refuses replay — so this token exists only to differ
+        # from the live transports, which is what makes opening a replay revoke
+        # a reading taken from the device that used to be here.
+        return _identity_token([ctx.registration, "replay"])
     over_ssh = ctx.remote is not None if mode is None else mode == "ssh"
     if over_ssh and ctx.remote is not None:
         return _identity_token([ctx.registration, "ssh", console_id(ctx.remote)])
