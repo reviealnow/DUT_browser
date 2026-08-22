@@ -387,39 +387,49 @@ def _worker_answering(replies: dict[str, str], mode: str = "ssh"):
     return worker
 
 
-def _dut_double(remote: dict | None, worker=None, last_serial: dict | None = None):
-    """A DUT context double: only the fields a capture reads or writes.
+@contextlib.contextmanager
+def _bench(
+    replies: dict[str, str] | None = None,
+    *,
+    dut_id: str = "mesh1",
+    remote: dict | None = None,
+    mode: str = "ssh",
+    port: str | None = None,
+):
+    """A real registry holding one DUT whose console answers from `replies`.
 
-    `mock.Mock()` alone answers every attribute with another Mock, which reads
-    as a configured DUT whatever the test meant — so the three that decide
-    where a reading came from are always set explicitly.
+    A real registry rather than a `mock.Mock()`: a capture commits through the
+    registry now, so a double would have to re-implement the commit to be
+    observable — and would then keep passing if the real one stopped writing.
+    Only the serial worker is a double, because the alternative is an AP.
     """
-    context = mock.Mock()
-    context.remote = remote
-    context.last_serial = last_serial
-    context.backhaul_console = None
-    if worker is not None:
-        context.serial_worker = worker
-    return context
+    with tempfile.TemporaryDirectory() as directory:
+        with _registries_under(Path(directory)) as make_registry:
+            registry = make_registry()
+            registry.register_dut(dut_id, dut_id)
+            if remote is not None:
+                registry.configure_remote(dut_id, remote)
+            if port is not None:
+                registry.record_serial_params(dut_id, port, 115200)
+            context = registry.get(dut_id)
+            context.serial_worker = _worker_answering(replies or {}, mode=mode)
+            request = mock.Mock()
+            request.app.state.dut_registry = registry
+            yield registry, context, request
 
 
 class RssiCaptureTests(unittest.TestCase):
     def test_the_uplink_comes_from_iwconfig_and_the_peers_from_wlanconfig(self) -> None:
         """The two directions are different commands; asking wlanconfig for the
         uplink is what made a healthy -37 dBm link read as nothing at all."""
-        context = _dut_double(REMOTE.copy())
-        context.serial_worker = _worker_answering({
+        with _bench({
             "iwconfig": IWCONFIG_AP6420,
             "wlanconfig ath14 list": (
                 "ADDR AID CHAN TXRATE RXRATE RSSI\n"
                 "00:11:22:33:44:55 1 44 866M 780M -63 00:01:02 IEEE80211_MODE_11AXA_HE80 2 2\n"
             ),
-        })
-        request = mock.Mock()
-        request.app.state.dut_registry.get.return_value = context
-        request.app.state.dut_registry.ids.return_value = ["mesh1"]
-
-        result = capture_rssi("mesh1", request)
+        }, remote=REMOTE) as (_registry, context, request):
+            result = capture_rssi("mesh1", request)
 
         self.assertEqual(result["uplink"], {
             "iface": "ath15", "rssi": -37, "snr": 55, "rssi_band": "near",
@@ -434,16 +444,11 @@ class RssiCaptureTests(unittest.TestCase):
         self.assertEqual(commands, ["iwconfig", "wlanconfig ath14 list"])
 
     def test_a_root_with_no_uplink_falls_back_to_the_configured_iface(self) -> None:
-        context = _dut_double(REMOTE.copy())
-        context.serial_worker = _worker_answering({
+        with _bench({
             "iwconfig": IWCONFIG_ROOT_ONLY,
             "wlanconfig ath16 list": "ADDR AID CHAN\n",
-        })
-        request = mock.Mock()
-        request.app.state.dut_registry.get.return_value = context
-        request.app.state.dut_registry.ids.return_value = ["root1"]
-
-        result = capture_rssi("root1", request)
+        }, dut_id="root1", remote=REMOTE) as (_registry, _context, request):
+            result = capture_rssi("root1", request)
 
         self.assertIsNone(result["uplink"])
         # Named as configured, with the SSID it actually serves, so a wrong
@@ -475,27 +480,21 @@ class RssiCaptureTests(unittest.TestCase):
     def test_a_root_names_its_backhaul_from_a_node_it_already_captured(self) -> None:
         """The root cannot identify ath22 alone — it is Master like the rest.
         The node's uplink peer BSSID is what picks it out, exactly."""
-        node = mock.Mock()
-        node.backhaul_uplink = {
-            "peer_mac": "ce:4f:86:95:ce:e5",
-            "essid": "dutBrowser_Backhaul - PD1005VMG3",
-            "radio_band": "5GHz",
-        }
-        root = _dut_double(REMOTE.copy())
-        root.serial_worker = _worker_answering({
+        with _bench({
             "iwconfig": IWCONFIG_ROOT_AP6840E,
             "wlanconfig ath22 list": (
                 "ADDR AID CHAN TXRATE RXRATE RSSI\n"
                 "d2:4f:86:89:f1:69 1 44 516M 516M -36 00:05:11 IEEE80211_MODE_11AXA_HE40 2 2\n"
             ),
-        })
-        registry = mock.Mock()
-        registry.ids.return_value = ["root1", "mesh1"]
-        registry.get.side_effect = lambda d: root if d == "root1" else node
-        request = mock.Mock()
-        request.app.state.dut_registry = registry
+        }, dut_id="root1", remote=REMOTE) as (registry, _root, request):
+            node = registry.register_dut("mesh1", "Mesh 1")
+            node.backhaul_uplink = {
+                "peer_mac": "ce:4f:86:95:ce:e5",
+                "essid": "dutBrowser_Backhaul - PD1005VMG3",
+                "radio_band": "5GHz",
+            }
 
-        result = capture_rssi("root1", request)
+            result = capture_rssi("root1", request)
 
         self.assertIsNone(result["uplink"])
         self.assertEqual(result["role"], "root")
@@ -537,48 +536,38 @@ class RssiCaptureTests(unittest.TestCase):
         """A console mid-reconfiguration answers iwconfig with no VAPs at all.
         Storing None there blanks a live card and strips the key a root needs
         to name its backhaul VAP, so it must not be mistaken for an answer."""
-        context = _dut_double(REMOTE.copy())
-        context.backhaul_uplink = {"iface": "ath15", "rssi": -37, "peer_mac": "ce:4f:86:95:ce:e5"}
-        context.serial_worker = _worker_answering({"iwconfig": "soc1      no wireless extensions.\n"})
-        request = mock.Mock()
-        request.app.state.dut_registry.get.return_value = context
-        request.app.state.dut_registry.ids.return_value = ["mesh1"]
+        with _bench({"iwconfig": "soc1      no wireless extensions.\n"}, remote=REMOTE) as (
+            _registry, context, request,
+        ):
+            context.backhaul_uplink = {"iface": "ath15", "rssi": -37, "peer_mac": "ce:4f:86:95:ce:e5"}
 
-        with self.assertRaises(HTTPException) as caught:
-            capture_rssi("mesh1", request)
+            with self.assertRaises(HTTPException) as caught:
+                capture_rssi("mesh1", request)
 
-        self.assertEqual(caught.exception.status_code, 400)
-        self.assertEqual(context.backhaul_uplink["rssi"], -37)   # untouched
+            self.assertEqual(caught.exception.status_code, 400)
+            self.assertEqual(context.backhaul_uplink["rssi"], -37)   # untouched
 
     def test_a_measured_node_is_labelled_a_node(self) -> None:
-        context = _dut_double(REMOTE.copy())
-        context.serial_worker = _worker_answering({
+        with _bench({
             "iwconfig": IWCONFIG_AP6420,
             "wlanconfig ath14 list": "ADDR AID CHAN\n",
-        })
-        request = mock.Mock()
-        request.app.state.dut_registry.get.return_value = context
-        request.app.state.dut_registry.ids.return_value = ["mesh1"]
-
-        self.assertEqual(capture_rssi("mesh1", request)["role"], "node")
+        }, remote=REMOTE) as (_registry, _context, request):
+            self.assertEqual(capture_rssi("mesh1", request)["role"], "node")
 
     def test_a_configured_client_vap_is_not_passed_off_as_a_backhaul(self) -> None:
         """The bench had exactly this: the root's configured ath16 served an
         ordinary SSID, and one of its neighbours had a laptop on it. Reporting
         that laptop as a mesh child with no provenance is what `source` ends."""
-        context = _dut_double({**REMOTE, "backhaul_iface": "ath32"})
-        context.serial_worker = _worker_answering({
+        with _bench({
             "iwconfig": IWCONFIG_ROOT_AP6840E,
             "wlanconfig ath32 list": (
                 "ADDR AID CHAN TXRATE RXRATE RSSI\n"
                 "f4:3b:d8:d6:98:8b 1 161 1201M 1201M -42 00:01:02 IEEE80211_MODE_11AXA_HE80 2 2\n"
             ),
-        })
-        request = mock.Mock()
-        request.app.state.dut_registry.get.return_value = context
-        request.app.state.dut_registry.ids.return_value = ["root1"]
-
-        downlink = capture_rssi("root1", request)["downlink"]
+        }, dut_id="root1", remote={**REMOTE, "backhaul_iface": "ath32"}) as (
+            _registry, _context, request,
+        ):
+            downlink = capture_rssi("root1", request)["downlink"]
 
         self.assertEqual(downlink["source"], "configured")
         self.assertEqual(downlink["essid"], "!!3290-1")     # visibly not a backhaul
@@ -591,28 +580,24 @@ class RssiCaptureTests(unittest.TestCase):
             if cmd.startswith("iwconfig"):
                 return IWCONFIG_AP6420
             raise RuntimeError("Serial port is not open")
-        context = _dut_double(REMOTE.copy())
-        context.backhaul_uplink = None
-        context.serial_worker = mock.Mock()
-        context.serial_worker.capture_command.side_effect = capture
-        request = mock.Mock()
-        request.app.state.dut_registry.get.return_value = context
-        request.app.state.dut_registry.ids.return_value = ["mesh1"]
 
-        with self.assertRaises(HTTPException) as caught:
-            capture_rssi("mesh1", request)
+        with _bench(remote=REMOTE) as (_registry, context, request):
+            context.serial_worker.capture_command.side_effect = capture
 
-        self.assertEqual(caught.exception.status_code, 400)
-        self.assertEqual(context.backhaul_uplink["rssi"], -37)   # kept, not discarded
-        self.assertEqual(context.backhaul_role, "node")
+            with self.assertRaises(HTTPException) as caught:
+                capture_rssi("mesh1", request)
+
+            self.assertEqual(caught.exception.status_code, 400)
+            self.assertEqual(context.backhaul_uplink["rssi"], -37)   # kept, not discarded
+            self.assertEqual(context.backhaul_role, "node")
 
     def test_standalone_ap_is_not_applicable_without_capture(self) -> None:
-        context = _dut_double({**REMOTE, "is_mesh": False, "backhaul_iface": None})
-        request = mock.Mock()
-        request.app.state.dut_registry.get.return_value = context
-        result = capture_rssi("ap1", request)
-        self.assertEqual(result["applicable"], False)
-        context.serial_worker.capture_command.assert_not_called()
+        with _bench(dut_id="ap1", remote={**REMOTE, "is_mesh": False, "backhaul_iface": None}) as (
+            _registry, context, request,
+        ):
+            result = capture_rssi("ap1", request)
+            self.assertEqual(result["applicable"], False)
+            context.serial_worker.capture_command.assert_not_called()
 
 
 class LocalDutCaptureTests(unittest.TestCase):
@@ -627,47 +612,36 @@ class LocalDutCaptureTests(unittest.TestCase):
     def test_a_cabled_root_is_named_by_the_node_that_associates_to_it(self) -> None:
         """The bench case, 2026-08-21: the AP6 on the Pi reported its parent as
         ce:4f:86:95:ce:e5, a VAP of the AP6_840E cabled to this machine."""
-        node = mock.Mock()
-        node.backhaul_uplink = {
-            "peer_mac": "ce:4f:86:95:ce:e5",
-            "essid": "dutBrowser_Backhaul - PD1005VMG3",
-            "radio_band": "5GHz",
-        }
-        local = _dut_double(None, last_serial={"port": "/dev/cu.bench", "baudrate": 115200})
-        local.serial_worker = _worker_answering({
+        with _bench({
             "iwconfig": IWCONFIG_ROOT_AP6840E,
             "wlanconfig ath22 list": (
                 "ADDR AID CHAN TXRATE RXRATE RSSI\n"
                 "d2:4f:86:89:f1:69 1 44 516M 516M -36 00:05:11 IEEE80211_MODE_11AXA_HE40 2 2\n"
             ),
-        })
-        registry = mock.Mock()
-        registry.ids.return_value = ["default", "mesh1"]
-        registry.get.side_effect = lambda d: local if d == "default" else node
-        request = mock.Mock()
-        request.app.state.dut_registry = registry
+        }, dut_id="default", mode="serial", port="/dev/cu.bench") as (registry, local, request):
+            node = registry.register_dut("mesh1", "Mesh 1")
+            node.backhaul_uplink = {
+                "peer_mac": "ce:4f:86:95:ce:e5",
+                "essid": "dutBrowser_Backhaul - PD1005VMG3",
+                "radio_band": "5GHz",
+            }
 
-        result = capture_rssi("default", request)
+            result = capture_rssi("default", request)
 
-        self.assertTrue(result["applicable"])
-        self.assertEqual(result["role"], "root")
-        self.assertEqual(result["downlink"]["iface"], "ath22")
-        self.assertEqual(result["downlink"]["source"], "detected")
-        self.assertEqual(result["downlink"]["peers"],
-                         [{"mac": "d2:4f:86:89:f1:69", "rssi": -36, "rssi_band": "near"}])
-        self.assertEqual(local.backhaul_role, "root")
+            self.assertTrue(result["applicable"])
+            self.assertEqual(result["role"], "root")
+            self.assertEqual(result["downlink"]["iface"], "ath22")
+            self.assertEqual(result["downlink"]["source"], "detected")
+            self.assertEqual(result["downlink"]["peers"],
+                             [{"mac": "d2:4f:86:89:f1:69", "rssi": -36, "rssi_band": "near"}])
+            self.assertEqual(local.backhaul_role, "root")
 
     def test_a_cabled_node_reports_its_uplink(self) -> None:
-        context = _dut_double(None, last_serial={"port": "/dev/cu.bench", "baudrate": 115200})
-        context.serial_worker = _worker_answering({
+        with _bench({
             "iwconfig": IWCONFIG_AP6420,
             "wlanconfig ath14 list": "ADDR AID CHAN\n",
-        })
-        request = mock.Mock()
-        request.app.state.dut_registry.get.return_value = context
-        request.app.state.dut_registry.ids.return_value = ["default"]
-
-        result = capture_rssi("default", request)
+        }, dut_id="default", mode="serial", port="/dev/cu.bench") as (_registry, _context, request):
+            result = capture_rssi("default", request)
 
         self.assertEqual(result["role"], "node")
         self.assertEqual(result["uplink"]["rssi"], -37)
@@ -677,13 +651,9 @@ class LocalDutCaptureTests(unittest.TestCase):
         """A standalone AP has no parent either, and nothing here declared this
         DUT meshed. Reporting "None — this is the root" would be a wrong answer
         on the most common desk setup there is: one AP, one cable."""
-        context = _dut_double(None, last_serial={"port": "/dev/cu.bench", "baudrate": 115200})
-        context.serial_worker = _worker_answering({"iwconfig": IWCONFIG_ROOT_AP6840E})
-        request = mock.Mock()
-        request.app.state.dut_registry.get.return_value = context
-        request.app.state.dut_registry.ids.return_value = ["default"]
-
-        result = capture_rssi("default", request)
+        with _bench({"iwconfig": IWCONFIG_ROOT_AP6840E}, dut_id="default", mode="serial",
+                    port="/dev/cu.bench") as (_registry, context, request):
+            result = capture_rssi("default", request)
 
         self.assertIsNone(result["role"])
         self.assertIsNone(result["downlink"], "no configuration to fall back to, and none wanted")
@@ -861,6 +831,37 @@ class LocalDutCaptureTests(unittest.TestCase):
                 self.assertFalse(published["captured"], "a reading kept from a console that moved")
                 self.assertIsNone(published["uplink"])
                 self.assertIsNone(published["role"])
+
+    def test_a_console_opened_after_the_check_still_beats_the_write(self) -> None:
+        """The check and the write are one operation or the check is decoration.
+
+        Testing the console and then writing outside the registry's lock leaves
+        a window: the open revokes the stored reading, and the capture puts it
+        straight back under a console that has gone. Asserted against the
+        registry method rather than through the endpoint, because that window
+        is what the endpoint can no longer open.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            with _registries_under(Path(directory)) as make_registry:
+                registry = make_registry()
+                context = registry.register_dut("bench", "Bench AP")
+                registry.record_serial_params("bench", "/dev/cu.first", 115200)
+                stale = registry_mod.console_token(context, "serial")
+
+                registry.record_serial_params("bench", "/dev/cu.second", 115200)
+
+                self.assertFalse(
+                    registry.store_backhaul_reading(
+                        "bench", stale, "serial", {"iface": "ath15", "rssi": -37}, "node",
+                    ),
+                )
+                self.assertFalse(
+                    registry.store_backhaul_downlink("bench", stale, "serial", {"iface": "ath14"}),
+                )
+                published = registry.describe()[0]["backhaul"]
+                self.assertFalse(published["captured"])
+                self.assertIsNone(published["uplink"])
+                self.assertIsNone(published["downlink"])
 
     def test_an_ssh_reading_survives_reconnecting_to_the_same_pi(self) -> None:
         """The reset must cost a capture only when the console really changed;
