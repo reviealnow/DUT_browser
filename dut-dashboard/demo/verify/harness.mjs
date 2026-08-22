@@ -22,7 +22,8 @@ export const SCREENS = PAGES.filter(p => p !== "index.html");
 
 /** Screen name in the sidebar -> the file it must open. */
 export const SCREEN_FILES = {
-  "Overview": "overview.html", "Site Survey": "site-survey.html",
+  "Overview": "overview.html", "Fleet": "fleet.html",
+  "Site Survey": "site-survey.html",
   "Wi-Fi Clients": "wifi-clients.html", "CPU / Memory": "cpu-memory.html",
   "SSID Capability": "ssid-capability.html", "Downloads": "downloads.html",
   "Serial Console": "serial-console.html", "Files": "files.html",

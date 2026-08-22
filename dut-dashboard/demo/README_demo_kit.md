@@ -14,6 +14,7 @@ double-click, works offline, and survives being forwarded.
 | Page | Shows |
 |---|---|
 | `overview.html` | Fleet strip, KPI row, 40-hour CPU and client trends, the cached channel recommendation, crash feed |
+| `fleet.html` | Every registered DUT at full width: the mesh backhaul in both directions, per-child, with Capture all |
 | `site-survey.html` | Per-band channel charts over a real 2,438-observation scan, band filter, SSID/BSSID search, the full neighbour table |
 | `wifi-clients.html` | The per-client table with row-expand deep stats, grouped by band, with Kick |
 | `files.html` | The workspace file table with drag-and-drop upload, sortable columns, tags, inline preview |
@@ -35,6 +36,17 @@ Overview shows only the **cached** recommendation, as `OverviewBandReco` does;
 the chart, the band filter and Re-scan live on Site Survey, where the product
 puts them. Keeping that split is what stops the kit inventing an Overview the
 app does not have.
+
+**Overview and Fleet show the same six DUTs**, because the product does:
+`FleetCard` renders both views, and two components would have been two accounts
+of one device. The strip compresses a backhaul capture into two lines; the
+section has the width for the whole of it — the uplink's SNR, radio band and
+parent BSSID, and a row per child rather than every child's RSSI joined into one
+string. So `demo-fixtures.json` carries the fleet twice on purpose: under
+`fleet.html` in the registry's own shape (structured `uplink` / `downlink`
+objects, as `DutInfo["remote"]` has them) and under `overview.html` already
+compressed. `backend/tests/test_demo_anonymiser.py` derives the second from the
+first rather than trusting that whoever edited one remembered the other.
 
 ## Usage
 
@@ -64,12 +76,13 @@ Pages whose content is synthetic in full take no bundle at all:
 ```bash
 python3 build_demo_data.py --page files.html
 python3 build_demo_data.py --page bulletin.html
+python3 build_demo_data.py --page fleet.html
 ```
 
-**Ten of the eleven pages are generated. `index.html` is not** — it is the front
-door, linking the screens and saying which are measured, with no capture behind
-it and no `demo-data` block to fill. Edit it by hand; the generator refuses it by
-name rather than failing on the missing block.
+**Eleven of the twelve pages are generated. `index.html` is not** — it is the
+front door, linking the screens and saying which are measured, with no capture
+behind it and no `demo-data` block to fill. Edit it by hand; the generator
+refuses it by name rather than failing on the missing block.
 
 ### After editing `demo-fixtures.json`
 
@@ -158,10 +171,14 @@ npm test             # behaviour, then navigation
 ```
 
 `verify-behaviour.mjs` loads each shipped page into a real DOM and **clicks its
-own controls**: Send on Serial Console, Rehearse on Firmware with each pairing
-the service refuses, the expand controls on Downloads, the table on SSID
-Capability. `verify-navigation.mjs` clicks every sidebar entry on every page and
-checks each one either opens a file that exists or explains why there is none.
+own controls**: Send on Serial Console, each pairing the firmware service
+refuses, the expand controls on Downloads, the table on SSID Capability, and on
+Fleet the four states a card can be in and the two reasons Refresh RSSI is
+refused. `verify-navigation.mjs` clicks every sidebar entry on every page,
+checks each one either opens a file that exists or explains why there is none,
+and checks the whole sidebar against `navigation.ts` — every entry the page's
+role badge can see, and no entry it cannot, in the product's order. See *A page
+portrays one role*.
 
 Every assertion in there was a review finding first, and each is the kind
 reading the source did not catch — a control that existed but did the wrong
@@ -188,6 +205,10 @@ A harness that cannot fail is worth nothing, so check that it can — two ways:
 npm run navigation   # "still a button, so it does not navigate", exit 1
 # 2. add a call to an undefined function to any page's script
 npm run behaviour    # "threw nothing while all that ran" fails, exit 1
+# 3. put any page's role badge back to engineer, or delete it
+npm run navigation   # "badged engineer but draws Upgrade Firmware", exit 1
+# 4. delete one sidebar entry, or move one out of NAV_ITEMS order
+npm run navigation   # "sidebar is …; admin sees …", exit 1
 ```
 
 ## What is real and what is not
@@ -227,13 +248,21 @@ creates work for whoever has to make it true later.
   the candidate set. The goal is that identifiers are never published — not that
   someone with the source bundle is defeated.
 * **Synthetic**, and kept in `demo-fixtures.json` away from anything measured —
-  the fleet list (a one-DUT bench cannot produce a fleet), the crash lines (the
-  reference capture contained none), the DUT-status tile (connection state is
-  live UI no capture records), and **all** of `files.html` and `bulletin.html`.
+  the fleet list (a one-DUT bench cannot produce a fleet, and a mesh backhaul
+  needs at least two), the crash lines (the reference capture contained none),
+  the DUT-status tile (connection state is live UI no capture records), and
+  **all** of `fleet.html`, `files.html` and `bulletin.html`.
   A file list and a note board are *content*, not measurement, so there is no
   measured claim to keep faithful; and the real ones on this bench are test
   scaffolding carrying colleagues' names, which is not something to publish.
-  Both pages say so in their own provenance line.
+  Each page says so in its own provenance line.
+
+  `fleet.html` is invented for the other reason — there is no capture of a mesh
+  to be faithful to — but its *shape* is not: the fields, both capture
+  directions, which control each card offers and what each refusal says are
+  `FleetSection.tsx` and `FleetCard.tsx`. Its MACs carry the `02:` prefix and its
+  backhaul SSIDs the `DemoAP-*` namespace, the same shapes `Anonymiser` emits, so
+  a real BSSID typed in off the bench is visible rather than plausible.
 * **Matched to an observable contract, not copied line by line.** Five review
   rounds settled where the line sits. These must match the product exactly,
   because a difference misrepresents what it can do: whether a control or
@@ -246,6 +275,43 @@ creates work for whoever has to make it true later.
   durations, focus placement, animation, keyboard shortcuts that change no
   outcome, spacing and non-load-bearing microcopy.
 
+  **A page portrays one role, and everything on it has to be that role's** — the
+  controls it draws *and* the sidebar drawn beside them. The app has three roles,
+  a section renders different buttons for each, and `Sidebar.tsx` filters the nav
+  by the same role the topbar pill names, so a screen showing anything its own
+  pill could not reach is over-showing as surely as one inventing a feature.
+
+  Every screen in the kit badges **admin**, and that is forced rather than
+  chosen. Every page draws **Upgrade Firmware** in its sidebar, `minRole:
+  "admin"`, which no engineer ever sees; Overview and Fleet go further and draw
+  `Connect`, `Close serial` and `Refresh RSSI` on remote cards, and every
+  `/api/fleet` route is admin. (`Console` is engineer — `FleetCard` gates per
+  route, not per card.)
+
+  Both halves were wrong before this was written down. Overview said *engineer*
+  over a strip full of admin buttons for as long as the strip has existed — the
+  review of #130 is where the product's own gating caught up and the demo with
+  it — Files, Bulletin and Downloads said *engineer* over an admin sidebar, and
+  the remaining five carried no role pill at all. An absent pill is not "no
+  claim": the product omits it only for the anonymous browser (`AppShell` renders
+  it under `{user ? …}`), and that browser is a guest, who sees neither those
+  buttons nor half that sidebar.
+
+  This costs the kit any view of an engineer's dashboard. That is a real loss and
+  the honest price: a second, engineer-badged copy of a page is a *different*
+  screen, and inventing one is what this whole section forbids.
+
+  Two verifiers hold it, and they check different things. `verify-behaviour.mjs`
+  compares the pill against the buttons a card actually draws;
+  `verify-navigation.mjs` compares it against the sidebar, reading `ROLE_RANK`
+  and every entry's `label` and `minRole` **out of the product's own source** and
+  checking **both directions** — no page may draw an entry its badge cannot see,
+  and every page must draw *every* entry that badge can see, in `NAV_ITEMS`
+  order. The second direction is the one a page fails silently, and had: Fleet
+  was missing from every sidebar in the kit until this PR, because P69 dropped
+  the nav entry when it folded the fleet into the Overview strip, and nothing
+  noticed when the product brought it back.
+
   The failure mode runs **both ways**, and only one of them has a chip.
   Over-showing: a preview offered for a type the product will not render, a
   field accepting more characters than the product allows — by the test above,
@@ -256,14 +322,17 @@ creates work for whoever has to make it true later.
   or state that was not read first.**
 * **Marked `◇ concept`** — an idea shown for discussion, not shipped
   behaviour. Everything without a chip mirrors what the product actually does.
-  Fleet drag-to-reorder and drag-to-filter on a channel chart are concepts;
-  Console / Close serial / Connect, Re-scan, the band filter, the SSID/BSSID
-  search, click-a-bar-to-preview and Copy are real.
+  Drag-to-reorder on the Overview strip and drag-to-filter on a channel chart
+  are concepts; Console / Close serial / Connect, Refresh RSSI, Capture all,
+  Re-scan, the band filter, the SSID/BSSID search, click-a-bar-to-preview and
+  Copy are real. `fleet.html` carries no chip at all — and reordering is not one
+  of the things it is missing, because the Fleet section does not reorder either.
 
   Re-scan **replays the one captured scan** rather than generating a second set
-  of numbers. Manufacturing measurements to make a button look livelier would
-  erase the line between measured and synthetic that the rest of this section
-  draws.
+  of numbers, and Refresh RSSI / Capture all replay the one backhaul reading for
+  the same reason. Manufacturing measurements to make a button look livelier
+  would erase the line between measured and synthetic that the rest of this
+  section draws.
 
 Bar heights in the channel chart are **raw neighbour counts**, as in
 `SiteSurveyCard.tsx`; the recommendation's `occupancy` is a signal-weighted
@@ -281,12 +350,17 @@ that page is measured or synthetic.
    for the generator to fill. Charts are hand-rendered inline SVG and carry
    their source data as JSON, matching the frontend rule in
    `dut-dashboard/CLAUDE.md` — do not reach for a charting library.
-3. Add a builder to `build_demo_data.py` (`PAGE = {"your-page.html": ...}` in
-   `main`), calling `Anonymiser.prepare(...)` once with every identifier the
-   page will emit before any of them is written out — that up-front pass is
-   what makes the aliases order-independent.
+3. Add a builder to the module-level `PAGE_BUILDERS` in `build_demo_data.py`,
+   calling `Anonymiser.prepare(...)` once with every identifier the page will
+   emit before any of them is written out — that up-front pass is what makes the
+   aliases order-independent. A page that is synthetic in full takes
+   `build_static` and keeps its whole payload in `demo-fixtures.json`.
 4. Mark anything the product does not do with a `◇ concept` chip.
-5. Add the page to the table above.
+5. Decide which **role** the page portrays, and check every control it draws is
+   one that role can use — see the parity bar above.
+6. Add the page to the table above, a tile to `index.html`, and its file to
+   `SCREEN_FILES` in `verify/harness.mjs`, so the navigation verifier really
+   clicks it. Then add the sidebar entry to **every other page**.
 
 ## Known limits
 

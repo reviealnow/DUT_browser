@@ -753,11 +753,147 @@ def test_the_page_and_its_sources_carry_exactly_the_same_keys(anon_module) -> No
     }
 
 
+# --- the fleet, told on two screens ----------------------------------------
+#
+# `FleetCard` renders both the Overview strip and the Fleet section, so the two
+# screens are one account of six DUTs — "two components would have been two
+# accounts of the same DUT, and the next correction would have landed in one of
+# them". The kit's pages are standalone files and each inlines its own copy,
+# which is the whole point of the kit; what does not follow is that the two
+# copies may say different things. `fleet.html` carries the registry's own
+# shape, structured uplink and downlink objects; `overview.html` carries the two
+# compressed lines the strip has room for. So the compression is done here, from
+# the structured record, rather than trusting that whoever edited one remembered
+# the other.
+
+
+def _compress_uplink(remote: dict) -> str:
+    """FleetCard's "Uplink to parent" line, from the registry's record.
+
+    Order matters and is the component's: not-a-mesh is answered before
+    is-a-root, and both before "nothing captured yet" — a root has no parent and
+    a capture established that, so reporting it as a missing measurement would
+    be a different claim.
+    """
+    if not remote["isMesh"]:
+        return "Not applicable"
+    if remote["role"] == "root":
+        return "None — this is the root"
+    uplink = remote["uplink"]
+    if not uplink or uplink["rssi"] is None:
+        return "Not captured"
+    return f"{uplink['rssi']} dBm · {uplink['rssi_band']}"
+
+
+def _compress_downlink(remote: dict) -> str:
+    """FleetCard's "Children on backhaul" line, minus the configured suffix.
+
+    The strip carries that suffix as its own fields (`downlinkSource`,
+    `downlinkIface`, `downlinkEssid`) because the page builds the sentence, so
+    it is compared separately below rather than glued on here.
+    """
+    if not remote["isMesh"]:
+        return "Not applicable"
+    downlink = remote["downlink"]
+    if not downlink:
+        return "Not captured"
+    if not downlink["peers"]:
+        return "None"
+    return " · ".join("—" if p["rssi"] is None else f"{p['rssi']} dBm"
+                      for p in downlink["peers"])
+
+
+def test_the_fleet_says_the_same_thing_on_both_screens() -> None:
+    """One fleet, two views — and the strip's is derived, not typed twice."""
+    fixture = json.loads((DEMO.parent / "demo-fixtures.json").read_text(encoding="utf-8"))
+    strip = {d["id"]: d for d in fixture["overview.html"]["fleet"]}
+    section = {d["id"]: d for d in fixture["fleet.html"]["nodes"]}
+
+    assert set(strip) == set(section), "the two screens list different DUTs"
+
+    shared = ("label", "status", "cpu", "cpuSub", "reco", "recoLevel", "crashCount",
+              "lastEvent", "lastSnapshot", "open", "lastSerial")
+    for dut_id, node in section.items():
+        card = strip[dut_id]
+        assert {k: node[k] for k in shared} == {k: card[k] for k in shared}, dut_id
+        assert ("remote" in node) == ("remote" in card), dut_id
+        if "remote" not in node:
+            continue
+
+        remote, compressed = node["remote"], card["remote"]
+        for key in ("host", "port", "isMesh", "role"):
+            assert remote[key] == compressed[key], f"{dut_id}.{key}"
+        assert compressed["uplink"] == _compress_uplink(remote), dut_id
+        assert compressed["downlink"] == _compress_downlink(remote), dut_id
+
+        source = (remote["downlink"] or {}).get("source", "detected")
+        assert compressed["downlinkSource"] == source, dut_id
+        if source == "configured":
+            assert compressed["downlinkIface"] == remote["downlink"]["iface"], dut_id
+            assert compressed["downlinkEssid"] == remote["downlink"]["essid"], dut_id
+
+        # What pressing Connect would capture. Both screens run it on connect, as
+        # FleetCard's onConnect does, so both have to agree about the reading.
+        pending = remote["capturedOnConnect"]
+        assert bool(pending) == bool(compressed.get("captured")), dut_id
+        if pending:
+            after = {**remote, "role": pending["role"], "uplink": pending["uplink"],
+                     "downlink": pending["downlink"]}
+            assert compressed["captured"]["uplink"] == _compress_uplink(after), dut_id
+            assert compressed["captured"]["downlink"] == _compress_downlink(after), dut_id
+
+
+def test_the_fleet_page_carries_every_state_the_section_can_show() -> None:
+    """The under-showing direction, which has no chip to catch it.
+
+    A demo misrepresents the product by showing LESS as easily as more, and the
+    Fleet section exists for measurements the strip cannot hold: the uplink's
+    SNR, radio band and parent BSSID had no reader anywhere in the frontend, and
+    per-child RSSI was legible for one child only. A fixture trimmed back to one
+    tidy node would render a page that looks finished and shows none of that.
+    """
+    fixture = json.loads((DEMO.parent / "demo-fixtures.json").read_text(encoding="utf-8"))
+    nodes = fixture["fleet.html"]["nodes"]
+    remotes = [n["remote"] for n in nodes if "remote" in n]
+    uplinks = [r["uplink"] for r in remotes if r["uplink"]]
+    downlinks = [r["downlink"] for r in remotes if r["downlink"]]
+
+    assert any(all(u[f] is not None for f in ("snr", "radio_band", "peer_mac", "essid"))
+               for u in uplinks), "no uplink exercises the fields only this page renders"
+    assert any(len(d["peers"]) > 1 for d in downlinks), "no backhaul with more than one child"
+    assert any(len({p["rssi"] for p in d["peers"]}) > 1 for d in downlinks), \
+        "every child hears the same, so per-child RSSI shows nothing the strip did not"
+    assert {d["source"] for d in downlinks} == {"detected", "configured"}, \
+        "the unverified-interface disclosure has no card to appear on"
+    assert any(r["isMesh"] and not r["uplink"] and not r["downlink"] for r in remotes), \
+        "no mesh node in the never-captured state"
+    assert any(not r["isMesh"] for r in remotes), "no standalone AP"
+    assert any("remote" not in n for n in nodes), "no mother-server card"
+    assert any(r["capturedOnConnect"] for r in remotes), "nothing to capture on connect"
+
+    assert any(r["role"] == "root" for r in remotes), "no root, so nothing can be a parent"
+
+    # Every identifier here is synthetic and visibly so — MACs carry the 02:
+    # locally-administered prefix and backhaul SSIDs the DemoAP-* namespace, the
+    # same shapes `Anonymiser` emits. Nothing on this page is captured, which is
+    # exactly why it is where a real BSSID off the bench would get typed in.
+    macs = [u["peer_mac"] for u in uplinks if u["peer_mac"]]
+    macs += [p["mac"] for d in downlinks for p in d["peers"]]
+    assert macs, "no BSSID anywhere; the field that ties two cards together is untested"
+    assert all(re.fullmatch(r"02(:[0-9a-f]{2}){5}", mac) for mac in macs), macs
+    essids = [u["essid"] for u in uplinks if u["essid"]]
+    essids += [d["essid"] for d in downlinks if d["essid"]]
+    assert essids and all(name.startswith("DemoAP-") for name in essids), essids
+
+    page = _page_data(DEMO.parent / "fleet.html")
+    assert page["nodes"] == nodes, "the page and its regeneration source disagree"
+
+
 # --- the fixture-only sync -------------------------------------------------
 #
 # `demo-fixtures.json` owns the synthetic data, the pages ship it inlined, and
 # until now the only thing that carried one into the other was a full
-# regeneration — which needs a capture bundle for seven of the ten pages. So a
+# regeneration — which needs a capture bundle for seven of the eleven. So a
 # hand-written crash line or a sixth fleet card was either edited into the page,
 # where the next rebuild overwrites it from the stale fixture, or edited into
 # the fixture, where nobody can see it. `--sync-fixtures` is the path that needs
