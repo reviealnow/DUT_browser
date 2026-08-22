@@ -40,6 +40,21 @@ SSH_STARTUP_GRACE_SEC = 2
 SSH_CAPTURE_TIMEOUT_SEC = 15.0
 SSH_LOST_MESSAGE = "Remote console disconnected; check Pi reachability and socat, then reconnect"
 _SSH_READY = b"__DUT_FLEET_READY__"
+# Ctrl-U, written once to a console we have just taken over.
+#
+# A DUT shell holds an unterminated line in its input buffer until a newline
+# arrives, and it keeps holding it while nobody is attached. Serial line noise
+# — measured on the bench as a few bytes when a port is opened or released —
+# lands in that buffer, so the first command we write is appended to the junk:
+# the DUT runs "<junk>iwconfig", answers "/bin/sh: <junk>iwconfig: not found",
+# and a healthy console reads back as one with no wireless interfaces. The junk
+# survives our disconnects because it lives on the DUT, which is also why
+# draining our own read buffer or waiting before the first command cannot help.
+#
+# Ctrl-U is the line kill in both busybox's line editor and the tty's canonical
+# mode, and it is a no-op on an already-empty line. Deliberately not "\n":
+# that would submit the noise as a command on a bench that can flash firmware.
+_LINE_KILL = b"\x15"
 
 
 def _gate_wait_seconds(timeout: float) -> float:
@@ -152,6 +167,7 @@ class SerialWorker:
                 self._mode = "ssh"
                 self._thread = threading.Thread(target=self._ssh_read_loop, daemon=True)
                 self._thread.start()
+                self._discard_stale_input_line()
                 return
 
             self._serial = serial.Serial(port=port, baudrate=baudrate, timeout=1)
@@ -159,6 +175,7 @@ class SerialWorker:
             self._mode = "serial"
             self._thread = threading.Thread(target=self.read_loop, daemon=True)
             self._thread.start()
+            self._discard_stale_input_line()
 
     def close(self) -> None:
         old_thread: threading.Thread | None = None
@@ -333,6 +350,29 @@ class SerialWorker:
                 callback(detail)
             except Exception:
                 pass  # notification is best-effort; never mask the disconnect
+
+    def _discard_stale_input_line(self) -> None:
+        """Drop the half-typed line the DUT may still be holding (see _LINE_KILL).
+
+        Called from :meth:`open` with the lock already held, so it writes to the
+        transport directly rather than through :meth:`_guarded_write`, whose own
+        lock is not reentrant. Best-effort on purpose: a transport that cannot
+        take one byte here is gone, and the reader thread — already running —
+        reports that through the ordinary disconnect path, with a message about
+        the console rather than about this write.
+
+        Ordering is what makes this work on the SSH path: socat can only write
+        this byte after it has opened the serial device, so a line dirtied by
+        that very open is still cleared.
+        """
+        target = self._ssh.stdin if self._mode == "ssh" and self._ssh else self._serial
+        if target is None:
+            return
+        try:
+            target.write(_LINE_KILL)
+            target.flush()
+        except (OSError, ValueError):
+            pass
 
     def _guarded_write(self, data: bytes, *, terminal: bool | None = None) -> None:
         """Write to the open port, turning a dead device into a clean disconnect.

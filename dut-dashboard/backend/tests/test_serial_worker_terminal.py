@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import re
+import tempfile
 import threading
 import time
 import unittest
+from pathlib import Path
+from unittest import mock
 
+import app.serial.serial_worker as serial_worker_mod
 from app.serial.serial_worker import SerialWorker, _gate_wait_seconds
 
 
@@ -216,6 +220,27 @@ class _PromptPrefixFakeSerial(FakeSerial):
         m = re.search(r"echo (\S+)", text)
         if m:
             self.feed(b"stats-line\nroot@AP:/# " + m.group(1).encode() + b"\n")
+
+
+class ConsoleTakeoverTests(unittest.TestCase):
+    def test_opening_a_console_clears_a_stale_input_line(self) -> None:
+        """A DUT shell holds an unterminated line until a newline arrives, and it
+        keeps holding it while nobody is attached — so line noise, or a human's
+        half-typed command, ends up prefixing whatever we write first. The remote
+        path is where the bench caught it (`<junk>iwconfig` → "not found"), but
+        the cause is the console, not the transport, so both opens clear it."""
+        fake = FakeSerial()
+        worker = SerialWorker(StubParser())
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                mock.patch.object(serial_worker_mod, "LOG_DIR", Path(tmp)),
+                mock.patch.object(serial_worker_mod.serial, "Serial", return_value=fake),
+            ):
+                worker.open(port="/dev/fake", baudrate=115200)
+                try:
+                    self.assertEqual(bytes(fake.outputs), b"\x15")
+                finally:
+                    worker.close()
 
 
 class GateWaitFloorTests(unittest.TestCase):
