@@ -2,6 +2,7 @@ import { ChangeEvent, DragEvent, useEffect, useMemo, useState } from "react";
 
 import { Card, EmptyState, KpiCard } from "./shell/Card";
 import ChartData from "./charts/ChartData";
+import { ImportPlan, ParsedLogFile, planImport } from "../offline/importPlan";
 import { FieldKey, LOG_FIELDS, NUMERIC_LOG_FIELDS, parseLog } from "../offline/logParser";
 import { loadOfflineDuts, OfflineDutRecord, removeOfflineDut, saveOfflineDut } from "../offline/offlineDb";
 
@@ -10,15 +11,6 @@ type StoredDut = OfflineDutRecord;
 type ChartSeries = { id: string; name: string; values: Array<{ x: number; y: number }> };
 
 const COLORS = ["#1565c0", "#0c7a43", "#b3261e", "#8b4acb", "#d66b0d", "#087ea4"];
-
-function uniqueName(filename: string, duts: StoredDut[]): string {
-  const base = filename.replace(/\.(log|txt)$/i, "") || "DUT";
-  const used = new Set(duts.map((dut) => dut.name));
-  let name = base;
-  let suffix = 2;
-  while (used.has(name)) name = `${base} (${suffix++})`;
-  return name;
-}
 
 function OfflineChart({ series, unit }: { series: ChartSeries[]; unit: string }) {
   const points = series.flatMap((item) => item.values);
@@ -117,48 +109,28 @@ export default function OfflineAnalyzerSection() {
       setNotice("Choose one or more .log or .txt files.");
       return;
     }
-    const next = [...duts];
-    // A file with no snapshot in it is not a sysMon log, whatever it is called.
-    // Saved anyway, it became a permanent DUT with an empty chart under a
-    // success message — the import reported what it had done rather than what
-    // it had found.
-    const empty: string[] = [];
+    // Which of these files become DUTs, and what to say about the ones that do
+    // not, is decided in `offline/importPlan.ts` — a plain function a test can
+    // call. Here: read the files, save what the plan chose, move the selection.
+    let plan: ImportPlan;
     try {
+      const parsed: ParsedLogFile[] = [];
       for (const file of accepted) {
-        const result = parseLog(await file.text());
-        if (result.rows.length === 0) {
-          empty.push(file.name);
-          continue;
-        }
-        const dut: StoredDut = {
-          id: crypto.randomUUID(),
-          name: uniqueName(file.name, next),
-          sourceFile: file.name,
-          createdAt: Date.now(),
-          rows: result.rows,
-          missing: result.missing,
-        };
-        next.push(dut);
+        parsed.push({ name: file.name, result: parseLog(await file.text()) });
+      }
+      plan = planImport(parsed, duts, { id: () => crypto.randomUUID(), now: () => Date.now() });
+      for (const dut of plan.records) {
         await saveOfflineDut(dut);
       }
     } catch {
       setNotice("The logs could not be saved. Check this browser's storage permission and available space.");
       return;
     }
-    const added = next.slice(duts.length);
-    const refused = empty.length
-      ? ` No sysMon snapshots in ${empty.join(", ")} — nothing saved for ${empty.length === 1 ? "it" : "those"}.`
-      : "";
-    if (added.length === 0) {
-      setNotice(refused.trim() || "No sysMon snapshots found in those files.");
-      return;
-    }
-    setDuts(next);
-    setSelectedIds((ids) => [...ids, ...added.map((dut) => dut.id)]);
-    setActiveId(added[added.length - 1].id);
-    setNotice(
-      `${added.length} log${added.length === 1 ? "" : "s"} imported and saved in this browser.${refused}`,
-    );
+    setNotice(plan.notice);
+    if (plan.records.length === 0) return;
+    setDuts([...duts, ...plan.records]);
+    setSelectedIds((ids) => [...ids, ...plan.records.map((dut) => dut.id)]);
+    setActiveId(plan.records[plan.records.length - 1].id);
   }
 
   function handleFiles(event: ChangeEvent<HTMLInputElement>) {
