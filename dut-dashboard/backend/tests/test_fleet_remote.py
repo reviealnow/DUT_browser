@@ -863,6 +863,27 @@ class LocalDutCaptureTests(unittest.TestCase):
                 self.assertIsNone(published["uplink"])
                 self.assertIsNone(published["downlink"])
 
+    def test_a_re_registered_id_does_not_inherit_the_last_devices_console(self) -> None:
+        """`lab2` removed and another device registered as `lab2` on the same
+        adapter is byte-identical in every part of the console's identity —
+        so a browser still holding the old device's capture would go on
+        showing it as this one's."""
+        with tempfile.TemporaryDirectory() as directory:
+            with _registries_under(Path(directory)) as make_registry:
+                registry = make_registry()
+                registry.register_dut("lab2", "Lab 2")
+                registry.record_serial_params("lab2", "/dev/cu.adapter", 115200)
+                before = registry.describe()[0]["backhaul"]["console_id"]
+
+                registry.remove_dut("lab2")
+                registry.register_dut("lab2", "Lab 2")
+                registry.record_serial_params("lab2", "/dev/cu.adapter", 115200)
+
+                self.assertNotEqual(
+                    registry.describe()[0]["backhaul"]["console_id"], before,
+                    "the new device answers to the old device's console name",
+                )
+
     def test_an_ssh_reading_survives_reconnecting_to_the_same_pi(self) -> None:
         """The reset must cost a capture only when the console really changed;
         a reconnect to the same Pi is the same console."""
