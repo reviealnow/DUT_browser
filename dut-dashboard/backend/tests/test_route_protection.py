@@ -158,6 +158,10 @@ ROLE_MAP: dict[tuple[str, str], str | None] = {
     ("PUT", "/api/settings/crash-keywords"): "engineer",
     # -- writes a capture to disk ----------------------------------------
     ("POST", "/api/wifi/context-capture"): "engineer",
+    # Drives the console, like its neighbour above, and fires on every connect.
+    # Deliberately NOT under /api/fleet (all admin): an engineer's connect would
+    # then trigger a probe that can only answer 403.
+    ("POST", "/api/wifi/mesh-probe"): "engineer",
     # -- read-only telemetry, open by design ------------------------------
     ("GET", "/health"): None,
     ("GET", "/api/version"): None,

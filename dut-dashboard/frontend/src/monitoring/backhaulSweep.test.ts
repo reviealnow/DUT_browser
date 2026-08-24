@@ -46,6 +46,7 @@ function entry(
     lastSerial: null,
     remote: null,
     mgmtUrl: "",
+    meshProbe: null,
     backhaul: {
       applicable,
       captured: role !== null,
@@ -79,6 +80,7 @@ function registryWith(uplinks: Record<string, RemoteUplink | null>): () => Promi
       last_serial: null,
       remote: null,
       mgmt_url: "",
+      mesh_probe: null,
       backhaul: {
         applicable: true,
         captured: uplink !== null,

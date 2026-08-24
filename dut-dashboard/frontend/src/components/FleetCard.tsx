@@ -119,6 +119,23 @@ export default function FleetCard({
   // Grey for a settled non-answer — not applicable, no parent — but not for
   // "Not captured", which is a prompt to press the button rather than a state
   // of the DUT.
+  /* Four things this row can say, and they are four different claims:
+     nobody has asked yet; the device listed members; the device answered with
+     an empty list; we asked and could not tell. Collapsing the last two into
+     one "no" is the failure this whole feature is about — it would print "no
+     mesh" over a device that merely failed to answer. */
+  const probe = entry.meshProbe;
+  const probeText = !probe
+    ? "Not probed"
+    : probe.mesh === true
+      ? `${probe.members.length} member${probe.members.length === 1 ? "" : "s"} reported`
+      : probe.mesh === false
+        ? "No mesh on this device"
+        : "Could not tell";
+  // Muted for every state that is not a positive answer, including "could not
+  // tell" — which must not read like a measurement.
+  const probeMuted = !probe || probe.mesh !== true;
+
   const uplinkMuted = !rssi.applicable || rssi.role === "root" || (rssi.captured && rssi.role === null);
   const childrenMuted = !rssi.applicable || (rssi.captured && !rssi.downlink);
   const meta = STATUS_META[entry.status];
@@ -250,6 +267,17 @@ export default function FleetCard({
           <div className="stat-row">
             <dt>Children on backhaul</dt>
             <dd className={childrenMuted ? "fleet-rssi-na" : undefined}>{childrenText}</dd>
+          </div>
+          {/* What the DEVICE said, beside what a console measured. Kept as its
+              own row rather than folded into the two above: those are readings
+              off this DUT's radios, this is the device's own answer, and it is
+              the only one that can mention members no console here reaches.
+              It also never overwrites the admin's `is_mesh` — a DUT declared
+              standalone that reports two mesh members is exactly what someone
+              needs to see, and one merged row would hide it. */}
+          <div className="stat-row">
+            <dt>Mesh (device says)</dt>
+            <dd className={probeMuted ? "fleet-rssi-na" : undefined}>{probeText}</dd>
           </div>
         </dl>
         <dl className="stat-list">

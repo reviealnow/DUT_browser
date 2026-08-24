@@ -375,6 +375,10 @@ export type DutInfo = {
     uplink: RemoteUplink | null;
     downlink: RemoteDownlink | null;
   };
+  /** What the DUT itself last said about its mesh, or null before any probe —
+   *  which is a third state again from `mesh: false`. Dropped by the registry
+   *  when the console changes, like the backhaul readings beside it. */
+  mesh_probe: MeshProbe | null;
 };
 
 /** How well this node hears its parent. Read from `iwconfig` on the Managed
@@ -518,6 +522,53 @@ export function getMeshTopology(dutId: string): Promise<MeshTopology> {
     `/api/fleet/nodes/${encodeURIComponent(dutId)}/mesh`,
   ).finally(() => meshInflight.delete(dutId));
   meshInflight.set(dutId, request);
+  return request;
+}
+
+/** What a DUT said about its own mesh when asked over its console.
+ *
+ *  A different kind of fact from `DutInfo["backhaul"]`, which is what a console
+ *  MEASURED off this DUT's radios. This is what the device REPORTED, and it can
+ *  name members no console here reaches.
+ *
+ *  Three states, and they must stay apart on screen:
+ *    `mesh: true`  — it listed members.
+ *    `mesh: false` — it answered properly with an empty list. The only state
+ *                    entitled to say "this DUT is in no mesh".
+ *    `mesh: null`  — we asked and could not tell. `detail` says what it said.
+ *
+ *  Never overrides the admin's `is_mesh` declaration behind
+ *  `backhaul.applicable`: the two are shown side by side, because a device
+ *  declared standalone that reports two mesh members is worth seeing.
+ */
+export type MeshProbe = {
+  probed: boolean;
+  mesh: boolean | null;
+  members: MeshMember[];
+  /** Why, when `mesh` is null or false. Empty when it simply worked. */
+  detail: string;
+  captured_at: string;
+};
+
+export type MeshProbeResult = MeshProbe & { dut: string };
+
+const meshProbeInflight = new Map<string, Promise<MeshProbeResult>>();
+
+/** Ask a connected DUT about its own mesh, over the console it is attached to.
+ *
+ *  One serial command, so it is coalesced per DUT like every other capture: the
+ *  console is a single channel, and two probes would simply queue.
+ *
+ *  Engineer-gated, unlike `getMeshTopology` — it needs no management address and
+ *  no credentials, which is the whole reason it exists. */
+export function probeMesh(dutId: string): Promise<MeshProbeResult> {
+  const current = meshProbeInflight.get(dutId);
+  if (current) return current;
+  const request = post<MeshProbeResult>(
+    `/api/wifi/mesh-probe?dut=${encodeURIComponent(dutId)}`,
+    {},
+  ).finally(() => meshProbeInflight.delete(dutId));
+  meshProbeInflight.set(dutId, request);
   return request;
 }
 

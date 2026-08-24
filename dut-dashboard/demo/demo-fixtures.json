@@ -24,6 +24,7 @@
       {
         "label": "DemoDUT-6E",
         "id": "default",
+        "meshProbe": { "mesh": true, "members": 4 },
         "status": "streaming",
         "cpu": "34.3%",
         "cpuSub": "2 cores",
@@ -46,6 +47,7 @@
       {
         "label": "DemoNode-420",
         "id": "lab-420",
+        "meshProbe": { "mesh": true, "members": 4 },
         "status": "streaming",
         "cpu": "18.6%",
         "cpuSub": "2 cores",
@@ -72,6 +74,7 @@
       {
         "label": "DemoRoot-840E",
         "id": "lab2",
+        "meshProbe": { "mesh": true, "members": 4 },
         "status": "streaming",
         "cpu": "27.1%",
         "cpuSub": "4 cores",
@@ -100,6 +103,7 @@
       {
         "label": "DemoAP-standalone",
         "id": "ap-2",
+        "meshProbe": { "mesh": false, "members": 0 },
         "status": "idle",
         "cpu": "—",
         "cpuSub": "no stream",
@@ -126,6 +130,7 @@
       {
         "label": "DemoNode-lab3",
         "id": "lab3",
+        "meshProbe": null,
         "status": "idle",
         "cpu": "—",
         "cpuSub": "no stream",
@@ -156,6 +161,7 @@
       {
         "label": "DemoDUT-bench3",
         "id": "bench3",
+        "meshProbe": { "mesh": null, "members": 0 },
         "status": "offline",
         "cpu": "—",
         "cpuSub": "no stream",
@@ -199,6 +205,7 @@
       {
         "label": "DemoDUT-6E",
         "id": "default",
+        "meshProbe": { "mesh": true,  "members": 4 },
         "mgmtUrl": "",
         "status": "streaming",
         "cpu": "34.3%",
@@ -236,6 +243,7 @@
       {
         "label": "DemoNode-420",
         "id": "lab-420",
+        "meshProbe": { "mesh": true,  "members": 4 },
         "mgmtUrl": "https://10.0.0.12:10443",
         "status": "streaming",
         "cpu": "18.6%",
@@ -277,6 +285,7 @@
       {
         "label": "DemoRoot-840E",
         "id": "lab2",
+        "meshProbe": { "mesh": true,  "members": 4 },
         "mgmtUrl": "https://10.0.0.11:10443",
         "status": "streaming",
         "cpu": "27.1%",
@@ -314,6 +323,7 @@
       {
         "label": "DemoAP-standalone",
         "id": "ap-2",
+        "meshProbe": { "mesh": false, "members": 0 },
         "mgmtUrl": "",
         "status": "idle",
         "cpu": "—",
@@ -342,6 +352,7 @@
       {
         "label": "DemoNode-lab3",
         "id": "lab3",
+        "meshProbe": null,
         "mgmtUrl": "",
         "status": "idle",
         "cpu": "—",
@@ -387,6 +398,7 @@
       {
         "label": "DemoDUT-bench3",
         "id": "bench3",
+        "meshProbe": { "mesh": null,  "members": 0 },
         "mgmtUrl": "",
         "status": "offline",
         "cpu": "—",
