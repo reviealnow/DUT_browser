@@ -52,6 +52,7 @@ function entry(overrides: Partial<FleetEntry> = {}): FleetEntry {
     serialOpen: true,
     lastSerial: { port: "/dev/cu.bench", baudrate: 115200 },
     remote: null,
+    mgmtUrl: "",
     backhaul: {
       applicable: true,
       captured: false,

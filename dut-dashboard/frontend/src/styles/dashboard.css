@@ -1578,6 +1578,19 @@ body {
 .fleet-peer-table { min-width: 280px; }
 .fleet-detail-block:has(> .fleet-peer-table) { overflow-x: auto; }
 
+/* Mesh topology: seven columns, one of them a MAC. Same treatment as the peer
+   table — the table scrolls inside its own box so the page never does. */
+.mesh-topology { display: flex; flex-direction: column; gap: var(--space-3); }
+.mesh-topology-table { overflow-x: auto; }
+.mesh-topology-table > table { min-width: 640px; }
+.mesh-topology-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.mesh-topology-source { display: flex; align-items: center; gap: var(--space-2); }
+
 /* SSID Capability Card */
 .cap-body { display: flex; flex-direction: column; gap: var(--space-4); }
 .cap-summary { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
