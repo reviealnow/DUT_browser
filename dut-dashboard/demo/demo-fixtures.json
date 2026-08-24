@@ -199,6 +199,7 @@
       {
         "label": "DemoDUT-6E",
         "id": "default",
+        "mgmtUrl": "",
         "status": "streaming",
         "cpu": "34.3%",
         "cpuSub": "2 cores",
@@ -235,6 +236,7 @@
       {
         "label": "DemoNode-420",
         "id": "lab-420",
+        "mgmtUrl": "https://10.0.0.12:10443",
         "status": "streaming",
         "cpu": "18.6%",
         "cpuSub": "2 cores",
@@ -275,6 +277,7 @@
       {
         "label": "DemoRoot-840E",
         "id": "lab2",
+        "mgmtUrl": "https://10.0.0.11:10443",
         "status": "streaming",
         "cpu": "27.1%",
         "cpuSub": "4 cores",
@@ -311,6 +314,7 @@
       {
         "label": "DemoAP-standalone",
         "id": "ap-2",
+        "mgmtUrl": "",
         "status": "idle",
         "cpu": "—",
         "cpuSub": "no stream",
@@ -338,6 +342,7 @@
       {
         "label": "DemoNode-lab3",
         "id": "lab3",
+        "mgmtUrl": "",
         "status": "idle",
         "cpu": "—",
         "cpuSub": "no stream",
@@ -382,6 +387,7 @@
       {
         "label": "DemoDUT-bench3",
         "id": "bench3",
+        "mgmtUrl": "",
         "status": "offline",
         "cpu": "—",
         "cpuSub": "no stream",
@@ -402,7 +408,18 @@
           "capturedOnConnect": null
         }
       }
-    ]
+    ],
+    "mesh": {
+      "dut": "lab2",
+      "mgmt_url": "https://10.0.0.11:10443",
+      "captured_at": "2026-08-06 10:44:12",
+      "members": [
+        { "mac": "02:1F:6C:44:9A:31", "node": "0", "node_number": 0, "hop": 0, "role": "root", "mesh_type": "Root", "ip": "10.0.0.11", "rssi": null, "rssi_band": null },
+        { "mac": "02:7A:3D:10:55:C2", "node": "1", "node_number": 1, "hop": 1, "role": "node", "mesh_type": "Node", "ip": "10.0.0.12", "rssi": -38, "rssi_band": "near" },
+        { "mac": "02:C4:88:9E:12:07", "node": "2", "node_number": 2, "hop": 1, "role": "node", "mesh_type": "Node", "ip": "10.0.0.13", "rssi": -61, "rssi_band": "mid" },
+        { "mac": "02:65:24:B8:3E:D1", "node": "3", "node_number": 3, "hop": 2, "role": "node", "mesh_type": "Node", "ip": "10.0.0.14", "rssi": -45, "rssi_band": "mid" }
+      ]
+    }
   },
   "site-survey.html": {},
   "files.html": {

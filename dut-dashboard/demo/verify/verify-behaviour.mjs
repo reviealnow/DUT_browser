@@ -537,6 +537,43 @@ const report = reporter();
   report.ok("declining leaves the session open",
     !!byName("DemoNode-lab3").querySelector("[data-act=close]"));
 
+  // -- mesh topology --------------------------------------------------------
+  // The block exists because the cards and the DUT's own console disagreed: the
+  // device listed members the fleet had no card for. A demo that only listed
+  // the members it already has cards for would reproduce exactly the defect,
+  // and look complete doing it.
+  const meshRows = [...document.querySelectorAll("[data-mesh-row]")];
+  const cells = (row) => [...row.querySelectorAll("td")].map(td => td.textContent.trim());
+  report.ok("the mesh table lists every member the device reports, cards or not",
+    meshRows.length === 4, String(meshRows.length));
+
+  const unregistered = meshRows.filter(r => cells(r)[6] === "Not registered here");
+  report.ok("members with no DUT here are marked, not quietly listed",
+    unregistered.length === 2, unregistered.map(r => cells(r)[3]).join(","));
+  report.ok("a member that does have one names it and its console state",
+    meshRows.some(r => /DemoRoot-840E · console open/.test(cells(r)[6])),
+    meshRows.map(r => cells(r)[6]).join(" | "));
+
+  // The device sends `signal: 0` for a root. Printed as a number it reads as
+  // the strongest link on the bench; printed as "—" it reads as unmeasured.
+  const rootRow = meshRows.find(r => cells(r)[1] === "Root");
+  report.ok("a root's absent signal is neither a number nor a bare dash",
+    cells(rootRow)[5] === "n/a — root", cells(rootRow)[5]);
+  report.ok("a node's measured signal keeps its number and band",
+    meshRows.some(r => cells(r)[5] === "-38 dBm · near"),
+    meshRows.map(r => cells(r)[5]).join(" | "));
+
+  // Two of six DUTs carry a management address, so the picker has a choice to
+  // offer. It is hidden where there is none, as in the product.
+  report.ok("the source picker lists only DUTs that can be asked",
+    document.querySelectorAll("#meshSource option").length === 2);
+
+  click(window, document.getElementById("btnMeshRefresh"));
+  report.ok("Refresh mesh re-reads and says so",
+    [...document.querySelectorAll("[data-mesh-row]")].length === 4 &&
+    /mesh/i.test(document.getElementById("toast").textContent),
+    document.getElementById("toast").textContent);
+
   report.ok("fleet.html threw nothing while all that ran",
     pageErrors(window).length === 0, pageErrors(window).join(" | "));
 }
