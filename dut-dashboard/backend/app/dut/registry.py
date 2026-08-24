@@ -195,6 +195,15 @@ class DutContext:
     # are otherwise identical (role, uplink and downlink all None) and the card
     # would have to call both of them "Not captured".
     backhaul_captured: bool = False
+    # What the DUT itself said about its mesh, from the console probe. Kept
+    # ALONGSIDE `remote["is_mesh"]` and never over it: that field is an admin's
+    # declaration and this is a measurement, and the interesting case is exactly
+    # when they disagree ("declared standalone, reports two mesh members").
+    # Folding one into the other would delete the only signal that says so.
+    #
+    # Dropped with the rest of a capture when the console changes: it describes
+    # the device that was behind this id, not the id.
+    mesh_probe: dict | None = None
     # The console the stored capture was actually read from — see console_token.
     # Held rather than re-derived, because the transport a reading came from is
     # not recoverable from the configuration afterwards.
@@ -253,6 +262,7 @@ def _forget_backhaul(ctx: DutContext) -> None:
     ctx.backhaul_role = None
     ctx.backhaul_captured = False
     ctx.backhaul_console = None
+    ctx.mesh_probe = None
 
 
 def _forget_if_another_console(ctx: DutContext, opening: str) -> None:
@@ -419,6 +429,19 @@ class DutRegistry:
             ctx.backhaul_downlink = downlink
             return True
 
+    def store_mesh_probe(self, dut_id: str, probe: dict) -> None:
+        """Commit what the DUT said about its own mesh.
+
+        No console-identity check, unlike the backhaul writers: this probe runs
+        on whatever console is open at the time and is dropped wholesale when
+        that console changes, so there is no stored reading for a re-point to
+        mislabel. It is also cheap to repeat -- one command on the next connect.
+        """
+        with self._lock:
+            ctx = self._duts.get(dut_id)
+            if ctx is not None:
+                ctx.mesh_probe = probe
+
     def note_console_open(self, dut_id: str, mode: str) -> None:
         """A console was opened by a path with nothing else to persist.
 
@@ -526,6 +549,13 @@ class DutRegistry:
                         "uplink": ctx.backhaul_uplink,
                         "downlink": ctx.backhaul_downlink,
                     },
+                    # A sibling of `backhaul`, not a member of it. The backhaul
+                    # block is what a console MEASURED off this DUT's radios;
+                    # this is what the DUT SAID when asked about its mesh, and
+                    # the two answer different questions -- one of them about
+                    # members no console here can reach. None until a probe has
+                    # run, which is a third state again from `mesh: false`.
+                    "mesh_probe": ctx.mesh_probe,
                 }
             )
         return out

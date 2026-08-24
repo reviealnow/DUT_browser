@@ -28,7 +28,7 @@ from app.services.analyzer_service import AnalyzerService
 from app.services.capability_report import build_capability_report
 from app.services.site_survey import channel_recommendation, get_site_survey
 from app.services.survey_cache import last_recommendation, remember_recommendation
-from app.services import context_snapshot, survey_snapshot
+from app.services import context_snapshot, mesh_topology, survey_snapshot
 from app.services.wifi_clients import discover_vaps, get_ssid_capabilities, parse_apstats, parse_wlanconfig_list
 from app.services.wifi_survey import get_wifi_survey
 from app.websocket.terminal_manager import TerminalManager
@@ -361,6 +361,40 @@ def _capture_clients(worker) -> tuple[list[dict], list[dict]]:
             client["ssid"] = vap["ssid"]
             clients.append(client)
     return clients, vaps
+
+
+@app.post("/api/wifi/mesh-probe", dependencies=[_ENGINEER])
+def probe_dut_mesh(dut: str = DEFAULT_DUT_ID) -> dict:
+    """Ask a connected DUT whether it is in a mesh, using its own console.
+
+    The fleet's other mesh read goes over the LAN to the device's management
+    API, which needs an address and credentials an admin has to have set. This
+    one needs neither: it has the DUT curl its own API over loopback, where it
+    answers unauthenticated. So it works on a device somebody has just cabled
+    up, which is exactly when "does this thing even have mesh" is worth asking.
+
+    Engineer, not admin, and for the same reason `context-capture` above is:
+    what it drives is the serial console, and connecting a DUT -- the only thing
+    that triggers it -- is engineer already. It is deliberately NOT under
+    /api/fleet, where every route is admin: an engineer's connect firing an
+    admin-only probe would answer 403 on every single connect.
+
+    One serial command, on an explicit trigger. It never polls, and it is not a
+    replacement for the admin's `is_mesh` declaration -- see registry.py, which
+    stores this alongside rather than over it, because "you declared this
+    standalone but it reports two mesh members" is worth being able to see.
+    """
+    context = resolve_dut(app, dut)
+    try:
+        result = mesh_topology.probe_mesh_over_console(context.serial_worker)
+    except mesh_topology.MeshError as exc:
+        # 400: the console could not run it. Distinct from the device answering
+        # "no mesh", which is a 200 with `mesh` false -- and from it answering
+        # something we cannot read, which is a 200 with `mesh` null.
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    captured_at = datetime.now().isoformat(timespec="seconds")
+    app.state.dut_registry.store_mesh_probe(dut, {**result, "captured_at": captured_at})
+    return {"dut": dut, "captured_at": captured_at, **result}
 
 
 @app.post("/api/wifi/context-capture", dependencies=[_ENGINEER])
