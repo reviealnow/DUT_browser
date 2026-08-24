@@ -104,6 +104,12 @@ button{font:inherit; color:inherit; cursor:pointer}
 .filetable td{padding:4px var(--space-2) 4px 0; border-bottom:1px solid var(--border)}
 .filetable tr:last-child td{border-bottom:0}
 .fleet-peer-table td:not(:first-child), .fleet-peer-table th:not(:first-child){text-align:right; padding-right:0}
+.mesh-topology{display:flex; flex-direction:column; gap:var(--space-3)}
+.mesh-topology-table{overflow-x:auto}
+.mesh-topology-table>table{min-width:640px}
+.mesh-topology-controls{display:flex; align-items:center; gap:var(--space-3); flex-wrap:wrap}
+.mesh-topology-source{display:flex; align-items:center; gap:var(--space-2)}
+.mesh-topology-source .setting-hint{flex:0; min-width:0}
 
 .note{padding:var(--space-3) var(--space-4); border-radius:10px; background:var(--accent-weak); color:#12467f; font-size:12px; border:1px solid #cfe0f6}
 /* A "concept" chip marks an idea shown for discussion. Everything without one
@@ -126,7 +132,7 @@ button{font:inherit; color:inherit; cursor:pointer}
 <!-- The fleet is synthetic in full — a bench with one DUT attached cannot
      produce one — so demo-fixtures.json owns every value here and this block is
      written from it by `build_demo_data.py --sync-fixtures`. -->
-<script id="demo-data" type="application/json">{"nodes":[{"label":"DemoDUT-6E","id":"default","status":"streaming","cpu":"34.3%","cpuSub":"2 cores","reco":"2 bands need a move","recoLevel":"warn","crashCount":3,"lastEvent":"12m ago","lastSnapshot":"2026-08-02 19:56:27","open":true,"lastSerial":"/dev/cu.PL2303G-1130","backhaul":{"applicable":true,"captured":true,"console_id":"serial:default","role":"node","uplink":{"iface":"ath0","rssi":-45,"snr":41,"rssi_band":"mid","radio_band":"5GHz","essid":"DemoAP-Mesh","peer_mac":"02:1f:6c:44:9a:31"},"downlink":{"iface":"ath1","source":"detected","essid":"DemoAP-Mesh","peers":[]},"capturedOnConnect":null}},{"label":"DemoNode-420","id":"lab-420","status":"streaming","cpu":"18.6%","cpuSub":"2 cores","reco":"all bands clear","recoLevel":"ok","crashCount":0,"lastEvent":"\u2014","lastSnapshot":"2026-08-01 09:14:02","open":true,"lastSerial":"/dev/cu.PL2303G-1130","remote":{"host":"10.0.0.24","port":22},"backhaul":{"applicable":true,"captured":true,"console_id":"ssh:lab-420","role":"node","uplink":{"iface":"ath0","rssi":-37,"snr":49,"rssi_band":"near","radio_band":"5GHz","essid":"DemoAP-Mesh","peer_mac":"02:1f:6c:44:9a:31"},"downlink":{"iface":"ath1","source":"detected","essid":"DemoAP-Mesh","peers":[]},"capturedOnConnect":null}},{"label":"DemoRoot-840E","id":"lab2","status":"streaming","cpu":"27.1%","cpuSub":"4 cores","reco":"no survey yet","recoLevel":"muted","crashCount":0,"lastEvent":"2m ago","lastSnapshot":"2026-08-02 19:58:41","open":true,"lastSerial":null,"remote":{"host":"10.0.0.24","port":22},"backhaul":{"applicable":true,"captured":true,"console_id":"ssh:lab2","role":"root","uplink":null,"downlink":{"iface":"ath1","source":"configured","essid":"DemoAP-Mesh","peers":[{"mac":"02:7a:3d:10:55:c2","rssi":-38,"rssi_band":"near"},{"mac":"02:c4:88:9e:12:07","rssi":-61,"rssi_band":"mid"},{"mac":"02:65:24:b8:3e:d1","rssi":-45,"rssi_band":"mid"}]},"capturedOnConnect":null}},{"label":"DemoAP-standalone","id":"ap-2","status":"idle","cpu":"\u2014","cpuSub":"no stream","reco":"no survey yet","recoLevel":"muted","crashCount":0,"lastEvent":"\u2014","lastSnapshot":"\u2014","open":false,"lastSerial":null,"remote":{"host":"10.0.0.24","port":22},"backhaul":{"applicable":false,"captured":false,"console_id":"ssh:ap-2","role":null,"uplink":null,"downlink":null,"capturedOnConnect":null}},{"label":"DemoNode-lab3","id":"lab3","status":"idle","cpu":"\u2014","cpuSub":"no stream","reco":"no survey yet","recoLevel":"muted","crashCount":0,"lastEvent":"\u2014","lastSnapshot":"\u2014","open":false,"lastSerial":null,"remote":{"host":"10.0.0.24","port":22},"backhaul":{"applicable":true,"captured":false,"console_id":"ssh:lab3","role":null,"uplink":null,"downlink":null,"capturedOnConnect":{"role":"node","uplink":{"iface":"ath0","rssi":-52,"snr":33,"rssi_band":"mid","radio_band":"5GHz","essid":"DemoAP-Mesh","peer_mac":"02:1f:6c:44:9a:31"},"downlink":{"iface":"ath1","source":"detected","essid":"DemoAP-Mesh","peers":[]}}}},{"label":"DemoDUT-bench3","id":"bench3","status":"offline","cpu":"\u2014","cpuSub":"no stream","reco":"1 band needs a move","recoLevel":"warn","crashCount":1,"lastEvent":"3m ago","lastSnapshot":"2026-08-06 10:41:55","open":false,"lastSerial":null,"backhaul":{"applicable":true,"captured":true,"console_id":"serial:bench3","role":null,"uplink":null,"downlink":null,"capturedOnConnect":null}}]}</script>
+<script id="demo-data" type="application/json">{"nodes":[{"label":"DemoDUT-6E","id":"default","mgmtUrl":"","status":"streaming","cpu":"34.3%","cpuSub":"2 cores","reco":"2 bands need a move","recoLevel":"warn","crashCount":3,"lastEvent":"12m ago","lastSnapshot":"2026-08-02 19:56:27","open":true,"lastSerial":"/dev/cu.PL2303G-1130","backhaul":{"applicable":true,"captured":true,"console_id":"serial:default","role":"node","uplink":{"iface":"ath0","rssi":-45,"snr":41,"rssi_band":"mid","radio_band":"5GHz","essid":"DemoAP-Mesh","peer_mac":"02:1f:6c:44:9a:31"},"downlink":{"iface":"ath1","source":"detected","essid":"DemoAP-Mesh","peers":[]},"capturedOnConnect":null}},{"label":"DemoNode-420","id":"lab-420","mgmtUrl":"https://10.0.0.12:10443","status":"streaming","cpu":"18.6%","cpuSub":"2 cores","reco":"all bands clear","recoLevel":"ok","crashCount":0,"lastEvent":"\u2014","lastSnapshot":"2026-08-01 09:14:02","open":true,"lastSerial":"/dev/cu.PL2303G-1130","remote":{"host":"10.0.0.24","port":22},"backhaul":{"applicable":true,"captured":true,"console_id":"ssh:lab-420","role":"node","uplink":{"iface":"ath0","rssi":-37,"snr":49,"rssi_band":"near","radio_band":"5GHz","essid":"DemoAP-Mesh","peer_mac":"02:1f:6c:44:9a:31"},"downlink":{"iface":"ath1","source":"detected","essid":"DemoAP-Mesh","peers":[]},"capturedOnConnect":null}},{"label":"DemoRoot-840E","id":"lab2","mgmtUrl":"https://10.0.0.11:10443","status":"streaming","cpu":"27.1%","cpuSub":"4 cores","reco":"no survey yet","recoLevel":"muted","crashCount":0,"lastEvent":"2m ago","lastSnapshot":"2026-08-02 19:58:41","open":true,"lastSerial":null,"remote":{"host":"10.0.0.24","port":22},"backhaul":{"applicable":true,"captured":true,"console_id":"ssh:lab2","role":"root","uplink":null,"downlink":{"iface":"ath1","source":"configured","essid":"DemoAP-Mesh","peers":[{"mac":"02:7a:3d:10:55:c2","rssi":-38,"rssi_band":"near"},{"mac":"02:c4:88:9e:12:07","rssi":-61,"rssi_band":"mid"},{"mac":"02:65:24:b8:3e:d1","rssi":-45,"rssi_band":"mid"}]},"capturedOnConnect":null}},{"label":"DemoAP-standalone","id":"ap-2","mgmtUrl":"","status":"idle","cpu":"\u2014","cpuSub":"no stream","reco":"no survey yet","recoLevel":"muted","crashCount":0,"lastEvent":"\u2014","lastSnapshot":"\u2014","open":false,"lastSerial":null,"remote":{"host":"10.0.0.24","port":22},"backhaul":{"applicable":false,"captured":false,"console_id":"ssh:ap-2","role":null,"uplink":null,"downlink":null,"capturedOnConnect":null}},{"label":"DemoNode-lab3","id":"lab3","mgmtUrl":"","status":"idle","cpu":"\u2014","cpuSub":"no stream","reco":"no survey yet","recoLevel":"muted","crashCount":0,"lastEvent":"\u2014","lastSnapshot":"\u2014","open":false,"lastSerial":null,"remote":{"host":"10.0.0.24","port":22},"backhaul":{"applicable":true,"captured":false,"console_id":"ssh:lab3","role":null,"uplink":null,"downlink":null,"capturedOnConnect":{"role":"node","uplink":{"iface":"ath0","rssi":-52,"snr":33,"rssi_band":"mid","radio_band":"5GHz","essid":"DemoAP-Mesh","peer_mac":"02:1f:6c:44:9a:31"},"downlink":{"iface":"ath1","source":"detected","essid":"DemoAP-Mesh","peers":[]}}}},{"label":"DemoDUT-bench3","id":"bench3","mgmtUrl":"","status":"offline","cpu":"\u2014","cpuSub":"no stream","reco":"1 band needs a move","recoLevel":"warn","crashCount":1,"lastEvent":"3m ago","lastSnapshot":"2026-08-06 10:41:55","open":false,"lastSerial":null,"backhaul":{"applicable":true,"captured":true,"console_id":"serial:bench3","role":null,"uplink":null,"downlink":null,"capturedOnConnect":null}}],"mesh":{"dut":"lab2","mgmt_url":"https://10.0.0.11:10443","captured_at":"2026-08-06 10:44:12","members":[{"mac":"02:1F:6C:44:9A:31","node":"0","node_number":0,"hop":0,"role":"root","mesh_type":"Root","ip":"10.0.0.11","rssi":null,"rssi_band":null},{"mac":"02:7A:3D:10:55:C2","node":"1","node_number":1,"hop":1,"role":"node","mesh_type":"Node","ip":"10.0.0.12","rssi":-38,"rssi_band":"near"},{"mac":"02:C4:88:9E:12:07","node":"2","node_number":2,"hop":1,"role":"node","mesh_type":"Node","ip":"10.0.0.13","rssi":-61,"rssi_band":"mid"},{"mac":"02:65:24:B8:3E:D1","node":"3","node_number":3,"hop":2,"role":"node","mesh_type":"Node","ip":"10.0.0.14","rssi":-45,"rssi_band":"mid"}]}}</script>
 
 <div class="layout">
   <aside class="sidebar">
@@ -182,6 +188,31 @@ button{font:inherit; color:inherit; cursor:pointer}
               DUT's serial console, so nothing here refreshes on its own.
             </div>
             <button class="btn" id="btnCaptureAll"></button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Above the cards, as in FleetSection: the cards are what this
+           dashboard measured, this is what the mesh actually contains, and
+           when the two disagree the fuller list is met first. -->
+      <section class="card">
+        <div class="card-head">
+          <h2>Mesh topology</h2>
+          <span class="hint">As the DUT itself reports it</span>
+        </div>
+        <div class="card-body">
+          <div class="mesh-topology">
+            <div class="fleet-section-toolbar">
+              <div class="setting-hint" id="meshHint"></div>
+              <div class="mesh-topology-controls">
+                <label class="mesh-topology-source">
+                  <span class="setting-hint">Ask</span>
+                  <select id="meshSource" aria-label="DUT to ask for the mesh table"></select>
+                </label>
+                <button class="btn" id="btnMeshRefresh">Refresh mesh</button>
+              </div>
+            </div>
+            <div class="mesh-topology-table" id="meshTable"></div>
           </div>
         </div>
       </section>
@@ -414,6 +445,83 @@ function renderToolbar(){
     : "Capture every mesh node in turn — nodes first, then roots";
 }
 
+/* ---------------- mesh topology ----------------
+   MeshTopology.tsx's observable contract. A different KIND of fact from
+   everything else on this page: the rows above are what a console measured, so
+   they can only ever describe DUTs this dashboard holds a console for. This
+   table is the device's own, read over HTTPS from its management API, so it
+   lists members nothing here can reach — and the last column is where it says
+   so. Two of the four below have no card on this screen, which is the case the
+   block exists for.
+
+   Matching is on the management address and nothing else. `remote.host` is the
+   Pi serving a console, a different machine on a different subnet, and matching
+   on it would attach a mesh member to the wrong device. */
+const hostOf = (mgmtUrl) => {
+  const cleaned = (mgmtUrl || "").trim();
+  if (!cleaned) return null;
+  try {
+    return new URL(cleaned.includes("://") ? cleaned : `https://${cleaned}`).hostname || null;
+  } catch { return null; }
+};
+const meshSources = () => fleet.filter(d => hostOf(d.mgmtUrl) !== null);
+const matchMember = (member) =>
+  member.ip ? (fleet.find(d => hostOf(d.mgmtUrl) === member.ip) || null) : null;
+
+function memberLabel(m){
+  if (m.role === "root") return "Root";
+  if (m.role === "node") return "Node";
+  return m.mesh_type || "—";
+}
+
+/* A root reports `signal: 0` because it has no parent to hear. The backend
+   nulls it, and this column must not let that read as a measurement — "—"
+   alone would say "not measured", and a number would say the strongest link on
+   the bench. */
+function signalText(m){
+  if (m.rssi === null) return m.role === "root" ? "n/a — root" : "—";
+  return `${m.rssi} dBm${m.rssi_band ? ` · ${m.rssi_band}` : ""}`;
+}
+
+function renderMesh(){
+  const mesh = DATA.mesh;
+  const sources = meshSources();
+  $("meshHint").textContent =
+    "Read from the DUT itself over HTTPS, not from a console — so it lists mesh members "
+    + `this dashboard has no console for. Read ${mesh.captured_at} from ${mesh.mgmt_url}.`;
+
+  /* The picker appears only where there is a choice, as in the product. */
+  const picker = $("meshSource");
+  picker.parentElement.hidden = sources.length < 2;
+  picker.innerHTML = sources.map(d => `<option value="${esc(d.id)}">${esc(d.label)}</option>`).join("");
+  /* The DUT named on the table has to be the one the picker shows, or the block
+     credits one device with another's answer. */
+  picker.value = mesh.dut;
+
+  $("meshTable").innerHTML =
+    `<table class="filetable"><thead><tr>`
+    + `<th>NODE</th><th>ROLE</th><th>HOP</th><th>ADDRESS</th><th>MAC</th>`
+    + `<th>SIGNAL TO PARENT</th><th>IN THIS DASHBOARD</th></tr></thead><tbody>`
+    + mesh.members.map(m => {
+        const match = matchMember(m);
+        const known = match
+          ? esc(`${match.label}${match.open ? " · console open" : " · no console"}`)
+          : `<span class="fleet-rssi-na">Not registered here</span>`;
+        return `<tr data-mesh-row="${esc(m.mac)}">`
+          + `<td>${esc(m.node)}</td><td>${esc(memberLabel(m))}</td><td>${esc(m.hop)}</td>`
+          + `<td>${esc(m.ip)}</td><td class="fleet-detail-mac">${esc(m.mac)}</td>`
+          + `<td>${esc(signalText(m))}</td><td>${known}</td></tr>`;
+      }).join("")
+    + `</tbody></table>`;
+}
+
+$("btnMeshRefresh").addEventListener("click", () => {
+  /* One HTTPS GET. It occupies no serial console, which is why the product can
+     also read this on section entry — unlike a backhaul capture, which cannot. */
+  renderMesh();
+  toast("Mesh table re-read from the DUT");
+});
+
 /* ---------------- interactions ---------------- */
 let capturingAll = false;
 
@@ -539,6 +647,7 @@ $("fleet").addEventListener("click", (ev) => {
 
 /* ---------------- boot ---------------- */
 renderFleet();
+renderMesh();
 
 $("provenance").innerHTML =
   `<b>Demo kit</b> — canned data, no DUT attached. This screen is <b>synthetic in full</b>: a bench `
@@ -548,6 +657,12 @@ $("provenance").innerHTML =
   + `they are visibly not real addresses. What is <b>not</b> invented is the shape: the fields, the `
   + `two capture directions, which control is offered on which card and what each refusal says are `
   + `<b>FleetSection.tsx</b>, <b>FleetCard.tsx</b> and <b>RemoteRssiContext.tsx</b>. `
+  + `<b>Mesh topology</b> is a different kind of fact from the cards and is drawn from `
+  + `<b>MeshTopology.tsx</b>: the cards are what a console measured, that table is what the DUT `
+  + `itself reports over its management API, so it lists members this dashboard has no console `
+  + `for — two of the four here — and says so per row. Reading it is `
+  + `<span style="font-family:ui-monospace,Menlo,monospace">/api/fleet</span> and therefore admin, `
+  + `but unlike a capture it occupies no serial console, so the product reads it on entry. `
   + `This page is shown as an <b>admin</b>, which is the one role that sees any card whole: `
   + `each control is gated on the role its own route needs — <b>Console</b> engineer, `
   + `<b>Connect</b> / <b>Close serial</b> engineer on a cabled DUT and admin on a remote node, and `

@@ -6,6 +6,7 @@ import { useFleetMonitor } from "../monitoring/useFleetMonitor";
 import { useFleetRecommendations } from "../monitoring/useLastRecommendation";
 import { useRemoteRssi } from "../monitoring/RemoteRssiContext";
 import FleetCard from "./FleetCard";
+import MeshTopologySection from "./MeshTopology";
 import { Card, EmptyState } from "./shell/Card";
 
 /**
@@ -92,6 +93,13 @@ export default function FleetSection({
           ) : null}
         </div>
         {error ? <div className="flash" style={{ color: "var(--danger)" }}>{error}</div> : null}
+      </Card>
+
+      {/* Above the cards on purpose. The cards are what this dashboard has
+          measured; this is what the mesh actually contains, and when the two
+          disagree the reader needs to meet the fuller list first. */}
+      <Card title="Mesh topology" subtitle="As the DUT itself reports it">
+        <MeshTopologySection fleet={fleet} />
       </Card>
 
       <div className="fleet-grid">

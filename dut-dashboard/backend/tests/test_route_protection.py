@@ -59,6 +59,10 @@ ADMIN_ROUTES = [
     "/api/auth/invites",
     "/api/auth/role-changes",
     "/api/firmware/config",
+    # Safe to execute only because the stub context carries no mgmt_url, so the
+    # handler refuses before any socket is opened. Give the stub an address and
+    # this sweep starts dialling a device from a unit test.
+    "/api/fleet/nodes/default/mesh",
 ]
 
 FLEET_ADMIN_ROUTES = [
@@ -66,6 +70,7 @@ FLEET_ADMIN_ROUTES = [
     ("POST", "/api/fleet/nodes/default/connect"),
     ("POST", "/api/fleet/nodes/default/disconnect"),
     ("POST", "/api/fleet/nodes/default/rssi"),
+    ("GET", "/api/fleet/nodes/default/mesh"),
 ]
 
 # ---------------------------------------------------------------------------
@@ -107,6 +112,10 @@ ROLE_MAP: dict[tuple[str, str], str | None] = {
     ("POST", "/api/fleet/nodes/{dut_id}/connect"): "admin",
     ("POST", "/api/fleet/nodes/{dut_id}/disconnect"): "admin",
     ("POST", "/api/fleet/nodes/{dut_id}/rssi"): "admin",
+    # The one fleet route that drives no console. Still admin: it reaches the
+    # DUT with the management-API credentials, the same reach /api/firmware is
+    # gated on.
+    ("GET", "/api/fleet/nodes/{dut_id}/mesh"): "admin",
     # -- serial: drives the DUT ------------------------------------------
     ("GET", "/api/serial/ports"): "engineer",
     ("POST", "/api/serial/open"): "engineer",

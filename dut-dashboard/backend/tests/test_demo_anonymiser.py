@@ -894,8 +894,37 @@ def test_the_fleet_page_carries_every_state_the_section_can_show() -> None:
     essids += [d["essid"] for d in downlinks if d["essid"]]
     assert essids and all(name.startswith("DemoAP-") for name in essids), essids
 
+    # The mesh block is the other half of this screen and carries identifiers of
+    # its own — a MAC and a LAN address per member — so it is held to the same
+    # rule rather than being the one place on the page a real address could be
+    # pasted unnoticed. Case-insensitive because the product upper-cases a MAC
+    # from the mesh API, which is what the demo has to look like.
+    mesh = fixture["fleet.html"]["mesh"]
+    members = mesh["members"]
+    mesh_macs = [m["mac"] for m in members if m["mac"]]
+    assert mesh_macs, "no MAC in the mesh table, the column that names an unreachable member"
+    assert all(re.fullmatch(r"(?i)02(:[0-9a-f]{2}){5}", mac) for mac in mesh_macs), mesh_macs
+
+    # The block earns its place only by showing what the cards cannot: a member
+    # this dashboard holds no DUT for. A fixture where every member matches one
+    # renders a table that agrees with the cards and demonstrates nothing.
+    addresses = {n["mgmtUrl"] for n in nodes if n["mgmtUrl"]}
+    unmatched = [m for m in members
+                 if not any(m["ip"] and m["ip"] in url for url in addresses)]
+    assert len(unmatched) >= 2, \
+        "every mesh member has a DUT here, so the 'not registered' column shows nothing"
+
+    # A root reports `signal: 0`; the backend nulls it because a root has no
+    # parent to hear. A fixture carrying the raw 0 would have the demo print the
+    # strongest link on the bench where the product prints "n/a".
+    roots = [m for m in members if m["role"] == "root"]
+    assert roots and all(m["rssi"] is None for m in roots), roots
+    assert any(m["rssi"] is not None for m in members), \
+        "no measured signal in the mesh table, so the column shows nothing either way"
+
     page = _page_data(DEMO.parent / "fleet.html")
     assert page["nodes"] == nodes, "the page and its regeneration source disagree"
+    assert page["mesh"] == mesh, "the mesh block and its regeneration source disagree"
 
 
 # --- the fixture-only sync -------------------------------------------------

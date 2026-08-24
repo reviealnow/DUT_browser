@@ -333,6 +333,12 @@ export type DutInfo = {
   serial_open: boolean;
   log_path: string | null;
   removable: boolean;
+  /** Where this DUT's own management API answers, as an admin set it in the
+   *  Firmware section — `""` when nobody has. The registry has always sent it;
+   *  it is typed here because the mesh read is the first thing outside Firmware
+   *  that needs to know which DUTs can be asked at all. Not the same address as
+   *  `remote.host`, which is the Pi holding a console, not the device. */
+  mgmt_url: string;
   /** Last successful serial-open params, remembered for one-click Connect. */
   last_serial: { port: string; baudrate: number } | null;
   /** Where this DUT's console lives, or null when it is cabled to this
@@ -463,6 +469,55 @@ export function captureRemoteRssi(dutId: string): Promise<RemoteRssiResult> {
     {},
   ).finally(() => remoteRssiInflight.delete(dutId));
   remoteRssiInflight.set(dutId, request);
+  return request;
+}
+
+/** One member of the mesh, exactly as the DUT itself lists it.
+ *
+ *  Not a measurement this dashboard took: it is the device's own table, which
+ *  is why it can describe members no console here reaches. A `RemoteUplink` is
+ *  the other kind of fact — read off a console with `iwconfig` — and the two
+ *  must not be merged, because only one of them was measured by us.
+ */
+export type MeshMember = {
+  mac: string | null;
+  /** The device's own label for the member ("0", "1"), and the number it sends
+   *  alongside. Both are published because agreeing is not guaranteed. */
+  node: string | null;
+  node_number: number | null;
+  hop: number | null;
+  /** Lowercased to match `DutInfo["backhaul"]["role"]`; null for a `mesh_type`
+   *  this repo does not recognise, whose raw text is kept below. */
+  role: "root" | "node" | null;
+  mesh_type: string | null;
+  ip: string | null;
+  /** How this member hears its parent. **Null on a root**, which reports the
+   *  field as 0 — that is "no parent to hear", not a 0 dBm link, and the
+   *  backend nulls it so no view can print it as the strongest signal here. */
+  rssi: number | null;
+  rssi_band: "near" | "mid" | "far" | null;
+};
+
+export type MeshTopology = {
+  dut: string;
+  /** The address the answer came from, as the backend resolved it (port
+   *  included). Shown so "which device said this" is never a guess. */
+  mgmt_url: string;
+  captured_at: string;
+  members: MeshMember[];
+};
+
+const meshInflight = new Map<string, Promise<MeshTopology>>();
+
+/** Ask one DUT for the whole mesh table. Admin-only; coalesced per DUT so a
+ *  re-render during the request does not ask the device twice. */
+export function getMeshTopology(dutId: string): Promise<MeshTopology> {
+  const current = meshInflight.get(dutId);
+  if (current) return current;
+  const request = get<MeshTopology>(
+    `/api/fleet/nodes/${encodeURIComponent(dutId)}/mesh`,
+  ).finally(() => meshInflight.delete(dutId));
+  meshInflight.set(dutId, request);
   return request;
 }
 

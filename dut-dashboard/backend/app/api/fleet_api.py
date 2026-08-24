@@ -3,9 +3,16 @@
 Configuring, connecting and disconnecting a node are SSH operations and refuse
 a DUT that has no remote configuration. The backhaul capture is not: it is two
 console commands, and a cabled console runs them as well as an SSH one.
+
+The mesh read is neither: it is one HTTPS GET to the DUT's management API, and
+it is the only route here that can report a member this dashboard has no
+console for. See `services/mesh_topology.py` for why both it and the capture
+exist.
 """
 
 from __future__ import annotations
+
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
@@ -18,7 +25,7 @@ from app.dut.registry import (
     REMOTE_TOKEN_RE,
     console_token,
 )
-from app.services import auth_service
+from app.services import auth_service, mesh_topology
 from app.services.wifi_clients import (
     classify_backhaul,
     parse_iwconfig_links,
@@ -335,4 +342,41 @@ def capture_rssi(dut_id: str, request: Request, _admin: dict = _ADMIN) -> dict:
         "role": role,
         "uplink": uplink,
         "downlink": downlink,
+    }
+
+
+@router.get("/nodes/{dut_id}/mesh")
+def read_mesh(dut_id: str, request: Request, _admin: dict = _ADMIN) -> dict:
+    """The whole mesh as this DUT reports it, over HTTPS rather than the console.
+
+    One member of a mesh can name all of them, which is what makes this worth
+    having next to the per-console capture: `capture_rssi` can only describe
+    DUTs the dashboard holds a console for, so a node nobody registered simply
+    did not appear in the fleet -- while being listed on the DUT's own console.
+
+    Nothing is stored. The capture persists because a console comes and goes and
+    its reading has to outlive the session; this is a live read of the device's
+    current belief, and a stale copy of a topology is worse than asking again.
+
+    Admin, matching every other route in this file. It is only a read, but it
+    reaches the DUT with the management-API credentials, which is the same reach
+    the firmware routes are gated on.
+    """
+    context = _context(request, dut_id)
+    try:
+        result = mesh_topology.fetch_mesh(context.mgmt_url)
+    except mesh_topology.MeshNotConfigured as exc:
+        # 400: this side is not set up. Nothing was sent to the DUT, and the
+        # operator's next step is a settings page rather than the bench.
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except mesh_topology.MeshError as exc:
+        # 502, not 500: the dashboard worked, the device upstream of it did not
+        # answer usably -- unreachable, refusing credentials, or replying with
+        # something that is not the documented mesh table.
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {
+        "dut": dut_id,
+        "mgmt_url": result["mgmt_url"],
+        "captured_at": datetime.now().isoformat(timespec="seconds"),
+        "members": result["members"],
     }

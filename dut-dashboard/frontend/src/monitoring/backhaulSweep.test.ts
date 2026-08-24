@@ -45,6 +45,7 @@ function entry(
     serialOpen,
     lastSerial: null,
     remote: null,
+    mgmtUrl: "",
     backhaul: {
       applicable,
       captured: role !== null,
@@ -77,6 +78,7 @@ function registryWith(uplinks: Record<string, RemoteUplink | null>): () => Promi
       removable: true,
       last_serial: null,
       remote: null,
+      mgmt_url: "",
       backhaul: {
         applicable: true,
         captured: uplink !== null,

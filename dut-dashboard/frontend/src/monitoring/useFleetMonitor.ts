@@ -30,6 +30,11 @@ export type FleetEntry = {
     port: number;
     device: string;
   } | null;
+  /** This DUT's own management address, or `""` when none is set. Distinct from
+   *  `remote.host` in the row above — that is the Pi holding a console, this is
+   *  the device — and the only thing that says whether it can be asked for the
+   *  mesh table at all. */
+  mgmtUrl: string;
   /** The last backhaul capture — for every DUT, cabled ones included. Up to the
    *  parent and down to the children are separate measurements from separate
    *  commands; the card must not blur them into one number. */
@@ -69,7 +74,10 @@ export type FleetEntry = {
  *  Written once: the initial load and every refresh must agree about what a
  *  DUT is, and as two copies of the same object literal they had already
  *  started to. */
-type RegistryEntry = Pick<FleetEntry, "id" | "label" | "serialOpen" | "lastSerial" | "remote" | "backhaul">;
+type RegistryEntry = Pick<
+  FleetEntry,
+  "id" | "label" | "serialOpen" | "lastSerial" | "remote" | "mgmtUrl" | "backhaul"
+>;
 
 function fromRegistry(d: DutInfo): RegistryEntry {
   return {
@@ -80,6 +88,7 @@ function fromRegistry(d: DutInfo): RegistryEntry {
     remote: d.remote
       ? { host: d.remote.host, port: d.remote.port, device: d.remote.device }
       : null,
+    mgmtUrl: d.mgmt_url ?? "",
     backhaul: {
       applicable: d.backhaul.applicable,
       captured: d.backhaul.captured,
@@ -221,7 +230,7 @@ export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () =>
   }, []);
 
   // Derive the view rows on each tick from the registry order + live refs.
-  const fleet = duts.map(({ id, label, serialOpen, lastSerial, remote, backhaul }) => {
+  const fleet = duts.map(({ id, label, serialOpen, lastSerial, remote, mgmtUrl, backhaul }) => {
     const base = baseRef.current.get(id) ?? null;
     const cpu = cpuFromSnapshot(base);
     const lastActivity = lastActivityRef.current.get(id) ?? 0;
@@ -239,6 +248,7 @@ export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () =>
       serialOpen,
       lastSerial,
       remote,
+      mgmtUrl,
       backhaul,
       cpuBusyPct: cpu.cpuBusyPct,
       coreCount: cpu.coreCount,
