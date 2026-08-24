@@ -469,6 +469,47 @@ body {
   flex: 1;
 }
 
+/* ---------- Offline analyzer ---------- */
+
+.offline-analyzer { display: flex; flex-direction: column; gap: var(--space-5); }
+.offline-summary { display: flex; align-items: center; justify-content: space-between; gap: var(--space-5); padding: var(--space-5); color: #fff; background: linear-gradient(135deg, #102b4d, var(--accent)); border-radius: var(--radius); box-shadow: var(--shadow); }
+.offline-summary h2, .offline-dropzone h2 { margin: var(--space-2) 0 0; font-size: 22px; }
+.offline-summary p, .offline-dropzone p { margin: var(--space-1) 0 0; opacity: .82; }
+.offline-summary .pill.ok { background: rgba(255,255,255,.16); color: #fff; }
+.offline-file-button input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.offline-dropzone { min-height: 440px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-3); border: 2px dashed var(--border); border-radius: var(--radius); background: var(--panel); text-align: center; padding: var(--space-7); transition: border-color .15s ease, background .15s ease; }
+.offline-dropzone.dragging { border-color: var(--accent); background: var(--accent-weak); }
+.offline-drop-icon { width: 56px; height: 56px; display: grid; place-items: center; border-radius: 16px; color: var(--accent); background: var(--accent-weak); font-size: 28px; font-weight: 700; }
+.offline-notice { padding: var(--space-3) var(--space-4); color: var(--accent); background: var(--accent-weak); border-radius: 10px; }
+.offline-tabs { display: flex; gap: var(--space-2); overflow-x: auto; padding-bottom: var(--space-3); border-bottom: 1px solid var(--border); }
+.offline-tabs button { border: 1px solid var(--border); border-radius: 999px; padding: var(--space-2) var(--space-4); background: var(--panel); color: var(--muted); font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.offline-tabs button.active { border-color: var(--accent); color: var(--accent); background: var(--accent-weak); }
+.offline-name-row { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-4); padding-top: var(--space-4); }
+.offline-name-row label, .offline-chart-controls > label { display: grid; gap: var(--space-1); color: var(--muted); font-size: 12px; font-weight: 600; }
+.offline-name-row input, .offline-chart-controls select { min-width: 240px; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: 9px; background: var(--panel); color: var(--ink); font: inherit; }
+.offline-chart-controls { display: flex; align-items: flex-start; gap: var(--space-5); margin-bottom: var(--space-4); }
+.offline-chart-controls fieldset { flex: 1; display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); margin: 0; padding: 0; border: 0; }
+.offline-chart-controls legend { margin-bottom: var(--space-1); color: var(--muted); font-size: 12px; font-weight: 600; }
+.offline-chart-controls fieldset label { display: inline-flex; align-items: center; gap: var(--space-1); }
+.offline-chart-wrap { overflow-x: auto; }
+.offline-chart { display: block; min-width: 680px; width: 100%; height: auto; }
+.offline-chart-grid { stroke: var(--border); stroke-width: 1; }
+.offline-chart-label { fill: var(--muted); font-size: 11px; font-family: inherit; }
+.offline-chart-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-2) var(--space-4); color: var(--muted); font-size: 12px; }
+.offline-chart-legend span { display: inline-flex; align-items: center; gap: var(--space-1); }
+.offline-chart-legend i { width: 18px; height: 3px; border-radius: 2px; }
+.offline-table-wrap { max-height: 430px; overflow: auto; border: 1px solid var(--border); border-radius: 10px; }
+.offline-table { min-width: 2100px; }
+.offline-table thead { position: sticky; top: 0; z-index: 1; background: var(--panel); }
+.offline-table td { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.offline-table td.na { color: var(--faint); }
+
+@media (max-width: 720px) {
+  .offline-summary, .offline-name-row, .offline-chart-controls { align-items: stretch; flex-direction: column; }
+  .offline-kpis { grid-template-columns: repeat(2, 1fr); }
+  .offline-name-row input, .offline-chart-controls select { width: 100%; min-width: 0; }
+}
+
 /* ---------- Empty state ---------- */
 
 .empty-state {
