@@ -574,6 +574,25 @@ const report = reporter();
     /mesh/i.test(document.getElementById("toast").textContent),
     document.getElementById("toast").textContent);
 
+  // -- what the device says about its own mesh ------------------------------
+  // Four claims, and a demo that shows fewer than four is a demo where the
+  // distinction cannot be seen. The one that matters: "could not tell" must not
+  // render as "no mesh" -- that prints a confident wrong answer over a device
+  // that is meshed and healthy.
+  const probeRows = [...document.querySelectorAll(".fleet-card")]
+    .map(c => pairs(c.querySelectorAll(".stat-row"))["Mesh (device says)"])
+    .filter(Boolean);
+  report.ok("every card carries the device's own mesh answer",
+    probeRows.length === 6, String(probeRows.length));
+  for (const [label, wanted] of [
+    ["reported members", "4 members reported"],
+    ["a device that says it has none", "No mesh on this device"],
+    ["one nobody has asked", "Not probed"],
+    ["one we could not read", "Could not tell"],
+  ]) {
+    report.ok(`the row can say: ${label}`, probeRows.includes(wanted), probeRows.join(" | "));
+  }
+
   report.ok("fleet.html threw nothing while all that ran",
     pageErrors(window).length === 0, pageErrors(window).join(" | "));
 }
