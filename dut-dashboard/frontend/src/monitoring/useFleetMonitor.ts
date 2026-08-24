@@ -35,6 +35,10 @@ export type FleetEntry = {
    *  the device — and the only thing that says whether it can be asked for the
    *  mesh table at all. */
   mgmtUrl: string;
+  /** What the DUT itself last said about its mesh, or null before any probe.
+   *  A sibling of `backhaul`, not part of it: that is what a console measured
+   *  off this DUT's radios, this is what the device reported when asked. */
+  meshProbe: DutInfo["mesh_probe"];
   /** The last backhaul capture — for every DUT, cabled ones included. Up to the
    *  parent and down to the children are separate measurements from separate
    *  commands; the card must not blur them into one number. */
@@ -76,7 +80,7 @@ export type FleetEntry = {
  *  started to. */
 type RegistryEntry = Pick<
   FleetEntry,
-  "id" | "label" | "serialOpen" | "lastSerial" | "remote" | "mgmtUrl" | "backhaul"
+  "id" | "label" | "serialOpen" | "lastSerial" | "remote" | "mgmtUrl" | "meshProbe" | "backhaul"
 >;
 
 function fromRegistry(d: DutInfo): RegistryEntry {
@@ -89,6 +93,7 @@ function fromRegistry(d: DutInfo): RegistryEntry {
       ? { host: d.remote.host, port: d.remote.port, device: d.remote.device }
       : null,
     mgmtUrl: d.mgmt_url ?? "",
+    meshProbe: d.mesh_probe ?? null,
     backhaul: {
       applicable: d.backhaul.applicable,
       captured: d.backhaul.captured,
@@ -230,7 +235,7 @@ export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () =>
   }, []);
 
   // Derive the view rows on each tick from the registry order + live refs.
-  const fleet = duts.map(({ id, label, serialOpen, lastSerial, remote, mgmtUrl, backhaul }) => {
+  const fleet = duts.map(({ id, label, serialOpen, lastSerial, remote, mgmtUrl, meshProbe, backhaul }) => {
     const base = baseRef.current.get(id) ?? null;
     const cpu = cpuFromSnapshot(base);
     const lastActivity = lastActivityRef.current.get(id) ?? 0;
@@ -249,6 +254,7 @@ export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () =>
       lastSerial,
       remote,
       mgmtUrl,
+      meshProbe,
       backhaul,
       cpuBusyPct: cpu.cpuBusyPct,
       coreCount: cpu.coreCount,

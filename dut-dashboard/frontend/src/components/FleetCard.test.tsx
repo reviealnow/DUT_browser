@@ -53,6 +53,7 @@ function entry(overrides: Partial<FleetEntry> = {}): FleetEntry {
     lastSerial: { port: "/dev/cu.bench", baudrate: 115200 },
     remote: null,
     mgmtUrl: "",
+    meshProbe: null,
     backhaul: {
       applicable: true,
       captured: false,
@@ -116,6 +117,57 @@ function row(label: string): string {
 afterEach(() => {
   role = "admin";
   cleanup();
+});
+
+/** A probe result, defaulting to the healthy meshed case. */
+function probe(over: Partial<import("../api/rest").MeshProbe> = {}) {
+  return {
+    probed: true,
+    mesh: true as boolean | null,
+    members: [{ mac: "02:1f:6c:44:9a:31" }] as never,
+    detail: "",
+    captured_at: "2026-08-24 11:02:33",
+    ...over,
+  };
+}
+
+describe("what the device itself says about its mesh", () => {
+  /* Four claims, and the last two are the ones that matter. "We asked and could
+     not tell" is not "this DUT has no mesh" — printing the second when the first
+     is true puts a confident wrong answer on somebody's screen about a device
+     that is meshed and healthy, which is the failure this whole feature exists
+     to avoid. */
+  it("says nobody has asked yet", () => {
+    show(entry());
+    expect(row("Mesh (device says)")).toBe("Not probed");
+  });
+
+  it("reports the members a meshed device listed", () => {
+    show(entry({ meshProbe: probe() }));
+    expect(row("Mesh (device says)")).toBe("1 member reported");
+  });
+
+  it("says no mesh only when the device answered with an empty list", () => {
+    show(entry({ meshProbe: probe({ mesh: false, members: [], detail: "empty" }) }));
+    expect(row("Mesh (device says)")).toBe("No mesh on this device");
+  });
+
+  it("keeps 'could not tell' distinct from 'no mesh'", () => {
+    show(entry({ meshProbe: probe({ mesh: null, members: [], detail: "mesh not enabled" }) }));
+    expect(row("Mesh (device says)")).toBe("Could not tell");
+  });
+
+  it("does not overwrite the admin's standalone declaration", () => {
+    /* A DUT declared standalone that reports mesh members is the case worth
+       seeing, so both statements stay on the card. Folding the measurement into
+       `applicable` would delete the only signal that they disagree. */
+    show(entry({
+      backhaul: { ...entry().backhaul, applicable: false },
+      meshProbe: probe(),
+    }));
+    expect(row("Uplink to parent")).toBe("Not applicable");
+    expect(row("Mesh (device says)")).toBe("1 member reported");
+  });
 });
 
 describe("the four things the backhaul rows can say", () => {

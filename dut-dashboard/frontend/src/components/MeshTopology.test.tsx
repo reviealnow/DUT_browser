@@ -76,6 +76,7 @@ function entry(over: Partial<FleetEntry> & { id: string }): FleetEntry {
     lastSerial: null,
     remote: null,
     mgmtUrl: "",
+    meshProbe: null,
     backhaul: {
       applicable: true,
       captured: false,

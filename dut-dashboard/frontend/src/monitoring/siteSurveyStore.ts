@@ -5,6 +5,7 @@ import {
   ChannelRecommendationResult,
   getChannelRecommendation,
   humanizeApiError,
+  probeMesh,
 } from "../api/rest";
 
 /**
@@ -108,7 +109,7 @@ export function runSurvey(dutId: string): Promise<void> {
  * one moment the line is guaranteed quiet, so the short captures take it and
  * the survey, whose trailing output harms only whatever follows it, goes last.
  *
- * Fire-and-forget: both steps swallow their own errors, so nothing here can
+ * Fire-and-forget: every step swallows its own errors, so nothing here can
  * fail a connect. Wi-Fi Clients and SSID Capability keep their own
  * on-section-entry fetches — this is additional, not a replacement.
  */
@@ -118,6 +119,19 @@ export async function runConnectCaptures(dutId: string): Promise<void> {
   } catch {
     // The endpoint already reports per-kind failures without raising; this only
     // catches transport-level errors, which must not surface on the connect.
+  }
+  try {
+    // Before the survey, and that placement is the whole reason this is not
+    // simply appended: the survey leaves tens of thousands of `iw scan` lines
+    // draining at 115200 baud, and a capture started after it has its window
+    // filled by that backlog and reads nothing of its own. This probe is one
+    // short command, so it belongs in the quiet stretch with the other short
+    // ones — a probe starved by the survey would come back "could not tell" on
+    // a perfectly healthy mesh, which is worse than not asking.
+    await probeMesh(dutId);
+  } catch {
+    // A closed or busy console. Nothing to show and nothing to fail: the next
+    // connect asks again, and the card keeps saying "not probed".
   }
   await runSurvey(dutId);
 }
