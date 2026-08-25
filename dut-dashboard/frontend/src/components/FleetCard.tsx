@@ -76,6 +76,12 @@ export default function FleetCard({
   const [closing, setClosing] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Kept apart from `error` on purpose. A substituted port is not a failure —
+  // the connect worked — but it IS a change the operator did not ask for, and
+  // silently opening a different device than the card advertises is the kind of
+  // thing that is only noticed much later, when a capture is filed under a name
+  // nobody expected. So it is said out loud, in a colour that is not alarm.
+  const [portNote, setPortNote] = useState<string | null>(null);
   const rssi = rssiState.get(entry);
   const capturingRssi = rssiState.capturing(entry.id);
   // What the two backhaul rows say when there is no number to show. Each of
@@ -151,6 +157,7 @@ export default function FleetCard({
     }
     setClosing(true);
     setError(null);
+    setPortNote(null);
     (entry.remote ? disconnectRemoteNode(entry.id) : closeSerial(entry.id))
       .then(() => onClosed())
       .catch((e) => setError(humanizeApiError(e)))
@@ -164,12 +171,21 @@ export default function FleetCard({
     }
     setConnecting(true);
     setError(null);
+    setPortNote(null);
     // Reopen with the remembered params. On success refresh the registry (so the
     // card flips to the open/Close state) and kick the connect-time captures
     // (P58 prescan + P73 context), exactly like a console-driven open.
     const connect = entry.remote
       ? connectRemoteNode(entry.id)
-      : openSerial({ port: lastSerial!.port, baudrate: lastSerial!.baudrate, mode: "serial" }, entry.id).then(() => undefined);
+      : openSerial(
+          { port: lastSerial!.port, baudrate: lastSerial!.baudrate, mode: "serial" },
+          entry.id,
+        ).then((result) => {
+          // Only set when the backend opened a port other than the one asked
+          // for — a USB adapter renumbers on every replug, and the remembered
+          // name goes stale the moment the desk is recabled.
+          setPortNote(result.port_note ?? null);
+        });
     connect
       .then(() => onClosed())
       .then(() => {
@@ -355,6 +371,9 @@ export default function FleetCard({
           </button>
         ) : null}
         {error ? <span className="flash" style={{ color: "var(--danger)" }}>{error}</span> : null}
+        {portNote ? (
+          <span className="flash fleet-port-note" role="status">{portNote}</span>
+        ) : null}
       </div>
     </div>
   );
