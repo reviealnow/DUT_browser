@@ -15,6 +15,13 @@ export type OpenSerialResponse = {
   ok: boolean;
   mode: "serial" | "replay";
   log_path?: string | null;
+  /** The port actually opened. A USB adapter renumbers on every replug, so a
+   *  remembered name can be stale; the backend follows the same adapter to its
+   *  new node and answers with what it opened rather than what it was sent. */
+  port?: string | null;
+  /** Set only when the port opened is not the port requested. Present so a
+   *  substitution is something the operator can be told, not infer. */
+  port_note?: string | null;
 };
 
 export type SerialPortInfo = {
