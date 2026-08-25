@@ -495,12 +495,32 @@ class SerialWorker:
                 self._capture_lines = []
         finally:
             self._capture_gate.release()
-        # Drop the echoed command line and the sentinel line; keep stdout only.
+        # Drop the echoed command line and the sentinel marker; keep stdout only.
+        #
+        # The sentinel does NOT always arrive on a line of its own. A command
+        # whose output has no trailing newline shares its last line with it --
+        # `{"error_msg":""}__DUTCAP_123456__` -- and dropping that whole line
+        # threw the reply away. Measured on AP6840E-PD1005VMG3KJH9C, 2026-08-25:
+        # the DUT's mesh API answered 200 with the body intact, and the capture
+        # came back empty, so the caller reported "could not tell" about a device
+        # that had just answered. Every other command captured here happens to be
+        # line-oriented, which is the only reason this went unnoticed.
+        #
+        # So the marker is split off rather than the line discarded. The echoed
+        # command line still goes whole: it carries `; echo <sentinel>` and is
+        # input, not output -- the same discriminator `_consume_line` uses to
+        # decide the capture has ended.
         out: list[str] = []
         for line in lines:
-            if sentinel in line:
+            if f"echo {sentinel}" in line or line.strip() == cmd:
                 continue
-            if line.strip() == cmd or line.strip().endswith(f"; echo {sentinel}"):
+            if sentinel in line:
+                head = line.split(sentinel, 1)[0]
+                if head:
+                    # Restore the terminator the command never wrote, so the
+                    # caller gets whole lines rather than a fragment fused to
+                    # whatever a future change appends after it.
+                    out.append(head if head.endswith("\n") else head + "\n")
                 continue
             out.append(line)
         return "".join(out)

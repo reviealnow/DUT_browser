@@ -66,25 +66,19 @@ MESH_CONSOLE_COMMAND = (
 # `-s` is not cosmetic: without it curl draws a progress meter whenever stdout
 # is not a tty, and on a captured console that lands in the middle of the body.
 #
-# `-w '\n'` is load-bearing, and cost a bench session to find. The API's body
-# carries NO trailing newline -- which is why the operator's own capture shows
-# the next shell prompt glued to the closing brace. `capture_command` appends
-# `; echo <sentinel>` and then DISCARDS any line containing that sentinel, so
-# an unterminated body and the sentinel arrive as one line and the whole reply
-# is thrown away. Measured on AP6840E-PD1005VMG3KJH9C, 2026-08-25: curl exited
-# 0 with HTTP 200 and the body intact in a file, while the console capture came
-# back empty and the probe reported "could not tell" about a perfectly healthy
-# device. curl's own -w runs after the transfer and terminates the line, so the
-# body and the sentinel land on separate lines. Verified on that same device,
-# where `-w 'code=%{http_code}\n'` printed on its own line.
+# `-w '\n'` terminates the body, which this API does not: its reply carries no
+# trailing newline, which is why the operator's own capture shows the next shell
+# prompt glued to the closing brace. That once cost the whole reply --
+# `capture_command` dropped any line holding its sentinel, and an unterminated
+# body shares that line. The root cause is fixed in `SerialWorker`, which now
+# splits the marker off instead, so this flag is no longer what makes the parse
+# work. It stays because the DEVICE's output should be well formed on the wire:
+# the session log and the console buffer record the raw line, and a body fused
+# to a shell marker is worth less to whoever reads that log later.
 #
-# The underlying sharp edge is not ours alone: ANY captured command whose output
-# lacks a trailing newline loses its last line this way. Every other caller in
-# this repo captures line-oriented tools (iwconfig, wlanconfig, iw scan), so
-# nothing else is biting today -- but `capture_command` splitting the sentinel
-# off the line instead of dropping it would fix the class. That is a change to
-# the serial worker, whose failures are asymmetric, so it is raised rather than
-# made here.
+# Both were measured on AP6840E-PD1005VMG3KJH9C, 2026-08-25: curl exited 0 with
+# HTTP 200 and the body intact in a file, while the console capture came back
+# empty and the probe reported "could not tell" about a healthy device.
 
 # Longer than the 6s default. This is a TLS handshake plus a JSON build on the
 # DUT's own small CPU, and a probe that times out on a healthy device would be
