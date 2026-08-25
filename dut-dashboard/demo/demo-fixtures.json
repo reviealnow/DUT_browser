@@ -171,7 +171,8 @@
         "lastEvent": "3m ago",
         "lastSnapshot": "2026-08-06 10:41:55",
         "open": false,
-        "lastSerial": null,
+        "lastSerial": "/dev/cu.PL2303G-1130",
+        "portRenumbered": "/dev/cu.PL2303G-1130 is gone; opened /dev/cu.PL2303G-1120, the same adapter renumbered",
         "backhaul": {
           "applicable": true,
           "captured": true,
@@ -409,7 +410,8 @@
         "lastEvent": "3m ago",
         "lastSnapshot": "2026-08-06 10:41:55",
         "open": false,
-        "lastSerial": null,
+        "lastSerial": "/dev/cu.PL2303G-1130",
+        "portRenumbered": "/dev/cu.PL2303G-1130 is gone; opened /dev/cu.PL2303G-1120, the same adapter renumbered",
         "backhaul": {
           "applicable": true,
           "captured": true,
