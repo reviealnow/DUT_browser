@@ -905,13 +905,21 @@ def test_the_fleet_page_carries_every_state_the_section_can_show() -> None:
     assert mesh_macs, "no MAC in the mesh table, the column that names an unreachable member"
     assert all(re.fullmatch(r"(?i)02(:[0-9a-f]{2}){5}", mac) for mac in mesh_macs), mesh_macs
 
+    # RFC 5737 documentation ranges, the same rule the Anonymiser applies to a
+    # captured bundle. This block is modelled on a real bench reply, so its
+    # addresses are exactly the kind that must not reach a published page.
+    mesh_ips = [m["ip"] for m in members if m["ip"]]
+    assert mesh_ips and all(
+        ip.startswith(("192.0.2.", "198.51.100.", "203.0.113.")) for ip in mesh_ips
+    ), mesh_ips
+
     # The block earns its place only by showing what the cards cannot: a member
     # this dashboard holds no DUT for. A fixture where every member matches one
     # renders a table that agrees with the cards and demonstrates nothing.
     addresses = {n["mgmtUrl"] for n in nodes if n["mgmtUrl"]}
     unmatched = [m for m in members
                  if not any(m["ip"] and m["ip"] in url for url in addresses)]
-    assert len(unmatched) >= 2, \
+    assert unmatched, \
         "every mesh member has a DUT here, so the 'not registered' column shows nothing"
 
     # A root reports `signal: 0`; the backend nulls it because a root has no

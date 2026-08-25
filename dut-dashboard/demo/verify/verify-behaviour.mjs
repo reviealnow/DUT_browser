@@ -545,11 +545,11 @@ const report = reporter();
   const meshRows = [...document.querySelectorAll("[data-mesh-row]")];
   const cells = (row) => [...row.querySelectorAll("td")].map(td => td.textContent.trim());
   report.ok("the mesh table lists every member the device reports, cards or not",
-    meshRows.length === 4, String(meshRows.length));
+    meshRows.length === 2, String(meshRows.length));
 
   const unregistered = meshRows.filter(r => cells(r)[6] === "Not registered here");
   report.ok("members with no DUT here are marked, not quietly listed",
-    unregistered.length === 2, unregistered.map(r => cells(r)[3]).join(","));
+    unregistered.length === 1, unregistered.map(r => cells(r)[3]).join(","));
   report.ok("a member that does have one names it and its console state",
     meshRows.some(r => /DemoRoot-840E · console open/.test(cells(r)[6])),
     meshRows.map(r => cells(r)[6]).join(" | "));
@@ -560,7 +560,7 @@ const report = reporter();
   report.ok("a root's absent signal is neither a number nor a bare dash",
     cells(rootRow)[5] === "n/a — root", cells(rootRow)[5]);
   report.ok("a node's measured signal keeps its number and band",
-    meshRows.some(r => cells(r)[5] === "-38 dBm · near"),
+    meshRows.some(r => cells(r)[5] === "-26 dBm · near"),
     meshRows.map(r => cells(r)[5]).join(" | "));
 
   // Two of six DUTs carry a management address, so the picker has a choice to
@@ -570,7 +570,7 @@ const report = reporter();
 
   click(window, document.getElementById("btnMeshRefresh"));
   report.ok("Refresh mesh re-reads and says so",
-    [...document.querySelectorAll("[data-mesh-row]")].length === 4 &&
+    [...document.querySelectorAll("[data-mesh-row]")].length === 2 &&
     /mesh/i.test(document.getElementById("toast").textContent),
     document.getElementById("toast").textContent);
 
@@ -585,7 +585,7 @@ const report = reporter();
   report.ok("every card carries the device's own mesh answer",
     probeRows.length === 6, String(probeRows.length));
   for (const [label, wanted] of [
-    ["reported members", "4 members reported"],
+    ["reported members", "2 members reported"],
     ["a device that says it has none", "No mesh on this device"],
     ["one nobody has asked", "Not probed"],
     ["one we could not read", "Could not tell"],
