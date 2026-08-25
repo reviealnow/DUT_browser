@@ -58,12 +58,33 @@ FETCH_TIMEOUT = httpx.Timeout(connect=5.0, read=15.0, write=15.0, pool=5.0)
 # shared: only the fetching differs, so the two can never disagree about what a
 # root's signal means.
 MESH_CONSOLE_COMMAND = (
-    f"curl -k -s -X GET 'https://127.0.0.1:{firmware_service.DEFAULT_MGMT_PORT}{MESH_PATH}'"
+    f"curl -k -s -w '\\n' -X GET"
+    f" 'https://127.0.0.1:{firmware_service.DEFAULT_MGMT_PORT}{MESH_PATH}'"
     f" -H 'accept: {ACCEPT}'"
 )
 
 # `-s` is not cosmetic: without it curl draws a progress meter whenever stdout
 # is not a tty, and on a captured console that lands in the middle of the body.
+#
+# `-w '\n'` is load-bearing, and cost a bench session to find. The API's body
+# carries NO trailing newline -- which is why the operator's own capture shows
+# the next shell prompt glued to the closing brace. `capture_command` appends
+# `; echo <sentinel>` and then DISCARDS any line containing that sentinel, so
+# an unterminated body and the sentinel arrive as one line and the whole reply
+# is thrown away. Measured on AP6840E-PD1005VMG3KJH9C, 2026-08-25: curl exited
+# 0 with HTTP 200 and the body intact in a file, while the console capture came
+# back empty and the probe reported "could not tell" about a perfectly healthy
+# device. curl's own -w runs after the transfer and terminates the line, so the
+# body and the sentinel land on separate lines. Verified on that same device,
+# where `-w 'code=%{http_code}\n'` printed on its own line.
+#
+# The underlying sharp edge is not ours alone: ANY captured command whose output
+# lacks a trailing newline loses its last line this way. Every other caller in
+# this repo captures line-oriented tools (iwconfig, wlanconfig, iw scan), so
+# nothing else is biting today -- but `capture_command` splitting the sentinel
+# off the line instead of dropping it would fix the class. That is a change to
+# the serial worker, whose failures are asymmetric, so it is raised rather than
+# made here.
 
 # Longer than the 6s default. This is a TLS handshake plus a JSON build on the
 # DUT's own small CPU, and a probe that times out on a healthy device would be
@@ -236,12 +257,13 @@ def probe_mesh_over_console(worker, timeout: float = CONSOLE_TIMEOUT_SEC) -> dic
         reported an error. Both are "could not tell", not "no mesh", and
         `detail` carries what it actually said.
 
-    That last distinction is deliberate and currently un-narrowable: nobody has
-    yet captured this endpoint on a DUT with mesh disabled, so whether such a
-    device answers with an empty list or an error_code is unknown. Guessing it
-    is an error would print "no mesh" over a device that merely failed to
-    answer -- so an error stays "could not tell" until somebody captures one and
-    can promote it with evidence.
+    The empty-list branch is now evidence, not a guess: AP6840E-PD1005VMG3KJH9C
+    answers `{"mesh_info_list":[],"total_size":0,"error_code":0}` when it is in
+    no mesh (measured 2026-08-25). A device with nothing to report uses a normal
+    reply and an empty list, NOT an error code -- so an error_code still means
+    something went wrong rather than "no mesh", and still reports "could not
+    tell". That remains the conservative branch, and it is the one that kept
+    this honest when the console transport was silently losing the body.
 
     Never raises for what the DUT said; only for the console being unusable,
     which is a different problem and the caller's to report.
