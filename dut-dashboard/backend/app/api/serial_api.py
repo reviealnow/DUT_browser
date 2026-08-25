@@ -15,7 +15,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from serial.tools import list_ports
+from app.serial import ports as serial_ports
 
 from app.config import ANALYZER_SCRIPT, LOG_DIR, OFFLINE_TOOL_NAMES
 from app.dut.registry import DEFAULT_DUT_ID, DutContext
@@ -270,24 +270,28 @@ def zip_session_dir(session_dir: Path) -> Path:
 
 @router.get("/ports")
 def list_serial_ports() -> dict:
-    ports = []
-    for info in list_ports.comports():
-        ports.append(
-            {
-                "device": info.device,
-                "description": info.description or "",
-                "hwid": info.hwid or "",
-            }
-        )
-    return {"ports": ports}
+    # Through the same enumeration the open path resolves against, so a port
+    # offered here and a port findable there cannot drift apart.
+    return {"ports": serial_ports.available_ports()}
 
 
 @router.post("/open")
 def open_serial(body: SerialOpenRequest, request: Request, dut: str = DEFAULT_DUT_ID) -> dict:
     serial_worker = _dut(request, dut).serial_worker
+    # A remembered port stops existing when somebody recables the desk: the USB
+    # adapter renumbers on every replug. Resolve before opening so one-click
+    # Connect survives that, and ONLY for a real serial open -- replay has no
+    # port, and an SSH console's device belongs to the machine at the far end.
+    port = body.port
+    note: str | None = None
+    if body.mode == "serial" and port:
+        try:
+            port, note = serial_ports.resolve_port(port)
+        except serial_ports.PortUnresolved as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     try:
         serial_worker.open(
-            port=body.port,
+            port=port,
             baudrate=body.baudrate,
             mode=body.mode,
             replay_path=body.replay_path,
@@ -308,9 +312,22 @@ def open_serial(body: SerialOpenRequest, request: Request, dut: str = DEFAULT_DU
     request.app.state.dut_registry.note_console_open(dut, body.mode)
     # Remember the params of a successful serial-mode open so the Fleet view can
     # offer one-click Connect. Replay opens have no reusable port — skip them.
-    if body.mode == "serial" and body.port:
-        request.app.state.dut_registry.record_serial_params(dut, body.port, body.baudrate)
-    return {"ok": True, "mode": body.mode, "log_path": serial_worker.current_log_path}
+    # The port that was OPENED, not the one that was asked for: recording the
+    # stale name would leave the next Connect resolving the same dead node
+    # again, and the whole point is that the entry heals itself.
+    if body.mode == "serial" and port:
+        request.app.state.dut_registry.record_serial_params(dut, port, body.baudrate)
+    return {
+        "ok": True,
+        "mode": body.mode,
+        "log_path": serial_worker.current_log_path,
+        # Answered rather than assumed: a caller that asked for a port which had
+        # been renumbered would otherwise keep showing the name it sent.
+        "port": port,
+        # Present only when the port opened is not the port requested, so a
+        # substitution is something the operator can see rather than infer.
+        "port_note": note,
+    }
 
 
 @router.post("/close")
