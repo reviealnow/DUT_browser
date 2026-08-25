@@ -104,6 +104,35 @@ class ProbeMeshOverConsoleTests(unittest.TestCase):
         # own CPU that times out would be read as "this DUT has no mesh".
         self.assertGreater(timeout, 6.0)
 
+    def test_the_command_terminates_its_own_output(self) -> None:
+        """The defect a bench session found, pinned here.
+
+        The API body carries no trailing newline. `capture_command` appends
+        `; echo <sentinel>` and then drops every line containing that sentinel,
+        so an unterminated body shares the sentinel's line and the whole reply is
+        discarded -- the probe reported "could not tell" about a device that had
+        just answered HTTP 200 with the body intact. curl's own -w runs after the
+        transfer and ends the line, which is what keeps them apart.
+        """
+        self.assertIn("-w '\\n'", mesh_topology.MESH_CONSOLE_COMMAND)
+
+    def test_the_real_console_reply_parses(self) -> None:
+        """Captured from AP6840E-PD1005VMG3KJH9C on 2026-08-25, verbatim.
+
+        Carries both hazards this transport has: the wrapped echo of the command
+        (the console breaks it at 80 columns, so it is not dropped as "the
+        echoed command" and leaks into the capture) and a body on its own line
+        only because of the -w above.
+        """
+        raw = (
+            "AP6_840E# curl -k -s -w '\\n' -X GET "
+            "'https://127.0.0.1:10443/ap/info/wireless/me\r\r\n"
+            '{"data":{"mesh_info_list":[],"total_size":0},"error_code":0,"error_msg":""}\r\n'
+        )
+        result = mesh_topology.probe_mesh_over_console(_Worker(raw))
+        self.assertIs(result["mesh"], False)
+        self.assertEqual(result["members"], [])
+
     def test_an_empty_list_is_the_one_branch_allowed_to_say_no_mesh(self) -> None:
         worker = _Worker('{"data":{"mesh_info_list":[],"total_size":0},"error_code":0}AP6# ')
         result = mesh_topology.probe_mesh_over_console(worker)
@@ -112,10 +141,15 @@ class ProbeMeshOverConsoleTests(unittest.TestCase):
         self.assertIn("empty", result["detail"])
 
     def test_a_device_error_is_could_not_tell_and_not_no_mesh(self) -> None:
-        """The distinction this module is built around. Nobody has yet captured
-        this endpoint on a DUT with mesh disabled, so an error_code might mean
-        "no mesh" or might mean "something broke" -- and printing "no mesh" over
-        a device that merely failed to answer is the confident wrong answer."""
+        """The distinction this module is built around, now with evidence.
+
+        A DUT in no mesh does NOT use an error_code: AP6840E-PD1005VMG3KJH9C
+        answered `error_code: 0` with an empty list (2026-08-25, the test above).
+        So an error_code means something went wrong, not "no mesh" -- and
+        printing "no mesh" over a device that merely failed to answer is the
+        confident wrong answer this branch exists to refuse. The bench proved
+        the point twice over: while the console transport was silently losing
+        the body, this branch is what kept the card honest."""
         worker = _Worker('{"data":null,"error_code":7,"error_msg":"mesh not enabled"}AP6# ')
         result = mesh_topology.probe_mesh_over_console(worker)
         self.assertIsNone(result["mesh"])

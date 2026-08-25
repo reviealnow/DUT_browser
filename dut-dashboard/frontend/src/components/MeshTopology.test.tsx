@@ -155,6 +155,20 @@ describe("mesh topology table", () => {
     expect(screen.queryByRole("table")).toBeNull();
   });
 
+  it("renders a mesh that is only a root, with no node joined yet", async () => {
+    /* A real state, not a corner: a root powered up before any node associates
+       reports exactly one member. It must still draw its row — "no nodes" is
+       not "no mesh", and a table that showed nothing here would look like the
+       read had failed. */
+    getMeshTopology.mockResolvedValue({ ...TOPOLOGY, members: [TOPOLOGY.members[0]] });
+    render(<MeshTopologySection fleet={FLEET} />);
+    const listed = await rows();
+    expect(listed).toHaveLength(1);
+    expect(within(listed[0]).getByText("Root")).toBeTruthy();
+    expect(within(listed[0]).getByText(/n\/a — root/)).toBeTruthy();
+    expect(screen.queryByText(/reports no mesh members/)).toBeNull();
+  });
+
   it("tells an empty mesh apart from a failed read", async () => {
     getMeshTopology.mockResolvedValue({ ...TOPOLOGY, members: [] });
     render(<MeshTopologySection fleet={FLEET} />);

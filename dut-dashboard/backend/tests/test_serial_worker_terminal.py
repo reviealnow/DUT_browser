@@ -191,6 +191,26 @@ class _AutoFakeSerial(FakeSerial):
             self.feed(b"vap-output-line\n" + m.group(1).encode() + b"\n")
 
 
+class _UnterminatedOutputFakeSerial(FakeSerial):
+    """A console whose command writes its body with NO trailing newline.
+
+    Not hypothetical: the DUT's `/ap/info/wireless/mesh` answers exactly like
+    this, which is why the operator's own capture shows the next shell prompt
+    glued to the closing brace. The sentinel `echo` then lands on the same line
+    as the body, and dropping that line discarded the whole reply.
+    """
+
+    BODY = b'{"data":{"mesh_info_list":[],"total_size":0},"error_code":0}'
+
+    def write(self, data: bytes) -> None:
+        super().write(data)
+        text = data.decode("utf-8", errors="ignore")
+        m = re.search(r"echo (\S+)", text)
+        if m:
+            # One feed, no newline between the body and the marker.
+            self.feed(self.BODY + m.group(1).encode() + b"\n")
+
+
 class _CommandEchoFakeSerial(FakeSerial):
     """A console that echoes the command line back before running it, as a real
     shell does, and only then produces output. The echoed `<cmd>; echo <sentinel>`
@@ -277,6 +297,28 @@ class CaptureCommandTests(unittest.TestCase):
             self.assertNotIn("__DUTCAP", out)           # sentinel stripped
             self.assertFalse(worker._capture_active)      # cleared after return
             self.assertEqual(parser.fed, [])              # parser not fed during capture
+        finally:
+            worker._stop_event.set()  # type: ignore[attr-defined]
+            fake.close()
+            t.join(timeout=1.0)
+
+    def test_output_without_a_trailing_newline_survives_the_sentinel(self) -> None:
+        """The bench defect: a body sharing its line with the sentinel was lost.
+
+        `capture_command` used to drop every line containing the sentinel, so a
+        command whose output does not end in a newline had its entire reply
+        thrown away -- silently, and only for the one caller whose device does
+        that. Splitting the marker off keeps the body.
+        """
+        fake = _UnterminatedOutputFakeSerial()
+        worker, _parser, t = self._running_worker(fake)
+        try:
+            out = worker.capture_command("curl -s https://127.0.0.1/x", timeout=2.0)
+            self.assertIn('"mesh_info_list"', out)
+            self.assertNotIn("__DUTCAP", out)
+            # A whole line, not a fragment: the terminator the command never
+            # wrote is restored so nothing fuses onto the end of it.
+            self.assertTrue(out.endswith("\n"), repr(out))
         finally:
             worker._stop_event.set()  # type: ignore[attr-defined]
             fake.close()

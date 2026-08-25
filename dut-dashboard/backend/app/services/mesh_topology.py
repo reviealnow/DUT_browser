@@ -58,12 +58,27 @@ FETCH_TIMEOUT = httpx.Timeout(connect=5.0, read=15.0, write=15.0, pool=5.0)
 # shared: only the fetching differs, so the two can never disagree about what a
 # root's signal means.
 MESH_CONSOLE_COMMAND = (
-    f"curl -k -s -X GET 'https://127.0.0.1:{firmware_service.DEFAULT_MGMT_PORT}{MESH_PATH}'"
+    f"curl -k -s -w '\\n' -X GET"
+    f" 'https://127.0.0.1:{firmware_service.DEFAULT_MGMT_PORT}{MESH_PATH}'"
     f" -H 'accept: {ACCEPT}'"
 )
 
 # `-s` is not cosmetic: without it curl draws a progress meter whenever stdout
 # is not a tty, and on a captured console that lands in the middle of the body.
+#
+# `-w '\n'` terminates the body, which this API does not: its reply carries no
+# trailing newline, which is why the operator's own capture shows the next shell
+# prompt glued to the closing brace. That once cost the whole reply --
+# `capture_command` dropped any line holding its sentinel, and an unterminated
+# body shares that line. The root cause is fixed in `SerialWorker`, which now
+# splits the marker off instead, so this flag is no longer what makes the parse
+# work. It stays because the DEVICE's output should be well formed on the wire:
+# the session log and the console buffer record the raw line, and a body fused
+# to a shell marker is worth less to whoever reads that log later.
+#
+# Both were measured on AP6840E-PD1005VMG3KJH9C, 2026-08-25: curl exited 0 with
+# HTTP 200 and the body intact in a file, while the console capture came back
+# empty and the probe reported "could not tell" about a healthy device.
 
 # Longer than the 6s default. This is a TLS handshake plus a JSON build on the
 # DUT's own small CPU, and a probe that times out on a healthy device would be
@@ -236,12 +251,13 @@ def probe_mesh_over_console(worker, timeout: float = CONSOLE_TIMEOUT_SEC) -> dic
         reported an error. Both are "could not tell", not "no mesh", and
         `detail` carries what it actually said.
 
-    That last distinction is deliberate and currently un-narrowable: nobody has
-    yet captured this endpoint on a DUT with mesh disabled, so whether such a
-    device answers with an empty list or an error_code is unknown. Guessing it
-    is an error would print "no mesh" over a device that merely failed to
-    answer -- so an error stays "could not tell" until somebody captures one and
-    can promote it with evidence.
+    The empty-list branch is now evidence, not a guess: AP6840E-PD1005VMG3KJH9C
+    answers `{"mesh_info_list":[],"total_size":0,"error_code":0}` when it is in
+    no mesh (measured 2026-08-25). A device with nothing to report uses a normal
+    reply and an empty list, NOT an error code -- so an error_code still means
+    something went wrong rather than "no mesh", and still reports "could not
+    tell". That remains the conservative branch, and it is the one that kept
+    this honest when the console transport was silently losing the body.
 
     Never raises for what the DUT said; only for the console being unusable,
     which is a different problem and the caller's to report.
