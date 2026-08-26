@@ -28,7 +28,10 @@ export default function Topbar({ title, subtitle, search, actions, onMenuClick, 
       </button>
       <div className="toolbar-titles">
         <div className="toolbar-title">{title}</div>
-        <div className="toolbar-sub">{subtitle}</div>
+        {/* Omitted, not blanked: an empty .toolbar-sub still occupies its line
+            height and pushes the title off the header's centre. A section whose
+            title says enough on its own passes "". */}
+        {subtitle ? <div className="toolbar-sub">{subtitle}</div> : null}
       </div>
       <div className="toolbar-spacer" />
       {search}
