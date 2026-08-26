@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { RemoteRssiResult, RemoteUplink, Role } from "../api/rest";
 import type { RemoteRssiState } from "../monitoring/RemoteRssiContext";
@@ -30,6 +30,18 @@ let role: Role = "admin";
 vi.mock("../monitoring/AuthContext", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../monitoring/AuthContext")>()),
   useAuth: () => ({ role }),
+}));
+
+const openSerial = vi.fn();
+vi.mock("../api/rest", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/rest")>()),
+  openSerial: (...args: unknown[]) => openSerial(...args),
+}));
+// The connect batch is a serial RPC chain; this component's job here is the
+// message, not the captures.
+vi.mock("../monitoring/siteSurveyStore", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../monitoring/siteSurveyStore")>()),
+  runConnectCaptures: async () => undefined,
 }));
 
 const { default: FleetCard } = await import("./FleetCard");
@@ -130,6 +142,66 @@ function probe(over: Partial<import("../api/rest").MeshProbe> = {}) {
     ...over,
   };
 }
+
+describe("a serial port that renumbered under the DUT", () => {
+  /* A USB adapter renumbers on every replug, so the remembered port goes stale
+     the moment the desk is recabled. The backend follows the adapter to its new
+     node -- which fixes Connect, and introduces a quieter hazard: the app would
+     open a device the card never named, and nobody would know until a capture
+     turned up filed under an unexpected console. So the substitution is said
+     out loud, and only when there was one. */
+  const closed = () => entry({
+    serialOpen: false,
+    lastSerial: { port: "/dev/cu.PL2303G-USBtoUART11130", baudrate: 115200 },
+  });
+
+  const connect = async () => {
+    const button = screen.queryAllByRole("button").find((b) => b.textContent === "Connect")!;
+    button.click();
+    await waitFor(() => expect(openSerial).toHaveBeenCalled());
+  };
+
+  beforeEach(() => {
+    openSerial.mockReset();
+    openSerial.mockResolvedValue({ ok: true, mode: "serial", port: null, port_note: null });
+  });
+
+  it("says which port it actually opened when it had to substitute", async () => {
+    openSerial.mockResolvedValue({
+      ok: true,
+      mode: "serial",
+      port: "/dev/cu.PL2303G-USBtoUART11120",
+      port_note:
+        "/dev/cu.PL2303G-USBtoUART11130 is gone; opened /dev/cu.PL2303G-USBtoUART11120," +
+        " the same adapter renumbered",
+    });
+    show(closed());
+    await connect();
+    expect(await screen.findByText(/the same adapter renumbered/)).toBeTruthy();
+  });
+
+  it("stays quiet when the remembered port was the one opened", async () => {
+    /* The common case by far. A notice on every connect is a notice nobody
+       reads, and it would make an ordinary reconnect look like something
+       happened. */
+    show(closed());
+    await connect();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("shows the substitution as news, not as a failure", async () => {
+    /* Painting a successful connect in the danger colour teaches operators to
+       ignore the danger colour. */
+    openSerial.mockResolvedValue({
+      ok: true, mode: "serial", port: "/dev/cu.x", port_note: "renumbered",
+    });
+    show(closed());
+    await connect();
+    const note = await screen.findByRole("status");
+    expect(note.className).toContain("fleet-port-note");
+    expect(note.getAttribute("style") ?? "").not.toContain("danger");
+  });
+});
 
 describe("what the device itself says about its mesh", () => {
   /* Four claims, and the last two are the ones that matter. "We asked and could

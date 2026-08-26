@@ -593,6 +593,35 @@ const report = reporter();
     report.ok(`the row can say: ${label}`, probeRows.includes(wanted), probeRows.join(" | "));
   }
 
+  // -- a serial port that renumbered under the DUT --------------------------
+  // A USB adapter renumbers on every replug, so the remembered port goes stale
+  // whenever the desk is recabled. The backend follows the adapter to its new
+  // node, which fixes Connect and introduces a quieter hazard: the app opens a
+  // device the card never named. FleetCard says so; a demo that could not would
+  // be showing a silent substitution as if it were the product's behaviour.
+  const bench = byName("DemoDUT-bench3");
+  report.ok("a cabled DUT with a remembered port offers Connect",
+    !!bench.querySelector("[data-act=connect]"));
+  report.ok("no port notice before anyone connects",
+    !bench.querySelector(".fleet-port-note"));
+
+  click(window, bench.querySelector("[data-act=connect]"));
+  await new Promise(r => setTimeout(r, 900));
+  const note = byName("DemoDUT-bench3").querySelector(".fleet-port-note");
+  report.ok("connecting says which port was actually opened",
+    !!note && /renumbered/.test(note.textContent), note?.textContent);
+  report.ok("it is announced to assistive tech as status, not as an error",
+    note?.getAttribute("role") === "status");
+
+  // Only that DUT. A notice on every connect is a notice nobody reads, and the
+  // other cards on this page have been connected earlier in this run -- so
+  // counting them is a real check that the note is tied to a substitution
+  // rather than to the act of connecting.
+  const noted = [...document.querySelectorAll(".fleet-card")]
+    .filter(c => c.querySelector(".fleet-port-note"));
+  report.ok("only the DUT whose port moved says anything",
+    noted.length === 1, `${noted.length} cards carry a port notice`);
+
   report.ok("fleet.html threw nothing while all that ran",
     pageErrors(window).length === 0, pageErrors(window).join(" | "));
 }

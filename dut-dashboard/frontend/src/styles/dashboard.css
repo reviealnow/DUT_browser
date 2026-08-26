@@ -1580,6 +1580,12 @@ body {
 
 /* Mesh topology: seven columns, one of them a MAC. Same treatment as the peer
    table — the table scrolls inside its own box so the page never does. */
+/* A substituted serial port. Deliberately not the danger colour: the connect
+   succeeded, and painting a success red teaches operators to ignore red. It is
+   still not muted away either — opening a different device than the card named
+   is worth reading. */
+.fleet-port-note { color: var(--accent); }
+
 .mesh-topology { display: flex; flex-direction: column; gap: var(--space-3); }
 .mesh-topology-table { overflow-x: auto; }
 .mesh-topology-table > table { min-width: 640px; }
