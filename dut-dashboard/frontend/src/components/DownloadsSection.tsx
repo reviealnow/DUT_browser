@@ -86,7 +86,7 @@ function FileTable({ rows, hrefFor }: { rows: LogEntry[]; hrefFor: (name: string
                 </td>
                 <td>{formatSize(row.size)}</td>
                 <td>{formatTime(row.mtime)}</td>
-                <td>
+                <td className="filetable-actions">
                   <a className="btn" href={hrefFor(row.name)} download style={{ padding: "2px 10px" }}>
                     Download
                   </a>
@@ -132,7 +132,7 @@ function ContextTable({ rows }: { rows: ContextEntry[] }) {
             <td>{row.kind}</td>
             <td>{formatSize(row.size)}</td>
             <td>{formatTime(row.mtime)}</td>
-            <td>
+            <td className="filetable-actions">
               <a
                 className="btn"
                 href={getContextDownloadUrl(row.kind, row.name)}
@@ -254,7 +254,7 @@ function SessionLogTable({ rows, onAnalyzed }: { rows: SessionLogEntry[]; onAnal
               </td>
               <td>{formatSize(row.size)}</td>
               <td>{formatTime(row.mtime)}</td>
-              <td>
+              <td className="filetable-actions">
                 <div style={{ display: "flex", gap: "var(--space-2)", justifyContent: "flex-end" }}>
                   <button
                     className="btn"

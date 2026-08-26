@@ -502,7 +502,7 @@ function RemoteNodesCard({
                       {node.remote!.is_mesh ? node.backhaul.role ?? "not captured" : "standalone"}
                     </td>
                     <td>{node.serial_open ? "open" : "closed"}</td>
-                    <td>
+                    <td className="filetable-actions">
                       <button
                         type="button"
                         className="btn"
@@ -786,7 +786,7 @@ function InvitesCard() {
                       {invite.used_count} / {invite.max_uses}
                     </td>
                     <td>{status}</td>
-                    <td>
+                    <td className="filetable-actions">
                       {status === "active" ? (
                         <button type="button" className="btn" onClick={() => void revoke(invite.id)}>
                           Revoke

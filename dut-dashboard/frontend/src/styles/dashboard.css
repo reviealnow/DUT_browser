@@ -887,15 +887,19 @@ body {
   color: var(--accent);
 }
 
-/* Wi-Fi clients table: centered header on an on-brand pale-blue row. */
+/* Wi-Fi clients table: an on-brand pale-blue header row. Alignment is left,
+   inherited from `.filetable th` -- every table in the app reads left, headers
+   and data alike, and a centred header over left-aligned data is the same
+   detachment this file fixed in Mesh topology.
+
+   The last cell had a `text-align: center` here that never took effect: it has
+   the same specificity as the old `.filetable td:last-child { right }` and lost
+   to it on source order, so these tables have always rendered that column
+   right. Dropped rather than repaired -- left is what it should be. */
 .wifitable thead th {
-  text-align: center;
   background: var(--accent-weak);
   color: var(--accent);
   padding: var(--space-2) var(--space-3);
-}
-.wifitable td:last-child {
-  text-align: center;
 }
 .wifitable tr.wifi-band-row td {
   background: var(--accent-weak);
@@ -924,7 +928,14 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-.filetable td:last-child {
+/* Right-align the buttons at the end of a row -- but only where the last
+   column really is buttons. This used to be `td:last-child`, which assumed
+   every .filetable ends in an actions column. The ones that end in DATA got it
+   too, so their last column read right-aligned under a left-aligned header
+   (.filetable th is left) -- visible in Mesh topology's "IN THIS DASHBOARD".
+   Opt in per cell instead; an actions column's own th is empty, so nothing
+   needs to move with it. */
+.filetable td.filetable-actions {
   text-align: right;
 }
 

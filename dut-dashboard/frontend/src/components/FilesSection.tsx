@@ -241,7 +241,7 @@ function SharedFilesTable({
                   <td>{formatSize(row.size)}</td>
                   <td><AuthorTag name={row.uploader} verified={row.uploader_verified} /></td>
                   <td className="file-sha" title={row.sha256 ?? "no checksum recorded"}>{row.sha256 ? row.sha256.slice(0, 12) : "—"}</td>
-                  <td>
+                  <td className="filetable-actions">
                     <div className="row-actions">
                       <button
                         type="button"
