@@ -179,7 +179,12 @@ if [ "$PROD" -eq 1 ]; then
   echo "[start_lan] PROD: open ${SCHEME}://${BIND_HOST}:${BACKEND_PORT}   <-- UI + API + WS on one port"
 else
   echo "[start_lan] frontend -> http://${BIND_HOST}:${FRONTEND_PORT}   <-- open this on the LAN"
-  (cd "$FRONTEND_DIR" && exec npm run dev -- --host "$BIND_HOST" --port "$FRONTEND_PORT") &
+  # --strictPort: without it Vite answers a port clash by moving to the next
+  # free port and staying up, so the URL printed on the line above is not the
+  # URL that works -- and the frontend that does answer on :5173 belongs to an
+  # older instance. Fail the way uvicorn does instead.
+  (cd "$FRONTEND_DIR" && exec npm run dev -- \
+    --host "$BIND_HOST" --port "$FRONTEND_PORT" --strictPort) &
   PIDS+=($!)
   PID_LABELS+=("frontend (vite on :$FRONTEND_PORT)")
 fi

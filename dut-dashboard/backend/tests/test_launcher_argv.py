@@ -127,9 +127,15 @@ class LauncherArgvTests(unittest.TestCase):
         )
 
     def test_dev_also_starts_vite_on_the_frontend_port(self) -> None:
+        """--strictPort is the point: without it Vite answers a port clash by
+        moving to the next free port and staying up, so the URL the launcher
+        just printed is not the URL that works."""
         records = self._run()
         [vite] = self._find(records, "npm", "dev")
-        self.assertEqual(vite, ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"])
+        self.assertEqual(
+            vite,
+            ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173", "--strictPort"],
+        )
 
     def test_dev_never_builds_the_frontend(self) -> None:
         self.assertEqual(self._find(self._run(), "npm", "build"), [])
@@ -139,7 +145,10 @@ class LauncherArgvTests(unittest.TestCase):
         [uvicorn] = self._find(records, "uvicorn")
         self.assertEqual(uvicorn[-4:], ["--host", "127.0.0.1", "--port", "8011"])
         [vite] = self._find(records, "npm", "dev")
-        self.assertEqual(vite[-4:], ["--host", "127.0.0.1", "--port", "5199"])
+        self.assertEqual(
+            vite,
+            ["npm", "run", "dev", "--", "--host", "127.0.0.1", "--port", "5199", "--strictPort"],
+        )
 
     # -- prod ---------------------------------------------------------------
 
