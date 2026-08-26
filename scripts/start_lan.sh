@@ -97,6 +97,7 @@ CHECK_PORTS=("$BACKEND_PORT:backend")
 [ "$PROD" -eq 1 ] || CHECK_PORTS+=("$FRONTEND_PORT:frontend")
 
 PORT_CONFLICT=0
+STOPPED_HOLDER=0
 if command -v lsof >/dev/null 2>&1; then
   for entry in "${CHECK_PORTS[@]}"; do
     port="${entry%%:*}"
@@ -106,7 +107,16 @@ if command -v lsof >/dev/null 2>&1; then
     PORT_CONFLICT=1
     echo "[start_lan] ERROR: $role port $port is already in use by:" >&2
     for pid in $holders; do
-      echo "[start_lan]   PID $pid  $(ps -o command= -p "$pid" 2>/dev/null | cut -c1-90)" >&2
+      # State, not just the command line. A holder in state T is STOPPED: it
+      # still owns the port but runs nothing, so `kill` sits pending and looks
+      # like it did nothing at all. That cost a deploy a long detour once --
+      # say it here rather than leaving it for `ps` to reveal later. The state
+      # letter carries flags (a stopped, niced process reads "TN"), so match
+      # the prefix.
+      state="$(ps -o state= -p "$pid" 2>/dev/null | tr -d ' ')"
+      label=""
+      case "$state" in T*) label="  [STOPPED]"; STOPPED_HOLDER=1 ;; esac
+      echo "[start_lan]   PID $pid$label  $(ps -o command= -p "$pid" 2>/dev/null | cut -c1-90)" >&2
     done
   done
 else
@@ -114,6 +124,12 @@ else
 fi
 
 if [ "$PORT_CONFLICT" -eq 1 ]; then
+  if [ "$STOPPED_HOLDER" -eq 1 ]; then
+    echo "[start_lan] A holder marked [STOPPED] is not running: it will not act on" >&2
+    echo "[start_lan] SIGTERM until it is resumed, so a plain \`kill\` appears to do" >&2
+    echo "[start_lan] nothing. Resume it first, and the pending signal lands:" >&2
+    echo "[start_lan]     kill -CONT <PID>   # then it exits on the kill you already sent" >&2
+  fi
   echo "[start_lan] Nothing was started. Either stop the process above:" >&2
   echo "[start_lan]     kill <PID>" >&2
   echo "[start_lan] or launch on ports nobody holds:" >&2

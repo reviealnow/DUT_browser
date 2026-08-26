@@ -14,6 +14,12 @@ next free port, still running) proxying to the OLD backend, because the proxy
 target in frontend/vite.config.ts is hard-coded. Nothing looked wrong; the code
 under test was simply not the code being served.
 
+The third is why anything here signals a real process: a deploy host was found
+with both halves STOPPED, holding :8000 and :5173 while serving nothing, and a
+`kill` against them doing nothing visible because a stopped process never runs
+its SIGTERM handler. `kill -0` reports such a child as perfectly alive, so those
+tests start a launcher whose children stay up and then stop them for real.
+
 Most of this file binds no port and builds no frontend. The script is copied
 into a throwaway tree and run with a PATH of recording shims, so every `exec` is
 captured as its exact argv, empty arguments included -- which is the only way to
@@ -115,6 +121,33 @@ def free_port() -> int:
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         return sock.getsockname()[1]
+
+
+@contextlib.contextmanager
+def stopped_port_holder():
+    """A real process, holding a real listening port, in state T.
+
+    The kernel keeps the socket listening while its owner is stopped -- which is
+    the whole trap: the port looks taken and the holder answers nothing.
+    """
+    code = (
+        "import socket, time;"
+        "s = socket.socket(); s.bind(('127.0.0.1', 0)); s.listen(1);"
+        "print(s.getsockname()[1], flush=True);"
+        "time.sleep(300)"
+    )
+    proc = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE, text=True)
+    try:
+        port = int(proc.stdout.readline())
+        proc.send_signal(signal.SIGSTOP)
+        yield port, proc.pid
+    finally:
+        # CONT before KILL: SIGKILL reaches a stopped process, but nothing else
+        # would, and leaving one behind would hold the port for the next test.
+        with contextlib.suppress(ProcessLookupError):
+            proc.send_signal(signal.SIGCONT)
+        proc.kill()
+        proc.wait(timeout=10)
 
 
 def wait_gone(pid: int, timeout: float = 8.0) -> bool:
@@ -479,6 +512,23 @@ class LauncherArgvTests(unittest.TestCase):
             out = job.output()
         self.assertTrue(suspended_alive, f"a suspended launcher is not a dead one:\n{out}")
         self.assertTrue(alive, f"Ctrl-Z followed by fg must leave the stack running:\n{out}")
+
+
+    def test_the_port_guard_says_when_the_holder_is_stopped(self) -> None:
+        """What the incident actually needed. The guard named the PID and the
+        command, so `kill` looked like the answer -- and did nothing, because
+        the holder was stopped. The state belongs in that message."""
+        with stopped_port_holder() as (port, holder_pid):
+            self._run(
+                returncode=1,
+                real_lsof=True,
+                BACKEND_PORT=str(port),
+                FRONTEND_PORT=str(free_port()),
+            )
+            err = self.last_result.stderr
+        self.assertIn("[STOPPED]", err)
+        self.assertIn(str(holder_pid), err)
+        self.assertIn("kill -CONT", err)
 
 
 if __name__ == "__main__":
