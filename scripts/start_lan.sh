@@ -23,6 +23,7 @@
 #
 # If either child exits, the launcher stops the other one and exits non-zero:
 # half a stack keeps answering, out of a backend nobody meant to be running.
+# For the same reason it refuses to start at all on a port already taken.
 #
 set -euo pipefail
 
@@ -78,6 +79,53 @@ for arg in "$@"; do
     *) echo "[start_lan] unknown arg: $arg (use --prod for production)"; exit 2 ;;
   esac
 done
+
+# --- Refuse to start on a port somebody else already holds -------------------
+# A second launcher used to half-start, and say nothing useful about it: Vite
+# hops to the next free port and keeps running, while uvicorn refuses to bind
+# and shuts down. What survives is a NEW frontend proxying to the OLD backend --
+# frontend/vite.config.ts hard-codes the proxy target at 127.0.0.1:8000 -- so
+# the UI looks perfectly healthy while running last session's code, and the
+# launcher's own output still names the port the OLD instance took.
+#
+# Check every port we are about to take, and check them ALL before starting
+# anything: checking as we go would leave an orphaned backend behind whenever
+# the frontend port is the busy one, which is the thing being killed off here.
+# --prod runs no Vite, so its frontend port is not ours to claim.
+CHECK_PORTS=("$BACKEND_PORT:backend")
+[ "$PROD" -eq 1 ] || CHECK_PORTS+=("$FRONTEND_PORT:frontend")
+
+PORT_CONFLICT=0
+if command -v lsof >/dev/null 2>&1; then
+  for entry in "${CHECK_PORTS[@]}"; do
+    port="${entry%%:*}"
+    role="${entry##*:}"
+    holders="$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null || true)"
+    [ -n "$holders" ] || continue
+    PORT_CONFLICT=1
+    echo "[start_lan] ERROR: $role port $port is already in use by:" >&2
+    for pid in $holders; do
+      echo "[start_lan]   PID $pid  $(ps -o command= -p "$pid" 2>/dev/null | cut -c1-90)" >&2
+    done
+  done
+else
+  echo "[start_lan] WARNING: lsof not found -- cannot check that the ports are free." >&2
+fi
+
+if [ "$PORT_CONFLICT" -eq 1 ]; then
+  echo "[start_lan] Nothing was started. Either stop the process above:" >&2
+  echo "[start_lan]     kill <PID>" >&2
+  echo "[start_lan] or launch on ports nobody holds:" >&2
+  if [ "$PROD" -eq 1 ]; then
+    echo "[start_lan]     BACKEND_PORT=$((BACKEND_PORT + 1)) $0 --prod" >&2
+  else
+    echo "[start_lan]     BACKEND_PORT=$((BACKEND_PORT + 1)) FRONTEND_PORT=$((FRONTEND_PORT + 1)) $0" >&2
+    echo "[start_lan]   NOTE: in dev, a changed BACKEND_PORT also needs the proxy target in" >&2
+    echo "[start_lan]   frontend/vite.config.ts updated to match -- it is hard-coded to" >&2
+    echo "[start_lan]   127.0.0.1:8000, so otherwise the new frontend talks to the OLD backend." >&2
+  fi
+  exit 1
+fi
 
 # --- Python venv + backend deps ---------------------------------------------
 if [ ! -d "$ROOT_DIR/.venv" ]; then
@@ -269,11 +317,10 @@ fi
 echo "[start_lan] running. Press Ctrl-C to stop."
 
 # --- Supervise: one child dying takes the whole stack down -------------------
-# A backend that exits leaves the dev frontend up and answering, and because
-# frontend/vite.config.ts hard-codes the proxy target at 127.0.0.1:8000, the
-# page keeps working against whatever else happens to hold that port -- another
-# session's backend, or nothing at all. `wait` waited for BOTH, so that state
-# could last as long as the operator's patience.
+# The port guard above only covers the moment of launch. A backend that dies
+# later does the same damage: a crash, an operator kill, or another session
+# winning the race between our check and uvicorn's bind all leave a live
+# frontend proxying to a backend that is not the one this launcher started.
 #
 # Polling rather than `wait -n`, which needs bash 4.3; macOS ships 3.2.57 and
 # this launcher is run there. One second is plenty of resolution for a launcher.

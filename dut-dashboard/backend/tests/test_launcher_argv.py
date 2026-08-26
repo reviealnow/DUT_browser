@@ -1,4 +1,5 @@
-"""What `scripts/start_lan.sh` actually execs, for dev and for --prod.
+"""What `scripts/start_lan.sh` actually execs, for dev and for --prod, and what
+it refuses to exec at all.
 
 The launcher could not start the backend in dev mode for a month (fixed in
 PR #94). `"${UVICORN_TLS_ARGS[@]:-}"` expands to one EMPTY word when the array
@@ -7,17 +8,29 @@ is unset, not to zero words, and uvicorn answers that with
 assigned on the --prod path, acceptance was always done with --prod, and the
 default path is dev -- so the broken one was the one nobody ran.
 
-Nothing here binds a port or builds a frontend. The script is copied into a
-throwaway tree and run with a PATH of recording shims, so every `exec` is
-captured as its exact argv, empty arguments included -- which is the only way
-to see the bug at all: the difference between right and wrong is one "".
+The second launcher defect is the reason for the port tests below: started
+against ports another instance already held, it left a NEW Vite (bumped to the
+next free port, still running) proxying to the OLD backend, because the proxy
+target in frontend/vite.config.ts is hard-coded. Nothing looked wrong; the code
+under test was simply not the code being served.
+
+Most of this file binds no port and builds no frontend. The script is copied
+into a throwaway tree and run with a PATH of recording shims, so every `exec` is
+captured as its exact argv, empty arguments included -- which is the only way to
+see the first bug at all: the difference between right and wrong is one "".
+`lsof` is shimmed too, so a normal run's port check always sees a free port
+regardless of what the developer's machine happens to be running. The tests that
+are *about* the port check pass `real_lsof=True` and bind a real socket, because
+a guard verified against its own shim would be verifying nothing.
 
 Deliberately plain subprocess + shell, no bats or other new dependency.
 """
 
 from __future__ import annotations
 
+import contextlib
 import os
+import socket
 import subprocess
 import tempfile
 import unittest
@@ -36,7 +49,39 @@ exit 0
 # and the QR/invite helpers; `openssl`, `git` and the network probes are shimmed
 # so the run is hermetic and produces no cert, no version lookup and no LAN IP
 # (an empty IP skips the QR block, which is not what this test is about).
-SHIMMED = ("python3", "npm", "pip", "openssl", "git", "ipconfig", "hostname", "networksetup")
+SHIMMED = (
+    "python3",
+    "npm",
+    "pip",
+    "openssl",
+    "git",
+    "ipconfig",
+    "hostname",
+    "networksetup",
+    # Shimmed so the port guard sees "free" deterministically. Dropped from the
+    # PATH by real_lsof=True in the tests that exercise the guard itself.
+    "lsof",
+)
+
+
+@contextlib.contextmanager
+def taken_port():
+    """Hold a real listening socket, and yield the port it took."""
+    sock = socket.socket()
+    try:
+        sock.bind(("127.0.0.1", 0))
+        sock.listen(1)
+        yield sock.getsockname()[1]
+    finally:
+        sock.close()
+
+
+def free_port() -> int:
+    """A port nothing was listening on a moment ago. Good enough for a launcher
+    test: the assertions below name the busy port, never this one."""
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
 
 
 class LauncherArgvTests(unittest.TestCase):
@@ -44,7 +89,13 @@ class LauncherArgvTests(unittest.TestCase):
     # says so and exits 1 rather than sitting in `wait`. Every shim exits
     # immediately, so that is the normal outcome of a *successful* start here --
     # the argv assertions below are made on what got recorded before it.
-    def _run(self, *args: str, returncode: int = 1, **env_extra: str) -> list[list[str]]:
+    def _run(
+        self,
+        *args: str,
+        returncode: int = 1,
+        real_lsof: bool = False,
+        **env_extra: str,
+    ) -> list[list[str]]:
         """Run the launcher in a fake tree; return every recorded argv, in order."""
         self.last_result: subprocess.CompletedProcess[str]
         with tempfile.TemporaryDirectory() as tmp:
@@ -73,6 +124,8 @@ class LauncherArgvTests(unittest.TestCase):
             shim_dir = root / "shims"
             shim_dir.mkdir()
             for name in SHIMMED:
+                if name == "lsof" and real_lsof:
+                    continue
                 shim = shim_dir / name
                 shim.write_text(_SHIM)
                 shim.chmod(0o755)
@@ -179,13 +232,55 @@ class LauncherArgvTests(unittest.TestCase):
         """A typo'd flag must not quietly launch the dev pair instead."""
         self.assertEqual(self._run("--produciton", returncode=2), [])
 
+    # -- the port guard (real sockets, real lsof) ----------------------------
+
+    def test_a_taken_backend_port_stops_the_launch(self) -> None:
+        with taken_port() as port:
+            records = self._run(
+                returncode=1,
+                real_lsof=True,
+                BACKEND_PORT=str(port),
+                FRONTEND_PORT=str(free_port()),
+            )
+        self.assertEqual(records, [], "nothing may be started once a port is refused")
+        err = self.last_result.stderr
+        self.assertIn(str(port), err)
+        self.assertIn(str(os.getpid()), err, "the operator needs the PID holding it")
+        self.assertIn("BACKEND_PORT=", err, "and a way out that does not need this knowledge")
+
+    def test_a_taken_frontend_port_stops_the_launch_too(self) -> None:
+        """The orphan case. Both ports are checked before anything starts, so a
+        busy 5173 must not leave a backend running on a free 8000 behind it."""
+        with taken_port() as port:
+            records = self._run(
+                returncode=1,
+                real_lsof=True,
+                BACKEND_PORT=str(free_port()),
+                FRONTEND_PORT=str(port),
+            )
+        self.assertEqual(records, [], "a busy frontend port must not orphan a backend")
+        self.assertIn(str(port), self.last_result.stderr)
+
+    def test_prod_ignores_a_taken_frontend_port(self) -> None:
+        """--prod runs no Vite, so that port is not ours to claim and refusing
+        over it would block a legitimate launch."""
+        with taken_port() as port:
+            records = self._run(
+                "--prod",
+                returncode=1,
+                real_lsof=True,
+                BACKEND_PORT=str(free_port()),
+                FRONTEND_PORT=str(port),
+            )
+        self.assertEqual(len(self._find(records, "uvicorn")), 1)
+
     # -- the supervisor ------------------------------------------------------
 
     def test_a_dead_child_brings_the_launcher_down_instead_of_hanging(self) -> None:
         """Every shim exits at once, so this is the backend dying a moment after
-        it started. The launcher must notice, name it, and exit non-zero rather
-        than sit in `wait` with a live frontend proxying to a backend it does
-        not own."""
+        it started -- the case the port guard cannot see. The launcher must
+        notice, name it, and exit non-zero rather than sit in `wait` with a live
+        frontend proxying to a backend it does not own."""
         self._run(returncode=1)
         self.assertIn("backend", self.last_result.stderr)
         self.assertIn("exited", self.last_result.stderr)
