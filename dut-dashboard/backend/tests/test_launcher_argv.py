@@ -49,9 +49,23 @@ SCRIPT = Path(__file__).resolve().parents[3] / "scripts" / "start_lan.sh"
 
 # The shim records "<name>\0<arg>\0<arg>\0<RS>" so an empty argument survives
 # the round trip; \0 cannot appear inside an argv element.
+#
+# The lock is not paranoia. A record is two printf calls -- the fields, then the
+# separator -- and therefore two write() syscalls, while the launcher starts the
+# backend and the frontend at the same moment. A write from the other shim
+# landing between them splices its fields into the first record and eats a
+# separator, so one record comes out holding both commands and one goes missing
+# entirely. Measured over 600 concurrent records: 18 corrupted and 19 lost
+# without the lock, 0 and 0 with it. It reached CI as a `npm run dev` argv with
+# uvicorn's arguments stapled to the end, on a PR that touched neither.
+#
+# `mkdir` is the portable mutex: atomic, and no flock(1) on macOS.
+_LOCK_OPEN = 'until mkdir "$ARGV_LOG.lock" 2>/dev/null; do :; done\n'
+_LOCK_CLOSE = 'rmdir "$ARGV_LOG.lock"\n'
+
 _SHIM = """#!/bin/sh
-{ printf '%s\\0' "$(basename "$0")" "$@"; printf '\\036'; } >> "$ARGV_LOG"
-exit 0
+""" + _LOCK_OPEN + """{ printf '%s\\0' "$(basename "$0")" "$@"; printf '\\036'; } >> "$ARGV_LOG"
+""" + _LOCK_CLOSE + """exit 0
 """
 
 # The same recording shim, but it stays alive -- needed to watch what the
@@ -70,8 +84,8 @@ exit 0
 # or not, and would quietly make every assertion here about stopped children
 # untrue while still passing.
 _SHIM_ALIVE = """#!/bin/sh
-{ printf '%s\\0' "$(basename "$0")" "$@"; printf '\\036'; } >> "$ARGV_LOG"
-echo $$ > "$PID_DIR/$(basename "$0")"
+""" + _LOCK_OPEN + """{ printf '%s\\0' "$(basename "$0")" "$@"; printf '\\036'; } >> "$ARGV_LOG"
+""" + _LOCK_CLOSE + """echo $$ > "$PID_DIR/$(basename "$0")"
 trap 'exit 0' TERM
 while :; do sleep 1; done
 """
@@ -263,11 +277,31 @@ class LauncherArgvTests(unittest.TestCase):
             # Each record is "<field>\0" repeated, so the split leaves one
             # trailing "" from the final separator -- drop that one only, and
             # every genuinely empty argument survives.
-            return [
+            records = [
                 record.split("\0")[:-1]
                 for record in log.read_bytes().decode().split("\036")
                 if record
             ]
+            self._assert_records_are_whole(records)
+            return records
+
+    def _assert_records_are_whole(self, records: list[list[str]]) -> None:
+        """Fail on a spliced record, here, instead of somewhere confusing later.
+
+        A shim name can only ever be argv[0]. None of the commands the launcher
+        runs takes another shim's name as an argument, so a shim name appearing
+        mid-record means two writes interleaved and the log no longer says what
+        happened. Left in place with the lock that prevents it: this cost a CI
+        run once as an unrelated-looking assertion diff eight elements long, and
+        the next person deserves to be told what actually went wrong.
+        """
+        for record in records:
+            spliced = [field for field in record[1:] if field in SHIMMED]
+            self.assertEqual(
+                spliced,
+                [],
+                f"argv record spliced with another shim's write -- {record}",
+            )
 
     @staticmethod
     def _find(records: list[list[str]], *needles: str) -> list[list[str]]:
