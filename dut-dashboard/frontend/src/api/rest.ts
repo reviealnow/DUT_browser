@@ -590,6 +590,22 @@ export async function addDut(id: string, label?: string): Promise<void> {
   await post("/api/duts", { id, label });
 }
 
+/**
+ * Change a DUT's display name. The id never moves, so nothing keyed on it --
+ * snapshots, logs, every `?dut=` caller -- is disturbed. This is the only way
+ * to rename the built-in DUT, which cannot be removed and re-added.
+ */
+export async function renameDut(id: string, label: string): Promise<void> {
+  const response = await fetch(`/api/duts/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ label }),
+  });
+  if (!response.ok) {
+    throw new Error((await response.json().catch(() => ({}))).detail || "Failed to rename DUT");
+  }
+}
+
 /** Remove a DUT (frees its serial port). The default DUT cannot be removed. */
 export async function removeDut(id: string): Promise<void> {
   const response = await fetch(`/api/duts/${encodeURIComponent(id)}`, { method: "DELETE" });
