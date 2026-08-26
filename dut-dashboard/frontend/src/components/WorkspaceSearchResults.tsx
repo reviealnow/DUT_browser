@@ -110,7 +110,7 @@ export default function WorkspaceSearchResults({
                         <td>
                           <AuthorTag name={file.uploader} verified={file.uploader_verified} />
                         </td>
-                        <td>
+                        <td className="filetable-actions">
                           <div className="row-actions">
                             <a
                               className="icon-btn"

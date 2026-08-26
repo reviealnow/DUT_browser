@@ -924,7 +924,14 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-.filetable td:last-child {
+/* Right-align the buttons at the end of a row -- but only where the last
+   column really is buttons. This used to be `td:last-child`, which assumed
+   every .filetable ends in an actions column. The ones that end in DATA got it
+   too, so their last column read right-aligned under a left-aligned header
+   (.filetable th is left) -- visible in Mesh topology's "IN THIS DASHBOARD".
+   Opt in per cell instead; an actions column's own th is empty, so nothing
+   needs to move with it. */
+.filetable td.filetable-actions {
   text-align: right;
 }
 

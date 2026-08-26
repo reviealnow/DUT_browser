@@ -142,6 +142,24 @@ describe("mesh topology table", () => {
     expect(within(listed[1]).getByText("-26 dBm · near")).toBeTruthy();
   });
 
+  it("gives no cell the actions styling that right-aligns it", async () => {
+    // Every column here is data, and the header row is left-aligned, so a cell
+    // that opts into `filetable-actions` would sit right-aligned under a
+    // left-aligned header. "IN THIS DASHBOARD" did exactly that -- not from a
+    // class, but from a blanket `.filetable td:last-child { text-align: right }`
+    // that assumed every table of this kind ends in buttons. jsdom loads no
+    // stylesheet, so the alignment itself is not observable here; what IS
+    // observable is that this table opts into nothing, which is what keeps it
+    // matching its headers once the rule is per-cell.
+    render(<MeshTopologySection fleet={FLEET} />);
+    const listed = await rows();
+    for (const row of listed) {
+      for (const cell of within(row).getAllByRole("cell")) {
+        expect(cell.className).not.toContain("filetable-actions");
+      }
+    }
+  });
+
   it("asks the DUT once on entry, without waiting for a click", async () => {
     render(<MeshTopologySection fleet={FLEET} />);
     await waitFor(() => expect(getMeshTopology).toHaveBeenCalledWith("default"));
