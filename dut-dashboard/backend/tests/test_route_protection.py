@@ -183,6 +183,7 @@ ROLE_MAP: dict[tuple[str, str], str | None] = {
     # anonymous caller on the LAN could end someone else's capture mid-run.
     ("GET", "/api/duts"): None,
     ("POST", "/api/duts"): "engineer",
+    ("PATCH", "/api/duts/{dut_id}"): "engineer",
     ("DELETE", "/api/duts/{dut_id}"): "engineer",
 }
 

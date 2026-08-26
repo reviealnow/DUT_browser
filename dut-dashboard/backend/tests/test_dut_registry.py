@@ -7,7 +7,14 @@ from pathlib import Path
 from unittest import mock
 
 import app.dut.registry as registry_mod
-from app.dut.registry import DEFAULT_DUT_ID, DutContext, DutRegistry
+from app.dut.registry import (
+    DEFAULT_DUT_ID,
+    DEFAULT_DUT_LABEL,
+    MAX_LABEL_LEN,
+    DutContext,
+    DutRegistry,
+    build_default_registry,
+)
 
 
 class _StubWsManager:
@@ -243,3 +250,91 @@ class SerialOpenRecordingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RenameDutTests(DutRegistryTests):
+    """Renaming, and the three ways it used to be impossible.
+
+    Before this existed the built-in DUT could not be renamed by ANY runtime
+    means: POST 409s on an existing id, DELETE refuses the default, and a label
+    in duts.json was ignored on load for a DUT that already existed. The last
+    one is the trap -- a rename that does not survive a restart looks like it
+    worked, right up until the next deploy.
+    """
+
+    def _booted(self) -> DutRegistry:
+        """A registry built the way main.on_startup builds it: the default DUT
+        created with its hard-coded label, THEN the persisted file merged in."""
+        return build_default_registry(ws_manager=self.ws, loop=self._loop)
+
+    def test_renames_the_built_in_dut_that_nothing_else_could_touch(self) -> None:
+        reg = self._booted()
+        self.assertEqual(reg.get(DEFAULT_DUT_ID).label, DEFAULT_DUT_LABEL)
+        reg.rename_dut(DEFAULT_DUT_ID, "AP6_420E")
+        self.assertEqual(reg.get(DEFAULT_DUT_ID).label, "AP6_420E")
+        [described] = [d for d in reg.describe() if d["id"] == DEFAULT_DUT_ID]
+        self.assertEqual(described["label"], "AP6_420E")
+
+    def test_a_rename_survives_a_restart(self) -> None:
+        """The one that matters. `_save_locked` skipped a bare default entry and
+        `load_persisted` ignored a saved label for an id that already existed,
+        so a rename evaporated on the next boot with nothing to show for it."""
+        self._booted().rename_dut(DEFAULT_DUT_ID, "AP6_420E")
+        self.assertEqual(self._booted().get(DEFAULT_DUT_ID).label, "AP6_420E")
+
+    def test_the_id_never_moves_so_history_is_not_orphaned(self) -> None:
+        """Renaming by remove-and-re-add would change nothing visible and lose
+        that DUT's snapshot history, which is keyed on the id."""
+        reg = self._booted()
+        reg.rename_dut(DEFAULT_DUT_ID, "AP6_420E")
+        self.assertEqual(reg.ids(), [DEFAULT_DUT_ID])
+        self.assertEqual(reg.get(DEFAULT_DUT_ID).dut_id, DEFAULT_DUT_ID)
+
+    def test_an_untouched_default_still_writes_no_bare_entry(self) -> None:
+        """The persistence condition gained a clause; it must not have gained a
+        reason to write an entry that a reload would try to re-create."""
+        reg = self._booted()
+        reg.rename_dut(DEFAULT_DUT_ID, DEFAULT_DUT_LABEL)  # renamed to itself
+        saved = self._duts_file.read_text() if self._duts_file.exists() else "[]"
+        self.assertNotIn(DEFAULT_DUT_ID, saved)
+
+    def test_renaming_an_unknown_dut_is_a_key_error(self) -> None:
+        with self.assertRaises(KeyError):
+            self._booted().rename_dut("nosuch", "X")
+
+    def test_refuses_a_label_that_is_not_a_display_name(self) -> None:
+        reg = self._booted()
+        for bad in ("", "   ", "A" * (MAX_LABEL_LEN + 1), "\n", "\x00", 7, None):
+            with self.subTest(bad=bad):
+                with self.assertRaises(ValueError):
+                    reg.rename_dut(DEFAULT_DUT_ID, bad)  # type: ignore[arg-type]
+        self.assertEqual(reg.get(DEFAULT_DUT_ID).label, DEFAULT_DUT_LABEL)
+
+    def test_keeps_the_spaces_and_case_a_display_name_needs(self) -> None:
+        reg = self._booted()
+        reg.rename_dut(DEFAULT_DUT_ID, "  Lab 2 · AP6_420E  ")
+        self.assertEqual(reg.get(DEFAULT_DUT_ID).label, "Lab 2 · AP6_420E")
+
+    def test_a_hand_edited_file_gets_the_same_cleaning_as_the_api(self) -> None:
+        """The load path must not be a way around the rename path's rules. A
+        control character in a label reaches a log filename and the fleet UI.
+
+        The contract is strip-then-judge, not reject-outright: control
+        characters are dropped and what is left is used, so this asserts what
+        survives -- both for a DUT that already exists (the merge branch) and
+        for one being created from the file (the create branch). A label that
+        cleans away to nothing is refused, which the empty case covers.
+        """
+        self._duts_file.write_text(
+            '[{"id": "default", "label": "bad\\u0000name"},'
+            ' {"id": "lab2", "label": "also\\u0000bad"},'
+            ' {"id": "blank", "label": "\\u0000\\u0000"}]'
+        )
+        reg = self._booted()
+        self.assertEqual(reg.get(DEFAULT_DUT_ID).label, "badname")
+        self.assertEqual(reg.get("lab2").label, "alsobad")
+        for dut_id in (DEFAULT_DUT_ID, "lab2", "blank"):
+            self.assertNotIn("\x00", reg.get(dut_id).label)
+        # Nothing printable left => no label at all, and create_dut falls back
+        # to the id rather than storing an empty display name.
+        self.assertEqual(reg.get("blank").label, "blank")

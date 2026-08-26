@@ -33,8 +33,16 @@ from app.websocket.terminal_manager import TerminalManager
 from app.websocket.ws_manager import WebSocketManager
 
 DEFAULT_DUT_ID = "default"
+# What the built-in DUT is called before anybody renames it. Named rather than
+# inlined because `_save_locked` has to tell "never renamed" from "renamed", and
+# comparing against a literal in two places is how those two drift apart.
+DEFAULT_DUT_LABEL = "Default"
 MAX_DUTS = 16
 _DUT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
+# A label is a display name, not an identifier: it may hold spaces, case and
+# punctuation. Bounded, and no control characters -- it ends up in a log
+# filename and in the fleet UI.
+MAX_LABEL_LEN = 48
 
 # Every part of a remote node's configuration ends up as an argument to ssh or
 # inside a command string a shell runs — on the Pi for the console, on the DUT
@@ -61,6 +69,22 @@ CONSOLE_IDENTITY_FIELDS = ("host", "port", "device", "is_mesh", "backhaul_iface"
 
 REMOTE_PORT_MIN = 1
 REMOTE_PORT_MAX = 65535
+
+
+def clean_label(value: object) -> str | None:
+    """A display name, or ``None`` if the input cannot be one.
+
+    Shared by the rename path and the load path so a hand-edited ``duts.json``
+    cannot put anything on screen that the API would have refused. Control
+    characters are dropped rather than escaped: the label reaches a log
+    filename, and a newline or a NUL there is somebody else's bug later.
+    """
+    if not isinstance(value, str):
+        return None
+    cleaned = "".join(ch for ch in value if ch.isprintable()).strip()
+    if not cleaned or len(cleaned) > MAX_LABEL_LEN:
+        return None
+    return cleaned
 
 
 def _clean_last_serial(value: object) -> dict | None:
@@ -356,6 +380,26 @@ class DutRegistry:
             self._save_locked()
         return context
 
+    def rename_dut(self, dut_id: str, label: str) -> DutContext:
+        """Change a DUT's display name and persist it.
+
+        The id is the identity and never moves: per-DUT snapshots, logs and
+        every `?dut=` caller are keyed on it. Only the label changes, so a
+        rename costs nothing and loses no history -- which is the whole reason
+        this exists rather than "remove and re-add", a route the built-in DUT
+        does not have at all.
+        """
+        cleaned = clean_label(label)
+        if cleaned is None:
+            raise ValueError(f"DUT label must be 1-{MAX_LABEL_LEN} printable characters")
+        with self._lock:
+            ctx = self._duts.get(dut_id)
+            if ctx is None:
+                raise KeyError(f"Unknown DUT: {dut_id}")
+            ctx.label = cleaned
+            self._save_locked()
+        return ctx
+
     def record_serial_params(self, dut_id: str, port: str, baudrate: int) -> None:
         """Remember a DUT's last successful serial-open params and persist them.
 
@@ -576,13 +620,21 @@ class DutRegistry:
 
         Non-default DUTs always persist so they survive a restart. The default
         DUT is re-created by ``build_default_registry`` on boot, so it is only
-        written once it has remembered serial params — never a bare entry that a
-        reload would try to re-create.
+        written once it has something worth carrying across — never a bare entry
+        that a reload would try to re-create.
+
+        A changed label counts as worth carrying across. Without it the built-in
+        DUT could be renamed and the new name would vanish on the next restart,
+        because a boot-time label of ``Default`` is all a bare entry says.
         """
         entries = [
             self._entry_for(ctx)
             for ctx in self._duts.values()
-            if ctx.dut_id != DEFAULT_DUT_ID or ctx.last_serial is not None or ctx.mgmt_url or ctx.remote
+            if ctx.dut_id != DEFAULT_DUT_ID
+            or ctx.last_serial is not None
+            or ctx.mgmt_url
+            or ctx.remote
+            or ctx.label != DEFAULT_DUT_LABEL
         ]
         try:
             DUTS_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -613,6 +665,13 @@ class DutRegistry:
             remote = _clean_remote(entry.get("remote")) if isinstance(entry, dict) else None
             existing = self._duts.get(dut_id)
             if existing is not None:
+                # A saved label is the operator's rename and outranks the
+                # boot-time default. Merged, never cleared, like the fields
+                # below: an entry written before renaming existed carries no
+                # label and must not blank the one already in memory.
+                saved_label = clean_label(entry.get("label")) if isinstance(entry, dict) else None
+                if saved_label is not None:
+                    existing.label = saved_label
                 if last_serial is not None:
                     existing.last_serial = last_serial
                 mgmt = entry.get("mgmt_url") if isinstance(entry, dict) else None
@@ -625,7 +684,9 @@ class DutRegistry:
                     # save would then erase from disk too.
                     existing.remote = remote
                 continue
-            ctx = self.create_dut(dut_id, label=entry.get("label"))
+            # Same cleaning as the rename path: a hand-edited file must not be
+            # able to put a label on screen that the API would have refused.
+            ctx = self.create_dut(dut_id, label=clean_label(entry.get("label")))
             ctx.last_serial = last_serial
             ctx.remote = remote
 
@@ -637,6 +698,6 @@ def build_default_registry(
     """Create a registry holding the single default DUT (uses the original
     ``SNAPSHOT_FILE`` so existing captured history keeps backfilling)."""
     registry = DutRegistry(ws_manager=ws_manager, loop=loop)
-    registry.create_dut(DEFAULT_DUT_ID, label="Default")
+    registry.create_dut(DEFAULT_DUT_ID, label=DEFAULT_DUT_LABEL)
     registry.load_persisted()
     return registry

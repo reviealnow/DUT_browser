@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { addDut, DutInfo, getDuts, removeDut } from "../api/rest";
+import { addDut, DutInfo, getDuts, removeDut, renameDut } from "../api/rest";
 import { DEFAULT_DUT_ID } from "../api/dut";
 import { useAuth } from "../monitoring/AuthContext";
 
@@ -55,6 +55,24 @@ export default function DutSwitcher({
     }
   }
 
+  async function handleRename(dut: DutInfo) {
+    // Every DUT can be renamed, `removable` or not: the id is the identity and
+    // does not move, so there is nothing here to protect. The built-in DUT is
+    // in fact the one that most needs this — it cannot be removed and re-added,
+    // so a rename was the only route it never had.
+    const next = window.prompt(`Rename "${dut.label}" (${dut.id}) to:`, dut.label);
+    if (next === null || next.trim() === dut.label) {
+      return;
+    }
+    setError("");
+    try {
+      await renameDut(dut.id, next.trim());
+      refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Rename failed");
+    }
+  }
+
   async function handleRemove(id: string) {
     if (!window.confirm(`Remove DUT "${id}"? Its serial connection will be closed.`)) {
       return;
@@ -102,17 +120,29 @@ export default function DutSwitcher({
             {duts.map((d) => (
               <div key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span>{d.label} <span style={{ color: "var(--faint)" }}>({d.id})</span></span>
-                {d.removable ? (
+                <span style={{ display: "flex", gap: "var(--space-1)", alignItems: "center" }}>
                   <button
                     className="btn"
-                    onClick={() => handleRemove(d.id)}
-                    style={{ padding: "2px 10px", color: "var(--danger)", borderColor: "var(--danger)" }}
+                    onClick={() => handleRename(d)}
+                    title={`Rename ${d.label} (the id ${d.id} does not change)`}
+                    style={{ padding: "2px 10px" }}
                   >
-                    Remove
+                    Rename
                   </button>
-                ) : (
-                  <span style={{ color: "var(--faint)", fontSize: 12 }}>fixed</span>
-                )}
+                  {d.removable ? (
+                    <button
+                      className="btn"
+                      onClick={() => handleRemove(d.id)}
+                      style={{ padding: "2px 10px", color: "var(--danger)", borderColor: "var(--danger)" }}
+                    >
+                      Remove
+                    </button>
+                  ) : (
+                    // "fixed" is about removal only, and used to read as though
+                    // the whole DUT were uneditable -- which it was.
+                    <span style={{ color: "var(--faint)", fontSize: 12 }}>not removable</span>
+                  )}
+                </span>
               </div>
             ))}
           </div>
