@@ -21,6 +21,9 @@
 #   NOTE (dev only): the Vite proxy targets 127.0.0.1:8000 (frontend/vite.config.ts);
 #   changing BACKEND_PORT in dev also requires updating that proxy target.
 #
+# If either child exits, the launcher stops the other one and exits non-zero:
+# half a stack keeps answering, out of a backend nobody meant to be running.
+#
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -147,7 +150,10 @@ if [ "$PROD" -eq 1 ] && [ -z "${DUT_NO_TLS:-}" ]; then
 fi
 
 # --- Stop child(ren) on exit ------------------------------------------------
+# PID_LABELS is a parallel array (bash 3.2 has no associative arrays) so the
+# supervisor at the bottom can name which half of the stack died.
 PIDS=()
+PID_LABELS=()
 cleanup() {
   echo
   echo "[start_lan] stopping..."
@@ -167,6 +173,7 @@ echo "[start_lan] backend  -> ${SCHEME}://${BIND_HOST}:${BACKEND_PORT}"
 (cd "$BACKEND_DIR" && exec python3 -m uvicorn app.main:app \
   --host "$BIND_HOST" --port "$BACKEND_PORT" ${UVICORN_TLS_ARGS[@]+"${UVICORN_TLS_ARGS[@]}"}) &
 PIDS+=($!)
+PID_LABELS+=("backend (uvicorn on :$BACKEND_PORT)")
 
 if [ "$PROD" -eq 1 ]; then
   echo "[start_lan] PROD: open ${SCHEME}://${BIND_HOST}:${BACKEND_PORT}   <-- UI + API + WS on one port"
@@ -174,6 +181,7 @@ else
   echo "[start_lan] frontend -> http://${BIND_HOST}:${FRONTEND_PORT}   <-- open this on the LAN"
   (cd "$FRONTEND_DIR" && exec npm run dev -- --host "$BIND_HOST" --port "$FRONTEND_PORT") &
   PIDS+=($!)
+  PID_LABELS+=("frontend (vite on :$FRONTEND_PORT)")
 fi
 
 # --- Guest onboarding: LAN URL + QR ------------------------------------------
@@ -254,4 +262,26 @@ if [ -n "$LAN_IP" ]; then
 fi
 
 echo "[start_lan] running. Press Ctrl-C to stop."
-wait
+
+# --- Supervise: one child dying takes the whole stack down -------------------
+# A backend that exits leaves the dev frontend up and answering, and because
+# frontend/vite.config.ts hard-codes the proxy target at 127.0.0.1:8000, the
+# page keeps working against whatever else happens to hold that port -- another
+# session's backend, or nothing at all. `wait` waited for BOTH, so that state
+# could last as long as the operator's patience.
+#
+# Polling rather than `wait -n`, which needs bash 4.3; macOS ships 3.2.57 and
+# this launcher is run there. One second is plenty of resolution for a launcher.
+while :; do
+  for ((i = 0; i < ${#PIDS[@]}; i++)); do
+    if ! kill -0 "${PIDS[$i]}" 2>/dev/null; then
+      status=0
+      wait "${PIDS[$i]}" 2>/dev/null || status=$?
+      echo >&2
+      echo "[start_lan] ERROR: ${PID_LABELS[$i]} exited (status $status)." >&2
+      echo "[start_lan] Stopping the rest: half a stack serves stale code without saying so." >&2
+      exit 1
+    fi
+  done
+  sleep 1
+done

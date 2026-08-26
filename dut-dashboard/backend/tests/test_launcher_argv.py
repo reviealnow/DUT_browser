@@ -40,8 +40,13 @@ SHIMMED = ("python3", "npm", "pip", "openssl", "git", "ipconfig", "hostname", "n
 
 
 class LauncherArgvTests(unittest.TestCase):
-    def _run(self, *args: str, returncode: int = 0, **env_extra: str) -> list[list[str]]:
+    # A launcher whose children have all exited is a dead launcher, and it now
+    # says so and exits 1 rather than sitting in `wait`. Every shim exits
+    # immediately, so that is the normal outcome of a *successful* start here --
+    # the argv assertions below are made on what got recorded before it.
+    def _run(self, *args: str, returncode: int = 1, **env_extra: str) -> list[list[str]]:
         """Run the launcher in a fake tree; return every recorded argv, in order."""
+        self.last_result: subprocess.CompletedProcess[str]
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "scripts").mkdir()
@@ -91,6 +96,7 @@ class LauncherArgvTests(unittest.TestCase):
                 text=True,
                 timeout=60,
             )
+            self.last_result = result
             self.assertEqual(result.returncode, returncode, result.stdout + result.stderr)
 
             if not log.exists():
@@ -163,6 +169,17 @@ class LauncherArgvTests(unittest.TestCase):
     def test_an_unknown_argument_is_refused_before_anything_starts(self) -> None:
         """A typo'd flag must not quietly launch the dev pair instead."""
         self.assertEqual(self._run("--produciton", returncode=2), [])
+
+    # -- the supervisor ------------------------------------------------------
+
+    def test_a_dead_child_brings_the_launcher_down_instead_of_hanging(self) -> None:
+        """Every shim exits at once, so this is the backend dying a moment after
+        it started. The launcher must notice, name it, and exit non-zero rather
+        than sit in `wait` with a live frontend proxying to a backend it does
+        not own."""
+        self._run(returncode=1)
+        self.assertIn("backend", self.last_result.stderr)
+        self.assertIn("exited", self.last_result.stderr)
 
 
 if __name__ == "__main__":
