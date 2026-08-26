@@ -67,40 +67,44 @@ export default function FleetSection({
 
   return (
     <>
-      <Card
-        title="Fleet"
-        subtitle={`${fleet.length} registered · ${fleet.filter((e) => e.serialOpen).length} with a console open`}
-      >
-        <div className="fleet-section-toolbar">
-          <div className="setting-hint">
-            Backhaul figures are the last capture, not a live feed: reading one occupies that
-            DUT&apos;s serial console, so nothing here refreshes on its own.
-          </div>
-          {canCapture ? (
-            <button
-              type="button"
-              className="btn"
-              onClick={captureAll}
-              disabled={capturingAll || meshOpen.length === 0}
-              title={
-                meshOpen.length === 0
-                  ? "No DUT with a backhaul to measure has a console open"
-                  : "Capture every DUT in turn — nodes first, then roots"
-              }
-            >
-              {capturingAll ? "Capturing…" : `Capture all (${meshOpen.length})`}
-            </button>
-          ) : null}
-        </div>
-        {error ? <div className="flash" style={{ color: "var(--danger)" }}>{error}</div> : null}
-      </Card>
-
       {/* Above the cards on purpose. The cards are what this dashboard has
           measured; this is what the mesh actually contains, and when the two
           disagree the reader needs to meet the fuller list first. */}
       <Card title="Mesh topology" subtitle="As the DUT itself reports it">
         <MeshTopologySection fleet={fleet} />
       </Card>
+
+      {error ? <div className="flash" style={{ color: "var(--danger)" }}>{error}</div> : null}
+
+      {/* The count, the caveat and the capture button all describe the grid
+          below, so they sit against it rather than in a card of their own. That
+          card held nothing else, and its title repeated the page's: three
+          headings stacked up before any data, one of them empty. */}
+      <div className="fleet-section-toolbar fleet-grid-toolbar">
+        <div className="setting-hint">
+          <strong className="fleet-count">
+            {fleet.length} registered · {fleet.filter((e) => e.serialOpen).length} with a console
+            open.
+          </strong>{" "}
+          Backhaul figures are the last capture, not a live feed: reading one occupies that
+          DUT&apos;s serial console, so nothing here refreshes on its own.
+        </div>
+        {canCapture ? (
+          <button
+            type="button"
+            className="btn"
+            onClick={captureAll}
+            disabled={capturingAll || meshOpen.length === 0}
+            title={
+              meshOpen.length === 0
+                ? "No DUT with a backhaul to measure has a console open"
+                : "Capture every DUT in turn — nodes first, then roots"
+            }
+          >
+            {capturingAll ? "Capturing…" : `Capture all (${meshOpen.length})`}
+          </button>
+        ) : null}
+      </div>
 
       <div className="fleet-grid">
         {fleet.map((entry) => (
