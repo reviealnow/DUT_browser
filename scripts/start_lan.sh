@@ -21,9 +21,10 @@
 #   NOTE (dev only): the Vite proxy targets 127.0.0.1:8000 (frontend/vite.config.ts);
 #   changing BACKEND_PORT in dev also requires updating that proxy target.
 #
-# If either child exits, the launcher stops the other one and exits non-zero:
-# half a stack keeps answering, out of a backend nobody meant to be running.
-# For the same reason it refuses to start at all on a port already taken.
+# If either child exits -- or stays STOPPED, which holds the port while serving
+# nothing -- the launcher stops the other one and exits non-zero: half a stack
+# keeps answering, out of a backend nobody meant to be running. For the same
+# reason it refuses to start at all on a port already taken.
 #
 set -euo pipefail
 
@@ -96,6 +97,7 @@ CHECK_PORTS=("$BACKEND_PORT:backend")
 [ "$PROD" -eq 1 ] || CHECK_PORTS+=("$FRONTEND_PORT:frontend")
 
 PORT_CONFLICT=0
+STOPPED_HOLDER=0
 if command -v lsof >/dev/null 2>&1; then
   for entry in "${CHECK_PORTS[@]}"; do
     port="${entry%%:*}"
@@ -105,7 +107,16 @@ if command -v lsof >/dev/null 2>&1; then
     PORT_CONFLICT=1
     echo "[start_lan] ERROR: $role port $port is already in use by:" >&2
     for pid in $holders; do
-      echo "[start_lan]   PID $pid  $(ps -o command= -p "$pid" 2>/dev/null | cut -c1-90)" >&2
+      # State, not just the command line. A holder in state T is STOPPED: it
+      # still owns the port but runs nothing, so `kill` sits pending and looks
+      # like it did nothing at all. That cost a deploy a long detour once --
+      # say it here rather than leaving it for `ps` to reveal later. The state
+      # letter carries flags (a stopped, niced process reads "TN"), so match
+      # the prefix.
+      state="$(ps -o state= -p "$pid" 2>/dev/null | tr -d ' ')"
+      label=""
+      case "$state" in T*) label="  [STOPPED]"; STOPPED_HOLDER=1 ;; esac
+      echo "[start_lan]   PID $pid$label  $(ps -o command= -p "$pid" 2>/dev/null | cut -c1-90)" >&2
     done
   done
 else
@@ -113,6 +124,12 @@ else
 fi
 
 if [ "$PORT_CONFLICT" -eq 1 ]; then
+  if [ "$STOPPED_HOLDER" -eq 1 ]; then
+    echo "[start_lan] A holder marked [STOPPED] is not running: it will not act on" >&2
+    echo "[start_lan] SIGTERM until it is resumed, so a plain \`kill\` appears to do" >&2
+    echo "[start_lan] nothing. Resume it first, and the pending signal lands:" >&2
+    echo "[start_lan]     kill -CONT <PID>   # then it exits on the kill you already sent" >&2
+  fi
   echo "[start_lan] Nothing was started. Either stop the process above:" >&2
   echo "[start_lan]     kill <PID>" >&2
   echo "[start_lan] or launch on ports nobody holds:" >&2
@@ -206,6 +223,18 @@ cleanup() {
   echo
   echo "[start_lan] stopping..."
   for pid in ${PIDS[@]+"${PIDS[@]}"}; do
+    # SIGCONT first, or this whole guard is decorative. A stopped child never
+    # runs its SIGTERM handler -- and uvicorn has one -- so a bare `kill` leaves
+    # it stopped and STILL HOLDING ITS PORT, which is exactly the state the
+    # supervisor below exits over.
+    #
+    # The kernel does resume an orphaned process group that has stopped members,
+    # but only at the moment the group *becomes* orphaned; a group that was
+    # already orphaned gets nothing, and whether that applies depends on how the
+    # launcher was invoked. Measured both ways: relying on it leaves the child
+    # alive. Sending it ourselves makes the outcome the same everywhere, and is
+    # harmless for a child that is already running.
+    kill -CONT "$pid" 2>/dev/null || true
     kill "$pid" 2>/dev/null || true
   done
 }
@@ -324,7 +353,27 @@ echo "[start_lan] running. Press Ctrl-C to stop."
 #
 # Polling rather than `wait -n`, which needs bash 4.3; macOS ships 3.2.57 and
 # this launcher is run there. One second is plenty of resolution for a launcher.
+#
+# "Alive" is not enough, though: `kill -0` SUCCEEDS for a process in state T,
+# so a STOPPED child reads as healthy. That is not academic -- a deploy host
+# was found with a stopped backend and a stopped Vite holding :8000 and :5173
+# for hours, serving nothing, with SIGTERM sitting pending against them. Treat
+# a child that stays stopped as dead.
+#
+# Debounced, because Ctrl-C's neighbour Ctrl-Z is legitimate: SIGTSTP goes to
+# the whole foreground process group, so suspending the launcher and `fg`-ing
+# it back must NOT kill the stack, and a child can still read as T for an
+# instant after the group resumes. A real `fg` clears in milliseconds; a child
+# that is genuinely stuck stays T forever. Three consecutive seconds separates
+# them. Anything we cannot read a state for counts as fine -- `kill -0` above
+# already covers actual death, and a `ps` hiccup must never kill a live stack.
+STOP_STRIKES=()
+for ((i = 0; i < ${#PIDS[@]}; i++)); do STOP_STRIKES+=(0); done
+STOP_STRIKE_LIMIT=3
+
 while :; do
+  # One `ps` per poll for every child, not one per child.
+  PS_STATES="$(ps -o pid=,state= $(for p in "${PIDS[@]}"; do printf -- '-p %s ' "$p"; done) 2>/dev/null || true)"
   for ((i = 0; i < ${#PIDS[@]}; i++)); do
     if ! kill -0 "${PIDS[$i]}" 2>/dev/null; then
       status=0
@@ -334,6 +383,24 @@ while :; do
       echo "[start_lan] Stopping the rest: half a stack serves stale code without saying so." >&2
       exit 1
     fi
+    # The state letter carries flags -- a stopped, niced process reads "TN" --
+    # so match the prefix. Only T: Linux's "t" is a tracing stop, which means
+    # somebody attached a debugger on purpose.
+    child_state="$(echo "$PS_STATES" | awk -v p="${PIDS[$i]}" '$1 == p { print $2 }')"
+    case "$child_state" in
+      T*)
+        STOP_STRIKES[$i]=$(( ${STOP_STRIKES[$i]} + 1 ))
+        if [ "${STOP_STRIKES[$i]}" -ge "$STOP_STRIKE_LIMIT" ]; then
+          echo >&2
+          echo "[start_lan] ERROR: ${PID_LABELS[$i]} has been STOPPED (state $child_state) for" >&2
+          echo "[start_lan] ${STOP_STRIKE_LIMIT}s. It still holds its port but runs nothing, and it will not" >&2
+          echo "[start_lan] act on SIGTERM until resumed (kill -CONT ${PIDS[$i]})." >&2
+          echo "[start_lan] Stopping the rest: a port held by a stopped process serves nothing." >&2
+          exit 1
+        fi
+        ;;
+      *) STOP_STRIKES[$i]=0 ;;
+    esac
   done
   sleep 1
 done
