@@ -66,6 +66,7 @@ function entry(overrides: Partial<FleetEntry> = {}): FleetEntry {
     remote: null,
     mgmtUrl: "",
     model: null,
+    modelCores: null,
     meshProbe: null,
     backhaul: {
       applicable: true,
@@ -300,6 +301,43 @@ describe("the four things the backhaul rows can say", () => {
       },
     }));
     expect(row("Children on backhaul")).toBe("-42 dBm · ath32 configured (!!3290-1)");
+  });
+});
+
+describe("a CPU reading older than the device under it", () => {
+  /* The card shows CPU from the last snapshot, whatever hardware that was
+     recorded on — and a registry entry outlives the device cabled to it. The
+     bench hit this exactly: an AP6_420E card carrying "4 cores" from a snapshot
+     taken while that same entry was cabled to an 840E. Measured on the device,
+     a 420E has 2.
+
+     Four states, and only one of them is a disagreement. Treating the other
+     three as one would put a warning on every card that has simply not been
+     connected yet. */
+
+  it("says nothing when the snapshot and the model agree", () => {
+    show(entry({ model: "AP6_420E", modelCores: 2, cpuBusyPct: 5, coreCount: 2 }));
+    expect(screen.getByText("busy · 2 cores")).toBeTruthy();
+    expect(screen.queryByText(/another device/)).toBeNull();
+  });
+
+  it("names the mismatch when the snapshot is another device's", () => {
+    show(entry({ model: "AP6_420E", modelCores: 2, cpuBusyPct: 5, coreCount: 4 }));
+    expect(screen.getByText("busy · 4 cores")).toBeTruthy();
+    expect(screen.getByText(/AP6_420E has 2 — this reading is another device's/)).toBeTruthy();
+  });
+
+  it("stays quiet when no console has named the model", () => {
+    // No model is "we do not know", not "they disagree". A DUT nobody has
+    // opened a console on must not be accused of carrying a stale reading.
+    show(entry({ model: null, modelCores: null, cpuBusyPct: 5, coreCount: 4 }));
+    expect(screen.queryByText(/another device/)).toBeNull();
+  });
+
+  it("stays quiet before the first snapshot", () => {
+    show(entry({ model: "AP6_420E", modelCores: 2, cpuBusyPct: null, coreCount: 0 }));
+    expect(screen.getByText("Awaiting snapshot")).toBeTruthy();
+    expect(screen.queryByText(/another device/)).toBeNull();
   });
 });
 

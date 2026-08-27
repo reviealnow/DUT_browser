@@ -1614,6 +1614,17 @@ body {
 .fleet-card-identity {
   font-variant-numeric: tabular-nums;
 }
+/* A CPU reading older than the device it sits under. Amber, not red: nothing
+   has failed — the snapshot is simply another machine's. */
+.kpi-sub-mismatch {
+  color: var(--warn, #b26a00);
+}
+.kpi-note {
+  color: var(--warn, #b26a00);
+  font-size: 11px;
+  line-height: 1.35;
+  margin-top: 2px;
+}
 .fleet-detail-block:has(> .fleet-peer-table) { overflow-x: auto; }
 
 /* Mesh topology: seven columns, one of them a MAC. Same treatment as the peer

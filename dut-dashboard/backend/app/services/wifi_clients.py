@@ -40,7 +40,7 @@ _SNR_RE = re.compile(r"\bSNR\b\s*[:=]\s*(-?\d+)")
 _BAND_RE = re.compile(r"Operating band\s*[:=]\s*(\S+)")
 
 
-def band_for_iface(iface: str, plan: "dut_model.BandPlan | None" = None) -> str:
+def band_for_iface(iface: str, plan: "dut_model.ModelSpec | None" = None) -> str:
     """Guess a radio band from athN, given the model's band layout.
 
     A **fallback only**, for output that carries no frequency; prefer
@@ -57,13 +57,13 @@ def band_for_iface(iface: str, plan: "dut_model.BandPlan | None" = None) -> str:
       second one is not "6G". It is a number that model cannot produce, and
       "?" says so instead of inventing a band the hardware does not have.
 
-    Callers that know the model pass `dut_model.plan_for(ctx.model)`; the
+    Callers that know the model pass `dut_model.spec_for(ctx.model)`; the
     default is the old assumption, so callers that do not are no worse off.
     """
     m = re.match(r"ath(\d+)", iface)
     if not m:
         return "?"
-    layout = plan or dut_model.DEFAULT_PLAN
+    layout = plan or dut_model.DEFAULT_SPEC
     index = int(m.group(1)) // layout.per_band
     if index < len(layout.bands):
         return layout.bands[index]
@@ -155,7 +155,7 @@ def discover_vaps(iwconfig_text: str) -> list[dict]:
 
 
 def parse_wlanconfig_list(
-    text: str, iface: str, band: str | None = None, plan: "dut_model.BandPlan | None" = None
+    text: str, iface: str, band: str | None = None, plan: "dut_model.ModelSpec | None" = None
 ) -> list[dict]:
     """Parse `wlanconfig <iface> list` into client dicts. Header-only (no clients)
     returns []. Verbose SNR/band tail (if present) attaches to the latest client.

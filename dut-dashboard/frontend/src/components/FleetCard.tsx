@@ -151,10 +151,23 @@ export default function FleetCard({
   // role rather than guessing one.
   const meshRole = useMeshTopology().roleFor(entry);
   const cpu = entry.cpuBusyPct === null ? "—" : `${entry.cpuBusyPct}%`;
+  // The CPU figures come from the last snapshot — whatever hardware that was
+  // recorded on. A registry entry outlives the device cabled to it, so a card
+  // can carry an 840E's four cores under the name of the 420E now on the desk,
+  // with nothing on screen saying so. `Last snapshot` is the only clue and it
+  // sits six rows further down.
+  //
+  // Both numbers have to be real for this to mean anything: no model (no
+  // console yet) and no snapshot are each "no answer", not a disagreement.
+  const coresDisagree =
+    entry.modelCores !== null && entry.coreCount > 0 && entry.coreCount !== entry.modelCores;
   const cpuSub =
     entry.cpuBusyPct === null
       ? "Awaiting snapshot"
       : `busy · ${entry.coreCount} core${entry.coreCount === 1 ? "" : "s"}`;
+  const coresNote = coresDisagree
+    ? `${entry.model} has ${entry.modelCores} — this reading is another device's`
+    : null;
 
   const onCloseSerial = useCallback(() => {
     if (!window.confirm(`Close the serial session on ${entry.label}?`)) {
@@ -258,7 +271,12 @@ export default function FleetCard({
         </div>
         <div className="fleet-card-cpu">
           <div className="kpi-value">{cpu}</div>
-          <div className="kpi-sub">{cpuSub}</div>
+          <div className={`kpi-sub${coresNote ? " kpi-sub-mismatch" : ""}`}>{cpuSub}</div>
+          {/* Said out loud rather than left to the reader to spot: the number
+              above is a measurement of hardware this card is no longer about.
+              Not styled as an alarm — nothing is broken, the reading is simply
+              older than the device. */}
+          {coresNote ? <div className="kpi-note">{coresNote}</div> : null}
         </div>
         <FleetBandBadge reco={reco} />
         <dl className="stat-list fleet-remote-facts">

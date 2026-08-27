@@ -39,6 +39,10 @@ export type FleetEntry = {
    *  has ever opened a console on. Named on the card because the interface
    *  numbering, and so which band an athN belongs to, depends on it. */
   model: string | null;
+  /** What this DUT's model says its core count is, or null when the model is
+   *  unknown. Compared against `coreCount`, which comes from the last snapshot
+   *  whatever hardware that was recorded on. */
+  modelCores: number | null;
   /** What the DUT itself last said about its mesh, or null before any probe.
    *  A sibling of `backhaul`, not part of it: that is what a console measured
    *  off this DUT's radios, this is what the device reported when asked. */
@@ -91,6 +95,7 @@ type RegistryEntry = Pick<
   | "remote"
   | "mgmtUrl"
   | "model"
+  | "modelCores"
   | "meshProbe"
   | "backhaul"
 >;
@@ -106,6 +111,7 @@ function fromRegistry(d: DutInfo): RegistryEntry {
       : null,
     mgmtUrl: d.mgmt_url ?? "",
     model: d.model ?? null,
+    modelCores: d.model_cores ?? null,
     meshProbe: d.mesh_probe ?? null,
     backhaul: {
       applicable: d.backhaul.applicable,
@@ -248,7 +254,7 @@ export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () =>
   }, []);
 
   // Derive the view rows on each tick from the registry order + live refs.
-  const fleet = duts.map(({ id, label, serialOpen, lastSerial, remote, mgmtUrl, model, meshProbe, backhaul }) => {
+  const fleet = duts.map(({ id, label, serialOpen, lastSerial, remote, mgmtUrl, model, modelCores, meshProbe, backhaul }) => {
     const base = baseRef.current.get(id) ?? null;
     const cpu = cpuFromSnapshot(base);
     const lastActivity = lastActivityRef.current.get(id) ?? 0;
@@ -268,6 +274,7 @@ export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () =>
       remote,
       mgmtUrl,
       model,
+      modelCores,
       meshProbe,
       backhaul,
       cpuBusyPct: cpu.cpuBusyPct,

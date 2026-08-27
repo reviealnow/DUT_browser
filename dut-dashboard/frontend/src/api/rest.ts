@@ -356,6 +356,10 @@ export type DutInfo = {
   model: string | null;
   vaps_per_band: number;
   bands: string[];
+  /** This model's CPU core count, or null when the model is unknown. Null is
+   *  not "unknown so assume the usual": a guessed number here would invent the
+   *  hardware mismatch the card uses this to detect. */
+  model_cores: number | null;
   /** Where this DUT's console lives, or null when it is cabled to this
    *  machine. Connecting and disconnecting it are SSH operations; the backhaul
    *  capture is not, which is why the capture is not nested in here. */

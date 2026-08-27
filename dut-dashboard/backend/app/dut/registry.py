@@ -632,6 +632,13 @@ class DutRegistry:
                     # so a consumer mapping athN -> band needs the list, not
                     # just the width.
                     "bands": list(dut_model.bands_for(ctx.model)),
+                    # This model's core count, or null when the model is
+                    # unknown. Published so a reader can tell a snapshot
+                    # recorded on other hardware from one taken here -- the
+                    # card shows CPU from the last snapshot whatever device
+                    # that was, and 4 cores under an AP6_420E is the shape of
+                    # that mistake.
+                    "model_cores": dut_model.cores_for(ctx.model),
                     "remote": None if ctx.remote is None else {
                         "host": ctx.remote["host"],
                         "port": ctx.remote["port"],
