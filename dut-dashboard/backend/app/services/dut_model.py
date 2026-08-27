@@ -50,23 +50,31 @@ _MODEL_RE = re.compile(r"(?m)^\s*(AP6)_?(\d{3})([EX]?)\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
-class BandPlan:
-    """How many VAPs sit in each band, and which bands the model actually has."""
+class ModelSpec:
+    """Everything this codebase knows a model decides.
+
+    One table rather than one per property. `cores` arrived after `per_band`
+    and `bands`, and a second dict keyed by the same model names is how two
+    tables come to disagree about which models exist.
+    """
 
     per_band: int
     bands: tuple[str, ...]
+    #: Physical CPU cores. Not a band fact, but a model fact, and the card needs
+    #: it to notice a snapshot recorded on different hardware.
+    cores: int
 
 
 # What the code assumed for every model before any of this existed. Kept as the
 # fallback for an unrecognised device so that case is no worse off than it was.
-DEFAULT_PLAN = BandPlan(per_band=16, bands=(BAND_24, BAND_5, BAND_6))
+DEFAULT_SPEC = ModelSpec(per_band=16, bands=(BAND_24, BAND_5, BAND_6), cores=4)
 
-_PLANS: dict[str, BandPlan] = {
-    "AP6_420": BandPlan(8, (BAND_24, BAND_5)),
-    "AP6_420E": BandPlan(8, (BAND_24, BAND_5, BAND_6)),
-    "AP6_420X": BandPlan(8, (BAND_24, BAND_5)),
-    "AP6_840": BandPlan(16, (BAND_24, BAND_5)),
-    "AP6_840E": BandPlan(16, (BAND_24, BAND_5, BAND_6)),
+_SPECS: dict[str, ModelSpec] = {
+    "AP6_420": ModelSpec(8, (BAND_24, BAND_5), cores=2),
+    "AP6_420E": ModelSpec(8, (BAND_24, BAND_5, BAND_6), cores=2),
+    "AP6_420X": ModelSpec(8, (BAND_24, BAND_5), cores=2),
+    "AP6_840": ModelSpec(16, (BAND_24, BAND_5), cores=4),
+    "AP6_840E": ModelSpec(16, (BAND_24, BAND_5, BAND_6), cores=4),
 }
 
 
@@ -82,21 +90,33 @@ def detect_model(text: str) -> str | None:
     return f"AP6_{match.group(2)}{match.group(3).upper()}"
 
 
-def plan_for(model: str | None) -> BandPlan:
-    """The band layout for a model, or the old sixteen-wide assumption."""
+def spec_for(model: str | None) -> ModelSpec:
+    """What is known about a model, or the old sixteen-wide assumption."""
     if not model:
-        return DEFAULT_PLAN
+        return DEFAULT_SPEC
     canonical = detect_model(model)
     if canonical is None:
-        return DEFAULT_PLAN
-    return _PLANS.get(canonical, DEFAULT_PLAN)
+        return DEFAULT_SPEC
+    return _SPECS.get(canonical, DEFAULT_SPEC)
 
 
 def vaps_per_band(model: str | None) -> int:
     """How many VAPs this model puts in each band."""
-    return plan_for(model).per_band
+    return spec_for(model).per_band
 
 
 def bands_for(model: str | None) -> tuple[str, ...]:
     """The radio bands this model has, in interface order."""
-    return plan_for(model).bands
+    return spec_for(model).bands
+
+
+def cores_for(model: str | None) -> int | None:
+    """This model's CPU core count, or None when the model is unknown.
+
+    None rather than a default on purpose. The caller compares this against a
+    snapshot's core count to spot a reading taken on other hardware, and a
+    guessed number there would manufacture the very mismatch it is looking for.
+    """
+    if not model or detect_model(model) not in _SPECS:
+        return None
+    return spec_for(model).cores

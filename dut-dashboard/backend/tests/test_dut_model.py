@@ -22,10 +22,11 @@ from __future__ import annotations
 import unittest
 
 from app.services.dut_model import (
-    DEFAULT_PLAN,
+    DEFAULT_SPEC,
     bands_for,
+    cores_for,
     detect_model,
-    plan_for,
+    spec_for,
     vaps_per_band,
 )
 from app.services.wifi_clients import band_for_iface
@@ -72,25 +73,26 @@ class DetectModelTests(unittest.TestCase):
 # The full spec, as given. Width AND which bands exist -- they vary
 # independently, and only the E models have a 6GHz radio.
 SPEC = {
-    "AP6_420": (8, ("2.4G", "5G")),
-    "AP6_420E": (8, ("2.4G", "5G", "6G")),
-    "AP6_420X": (8, ("2.4G", "5G")),
-    "AP6_840": (16, ("2.4G", "5G")),
-    "AP6_840E": (16, ("2.4G", "5G", "6G")),
+    "AP6_420": (8, ("2.4G", "5G"), 2),
+    "AP6_420E": (8, ("2.4G", "5G", "6G"), 2),
+    "AP6_420X": (8, ("2.4G", "5G"), 2),
+    "AP6_840": (16, ("2.4G", "5G"), 4),
+    "AP6_840E": (16, ("2.4G", "5G", "6G"), 4),
 }
 
 
-class BandPlanTests(unittest.TestCase):
+class ModelSpecTests(unittest.TestCase):
     def test_every_model_in_the_spec(self) -> None:
-        for model, (per_band, bands) in SPEC.items():
+        for model, (per_band, bands, cores) in SPEC.items():
             with self.subTest(model=model):
                 self.assertEqual(vaps_per_band(model), per_band)
                 self.assertEqual(bands_for(model), bands)
+                self.assertEqual(cores_for(model), cores)
 
     def test_only_the_E_models_have_a_6ghz_radio(self) -> None:
         """The suffix is part of the identity, not decoration: 420 and 420X are
         the same width as 420E and a different set of bands."""
-        for model, (_, bands) in SPEC.items():
+        for model, (_, bands, _cores) in SPEC.items():
             with self.subTest(model=model):
                 self.assertEqual("6G" in bands, model.endswith("E"))
 
@@ -99,15 +101,33 @@ class BandPlanTests(unittest.TestCase):
         code did for every model before this existed."""
         for unknown in (None, "AP6_999", "something else", ""):
             with self.subTest(model=unknown):
-                self.assertIs(plan_for(unknown), DEFAULT_PLAN)
-        self.assertEqual(DEFAULT_PLAN.per_band, 16)
-        self.assertEqual(DEFAULT_PLAN.bands, ("2.4G", "5G", "6G"))
+                self.assertIs(spec_for(unknown), DEFAULT_SPEC)
+        self.assertEqual(DEFAULT_SPEC.per_band, 16)
+        self.assertEqual(DEFAULT_SPEC.bands, ("2.4G", "5G", "6G"))
+
+    def test_an_unknown_model_has_no_core_count_rather_than_a_default(self) -> None:
+        """A guessed core count would manufacture the very mismatch the caller
+        is looking for: it compares this against a snapshot's core count to spot
+        a reading taken on other hardware."""
+        for unknown in (None, "AP6_999", "something else", ""):
+            with self.subTest(model=unknown):
+                self.assertIsNone(cores_for(unknown))
+
+    def test_the_bench_420E_really_has_two_cores(self) -> None:
+        """Measured, not taken from the spec sheet:
+
+            grep -c ^processor /proc/cpuinfo  ->  2
+
+        on the DUT whose prompt reads AP6_420E#. The dashboard was showing
+        4 cores for it, from a snapshot recorded when this registry entry was
+        cabled to an 840E."""
+        self.assertEqual(cores_for("AP6_420E"), 2)
 
 
 class BandForIfaceTests(unittest.TestCase):
     def test_matches_the_bench_420E_on_every_active_vap(self) -> None:
         """The whole point. Each expectation is what the device said."""
-        plan = plan_for("AP6_420E")
+        plan = spec_for("AP6_420E")
         for iface, band in BENCH_420E.items():
             with self.subTest(iface=iface):
                 self.assertEqual(band_for_iface(iface, plan), band)
@@ -117,14 +137,14 @@ class BandForIfaceTests(unittest.TestCase):
         this stays green and the test above goes red -- which is the pair that
         says the parameter is doing work."""
         wrong = {
-            iface: band_for_iface(iface, DEFAULT_PLAN)
+            iface: band_for_iface(iface, DEFAULT_SPEC)
             for iface, band in BENCH_420E.items()
-            if band_for_iface(iface, DEFAULT_PLAN) != band
+            if band_for_iface(iface, DEFAULT_SPEC) != band
         }
         self.assertEqual(wrong, {"ath8": "2.4G", "ath9": "2.4G", "ath16": "5G", "ath17": "5G"})
 
     def test_the_840E_layout_is_unchanged(self) -> None:
-        plan = plan_for("AP6_840E")
+        plan = spec_for("AP6_840E")
         self.assertEqual(band_for_iface("ath3", plan), "2.4G")
         self.assertEqual(band_for_iface("ath15", plan), "2.4G")
         self.assertEqual(band_for_iface("ath20", plan), "5G")
@@ -144,7 +164,7 @@ class BandForIfaceTests(unittest.TestCase):
                          "ath32": "6G", "ath47": "6G"},
         }
         for model, ifaces in expected.items():
-            plan = plan_for(model)
+            plan = spec_for(model)
             for iface, band in ifaces.items():
                 with self.subTest(model=model, iface=iface):
                     self.assertEqual(band_for_iface(iface, plan), band)
@@ -159,12 +179,12 @@ class BandForIfaceTests(unittest.TestCase):
         """
         for model in ("AP6_420", "AP6_420X"):
             with self.subTest(model=model):
-                self.assertEqual(band_for_iface("ath16", plan_for(model)), "?")
-                self.assertEqual(band_for_iface("ath23", plan_for(model)), "?")
-        self.assertEqual(band_for_iface("ath32", plan_for("AP6_840")), "?")
+                self.assertEqual(band_for_iface("ath16", spec_for(model)), "?")
+                self.assertEqual(band_for_iface("ath23", spec_for(model)), "?")
+        self.assertEqual(band_for_iface("ath32", spec_for("AP6_840")), "?")
         # ...while the E models of the same width do have it.
-        self.assertEqual(band_for_iface("ath16", plan_for("AP6_420E")), "6G")
-        self.assertEqual(band_for_iface("ath32", plan_for("AP6_840E")), "6G")
+        self.assertEqual(band_for_iface("ath16", spec_for("AP6_420E")), "6G")
+        self.assertEqual(band_for_iface("ath32", spec_for("AP6_840E")), "6G")
 
     def test_the_default_is_still_the_840E_layout(self) -> None:
         """Callers that pass nothing behave exactly as before."""
@@ -172,7 +192,7 @@ class BandForIfaceTests(unittest.TestCase):
         self.assertEqual(band_for_iface("ath40"), "6G")
 
     def test_a_non_ath_interface_is_still_unknown(self) -> None:
-        self.assertEqual(band_for_iface("eth0", plan_for("AP6_420E")), "?")
+        self.assertEqual(band_for_iface("eth0", spec_for("AP6_420E")), "?")
 
 
 if __name__ == "__main__":
