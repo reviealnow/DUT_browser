@@ -27,6 +27,7 @@ from pathlib import Path
 from app.config import DUTS_FILE, snapshot_file_for
 from app.parser.sysmon_parser import SysMonParser
 from app.serial.serial_worker import SerialWorker
+from app.services import dut_model
 from app.services.console_buffer import ConsoleBuffer
 from app.services.snapshot_store import SnapshotStore
 from app.websocket.terminal_manager import TerminalManager
@@ -192,6 +193,13 @@ class DutContext:
     # an admin. Empty means the firmware upgrade refuses rather than guessing a
     # host to PUT an image at.
     mgmt_url: str = ""
+    # Which AP6 this is ("AP6_420E"), read from the console prompt as it streams
+    # past. It decides how many VAPs sit in each band, and therefore which band
+    # an athN belongs to when the output states no frequency -- eight per band
+    # on the 420 family, sixteen on the 840. None until a prompt has been seen;
+    # `dut_model.vaps_per_band(None)` then answers sixteen, which is what the
+    # code assumed for every model before this field existed.
+    model: str | None = None
     # Server-side SSH configuration. describe() deliberately exposes only the
     # Pi identity needed by FleetStrip, never the user or private-key path.
     remote: dict | None = None
@@ -332,6 +340,7 @@ class DutRegistry:
             event["dut_id"] = dut_id
             snapshot_store.observe(event)
             console_buffer.observe(event)
+            self._observe_model(dut_id, event)
             ws_manager.emit_from_thread(event)
 
         parser = SysMonParser(on_event=on_event)
@@ -399,6 +408,54 @@ class DutRegistry:
             ctx.label = cleaned
             self._save_locked()
         return ctx
+
+    def _observe_model(self, dut_id: str, event: dict) -> None:
+        """Read the model out of console output as it streams past.
+
+        The prompt (``AP6_420E#``) arrives on its own, unasked, on every DUT
+        and in replay alike, so this costs no serial time -- which matters:
+        the connect-time capture races sysMon for the line and loses, so
+        anything that needs a command would be unreliable here.
+
+        Runs on the SerialWorker thread, inside the per-DUT ``on_event``
+        closure, on every console line. Kept cheap on the hot path: once a
+        model is known this returns on an attribute read, and the regex only
+        sees lines while it is not.
+
+        Deliberately never *clears* a known model. A blank line or a bootloader
+        prompt saying nothing about the hardware is not evidence that the
+        hardware changed, and a band mapping that flickers back to the default
+        mid-session would be worse than one that is merely stale.
+        """
+        try:
+            ctx = self._duts.get(dut_id)
+            if ctx is None or ctx.model is not None:
+                return
+            event_type = event.get("type")
+            if event_type == "console_line":
+                texts = [event.get("text")]
+            elif event_type == "console_line_batch":
+                texts = event.get("lines") or []
+            else:
+                return
+            for text in texts:
+                if not isinstance(text, str):
+                    continue
+                found = dut_model.detect_model(text)
+                if found:
+                    self.record_model(dut_id, found)
+                    return
+        except Exception:  # noqa: BLE001 -- never let this break the stream
+            return
+
+    def record_model(self, dut_id: str, model: str) -> None:
+        """Store a DUT's model and persist it. Best-effort, like the rest."""
+        with self._lock:
+            ctx = self._duts.get(dut_id)
+            if ctx is None or ctx.model == model:
+                return
+            ctx.model = model
+            self._save_locked()
 
     def record_serial_params(self, dut_id: str, port: str, baudrate: int) -> None:
         """Remember a DUT's last successful serial-open params and persist them.
@@ -564,6 +621,12 @@ class DutRegistry:
                     "removable": ctx.dut_id != DEFAULT_DUT_ID,
                     "last_serial": ctx.last_serial,
                     "mgmt_url": ctx.mgmt_url,
+                    # Null until a prompt has been seen. Published because the
+                    # band an athN belongs to depends on it, so a caller
+                    # reading interfaces out of this API needs to know which
+                    # numbering applies.
+                    "model": ctx.model,
+                    "vaps_per_band": dut_model.vaps_per_band(ctx.model),
                     "remote": None if ctx.remote is None else {
                         "host": ctx.remote["host"],
                         "port": ctx.remote["port"],
@@ -613,6 +676,8 @@ class DutRegistry:
             entry["mgmt_url"] = ctx.mgmt_url
         if ctx.remote is not None:
             entry["remote"] = ctx.remote
+        if ctx.model:
+            entry["model"] = ctx.model
         return entry
 
     def _save_locked(self) -> None:
@@ -626,6 +691,12 @@ class DutRegistry:
         A changed label counts as worth carrying across. Without it the built-in
         DUT could be renamed and the new name would vanish on the next restart,
         because a boot-time label of ``Default`` is all a bare entry says.
+
+        So does a detected model. It is learned from console output, so it would
+        otherwise be relearned only after the next connect -- and until then the
+        band mapping would silently fall back to the 840 layout on a 420.
+        Every field added here has to be added to this list too; the failure is
+        quiet, and it looks exactly like the feature working.
         """
         entries = [
             self._entry_for(ctx)
@@ -635,6 +706,7 @@ class DutRegistry:
             or ctx.mgmt_url
             or ctx.remote
             or ctx.label != DEFAULT_DUT_LABEL
+            or ctx.model
         ]
         try:
             DUTS_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -677,6 +749,12 @@ class DutRegistry:
                 mgmt = entry.get("mgmt_url") if isinstance(entry, dict) else None
                 if isinstance(mgmt, str) and mgmt:
                     existing.mgmt_url = mgmt
+                # Run through the same detector as the live path, so a
+                # hand-edited file cannot store a model the console could never
+                # have produced -- and so both spellings load identically.
+                saved_model = dut_model.detect_model(entry.get("model") or "")
+                if saved_model is not None:
+                    existing.model = saved_model
                 if remote is not None:
                     # Merge, never clear: an entry written before the DUT was
                     # given an SSH console — or one this version rejects — must
@@ -689,6 +767,7 @@ class DutRegistry:
             ctx = self.create_dut(dut_id, label=clean_label(entry.get("label")))
             ctx.last_serial = last_serial
             ctx.remote = remote
+            ctx.model = dut_model.detect_model(entry.get("model") or "")
 
 
 def build_default_registry(

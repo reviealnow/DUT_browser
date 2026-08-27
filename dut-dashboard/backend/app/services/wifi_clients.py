@@ -38,22 +38,28 @@ _SNR_RE = re.compile(r"\bSNR\b\s*[:=]\s*(-?\d+)")
 _BAND_RE = re.compile(r"Operating band\s*[:=]\s*(\S+)")
 
 
-def band_for_iface(iface: str) -> str:
-    """Guess a radio band from athN, assuming 16 VAPs per band.
+def band_for_iface(iface: str, per_band: int = 16) -> str:
+    """Guess a radio band from athN, given how many VAPs sit in each band.
 
-    A **fallback only**, for output that carries no frequency. The assumption
-    holds on the AP6 840E and fails on the AP6 420, where ath8, ath14 and ath15
-    are all 5.22 GHz — this returns "2.4G" for every one of them. Prefer
-    `band_from_ghz()` wherever the source states a frequency, which `iwconfig`
-    always does.
+    A **fallback only**, for output that carries no frequency; prefer
+    `band_from_ghz()` wherever the source states one, which `iwconfig` always
+    does.
+
+    `per_band` is not decoration. It used to be hard-coded to 16, which is the
+    AP6 840/840E layout; the 420/420E puts eight in each band, so on that model
+    the old answer was wrong for ath8-15 (5GHz, called 2.4G) and ath16-23
+    (6GHz, called 5G). Measured on the bench 420E: four of its seven active
+    VAPs. Callers that know the model pass
+    `dut_model.vaps_per_band(ctx.model)`; the default keeps the previous
+    behaviour for those that do not.
     """
     m = re.match(r"ath(\d+)", iface)
     if not m:
         return "?"
     n = int(m.group(1))
-    if n < 16:
+    if n < per_band:
         return "2.4G"
-    if n < 32:
+    if n < per_band * 2:
         return "5G"
     return "6G"
 
@@ -142,13 +148,16 @@ def discover_vaps(iwconfig_text: str) -> list[dict]:
     return [v for v in vaps if (v["mode"] or "Master") == "Master"]
 
 
-def parse_wlanconfig_list(text: str, iface: str, band: str | None = None) -> list[dict]:
+def parse_wlanconfig_list(
+    text: str, iface: str, band: str | None = None, per_band: int = 16
+) -> list[dict]:
     """Parse `wlanconfig <iface> list` into client dicts. Header-only (no clients)
     returns []. Verbose SNR/band tail (if present) attaches to the latest client.
 
     This command states no frequency, so `band` should be passed by a caller
     that knows it — `discover_vaps()` reads it from iwconfig. Without it the
-    iface-number guess is all there is, and that guess is wrong on some models.
+    iface-number guess is all there is, and that guess needs `per_band` to be
+    right on anything but an 840.
     """
     clients: list[dict] = []
     for raw in text.splitlines():
@@ -164,7 +173,7 @@ def parse_wlanconfig_list(text: str, iface: str, band: str | None = None) -> lis
             nss = _NSS_RE.search(line)
             client = {
                 "iface": iface,
-                "band": band or band_for_iface(iface),
+                "band": band or band_for_iface(iface, per_band),
                 "mac": mac,
                 "vendor": vendor_for_mac(mac),
                 "aid": int(rest[0]) if rest and rest[0].isdigit() else None,

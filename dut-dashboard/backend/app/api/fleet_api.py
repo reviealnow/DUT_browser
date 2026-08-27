@@ -25,7 +25,7 @@ from app.dut.registry import (
     REMOTE_TOKEN_RE,
     console_token,
 )
-from app.services import auth_service, mesh_topology
+from app.services import auth_service, dut_model, mesh_topology
 from app.services.wifi_clients import (
     classify_backhaul,
     parse_iwconfig_links,
@@ -325,7 +325,15 @@ def capture_rssi(dut_id: str, request: Request, _admin: dict = _ADMIN) -> dict:
             # rendered as a mesh child with no way to tell.
             "source": "detected" if detected else "configured",
             "essid": (detected or configured or {}).get("essid"),
-            "peers": [_peer(c) for c in parse_wlanconfig_list(table, downlink_iface)],
+            # `wlanconfig` states no frequency, so the band here is the
+            # iface-number guess -- and that guess needs the model. This is the
+            # one caller in the codebase without a frequency to hand.
+            "peers": [
+                _peer(c)
+                for c in parse_wlanconfig_list(
+                    table, downlink_iface, per_band=dut_model.vaps_per_band(context.model)
+                )
+            ],
         }
 
     commit(lambda: registry.store_backhaul_downlink(dut_id, console, worker.mode, downlink))

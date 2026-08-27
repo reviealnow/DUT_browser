@@ -338,3 +338,81 @@ class RenameDutTests(DutRegistryTests):
         # Nothing printable left => no label at all, and create_dut falls back
         # to the id rather than storing an empty display name.
         self.assertEqual(reg.get("blank").label, "blank")
+
+
+class DutModelDetectionTests(DutRegistryTests):
+    """The model is learned from console output, stored, and survives a restart.
+
+    It is not decoration: it decides how many VAPs sit in each band, and so
+    which band an athN belongs to when the output states no frequency. Getting
+    it from the prompt costs no serial time, which is the point -- the
+    connect-time capture races sysMon for the line and loses.
+    """
+
+    def _booted(self) -> DutRegistry:
+        return build_default_registry(ws_manager=self.ws, loop=self._loop)
+
+    def test_learns_the_model_from_a_console_line(self) -> None:
+        reg = self._booted()
+        ctx = reg.get(DEFAULT_DUT_ID)
+        self.assertIsNone(ctx.model)
+        ctx.parser.on_event({"type": "console_line", "text": "AP6_420E#"})
+        self.assertEqual(ctx.model, "AP6_420E")
+
+    def test_learns_it_from_a_batched_line_too(self) -> None:
+        """Console lines arrive batched as often as singly; a model seen only in
+        the batch path would be missed on a busy console."""
+        reg = self._booted()
+        ctx = reg.get(DEFAULT_DUT_ID)
+        ctx.parser.on_event(
+            {"type": "console_line_batch", "lines": ["ath0: link up", "AP6_840E#"]}
+        )
+        self.assertEqual(ctx.model, "AP6_840E")
+
+    def test_the_model_survives_a_restart(self) -> None:
+        self._booted().get(DEFAULT_DUT_ID).parser.on_event(
+            {"type": "console_line", "text": "AP6_420E#"}
+        )
+        self.assertEqual(self._booted().get(DEFAULT_DUT_ID).model, "AP6_420E")
+
+    def test_ordinary_console_noise_leaves_it_unset(self) -> None:
+        reg = self._booted()
+        ctx = reg.get(DEFAULT_DUT_ID)
+        for line in ("BusyBox v1.31.1", "cmd>", "", "wlanconfig ath13"):
+            ctx.parser.on_event({"type": "console_line", "text": line})
+        self.assertIsNone(ctx.model)
+
+    def test_a_later_blank_prompt_does_not_clear_a_known_model(self) -> None:
+        """A bootloader prompt says nothing about the hardware. A band mapping
+        that flickered back to the default mid-session would be worse than a
+        stale one, because nothing on screen would say it had moved."""
+        reg = self._booted()
+        ctx = reg.get(DEFAULT_DUT_ID)
+        ctx.parser.on_event({"type": "console_line", "text": "AP6_420E#"})
+        for line in ("cmd>", "", "reboot"):
+            ctx.parser.on_event({"type": "console_line", "text": line})
+        self.assertEqual(ctx.model, "AP6_420E")
+
+    def test_describe_publishes_the_model_and_the_mapping_it_implies(self) -> None:
+        """A caller reading interfaces out of this API cannot work out which
+        numbering applies unless the API says so."""
+        reg = self._booted()
+        [before] = [d for d in reg.describe() if d["id"] == DEFAULT_DUT_ID]
+        self.assertIsNone(before["model"])
+        self.assertEqual(before["vaps_per_band"], 16)
+
+        reg.get(DEFAULT_DUT_ID).parser.on_event({"type": "console_line", "text": "AP6_420E#"})
+        [after] = [d for d in reg.describe() if d["id"] == DEFAULT_DUT_ID]
+        self.assertEqual(after["model"], "AP6_420E")
+        self.assertEqual(after["vaps_per_band"], 8)
+
+    def test_a_hand_edited_model_goes_through_the_same_detector(self) -> None:
+        """Both spellings load identically, and a file cannot store a model the
+        console could never have produced."""
+        self._duts_file.write_text(
+            '[{"id": "default", "model": "AP6420E-PB1005QPCFVFMA8"},'
+            ' {"id": "lab2", "model": "not a model"}]'
+        )
+        reg = self._booted()
+        self.assertEqual(reg.get(DEFAULT_DUT_ID).model, "AP6_420E")
+        self.assertIsNone(reg.get("lab2").model)
