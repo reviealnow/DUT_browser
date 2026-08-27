@@ -20,6 +20,8 @@ from __future__ import annotations
 import re
 from typing import Callable
 
+from app.services import dut_model
+
 # A VAP header line, e.g.: ath16     IEEE 802.11axa  ESSID:"!!3290-1"
 _VAP_RE = re.compile(r'^(ath\d+)\s+IEEE\s+\S+\s+ESSID:"([^"]*)"')
 _CHAN_RE = re.compile(r"Frequency:[\d.]+\s*GHz\s*\(Channel\s*(\d+)\)")
@@ -38,24 +40,34 @@ _SNR_RE = re.compile(r"\bSNR\b\s*[:=]\s*(-?\d+)")
 _BAND_RE = re.compile(r"Operating band\s*[:=]\s*(\S+)")
 
 
-def band_for_iface(iface: str) -> str:
-    """Guess a radio band from athN, assuming 16 VAPs per band.
+def band_for_iface(iface: str, plan: "dut_model.BandPlan | None" = None) -> str:
+    """Guess a radio band from athN, given the model's band layout.
 
-    A **fallback only**, for output that carries no frequency. The assumption
-    holds on the AP6 840E and fails on the AP6 420, where ath8, ath14 and ath15
-    are all 5.22 GHz — this returns "2.4G" for every one of them. Prefer
-    `band_from_ghz()` wherever the source states a frequency, which `iwconfig`
-    always does.
+    A **fallback only**, for output that carries no frequency; prefer
+    `band_from_ghz()` wherever the source states one, which `iwconfig` and
+    `iw dev` always do.
+
+    The plan is not decoration. This used to assume sixteen VAPs per band and
+    three bands, which is the AP6 840E layout and nothing else:
+
+    * the 420 family is eight wide, so ath8-15 (5GHz) came back "2.4G" and
+      ath16-23 (6GHz) came back "5G" -- four of the seven active VAPs on the
+      bench 420E;
+    * a model with no 6GHz radio has no third block, so an interface past the
+      second one is not "6G". It is a number that model cannot produce, and
+      "?" says so instead of inventing a band the hardware does not have.
+
+    Callers that know the model pass `dut_model.plan_for(ctx.model)`; the
+    default is the old assumption, so callers that do not are no worse off.
     """
     m = re.match(r"ath(\d+)", iface)
     if not m:
         return "?"
-    n = int(m.group(1))
-    if n < 16:
-        return "2.4G"
-    if n < 32:
-        return "5G"
-    return "6G"
+    layout = plan or dut_model.DEFAULT_PLAN
+    index = int(m.group(1)) // layout.per_band
+    if index < len(layout.bands):
+        return layout.bands[index]
+    return "?"
 
 
 def band_from_ghz(freq_ghz: float | None) -> str | None:
@@ -142,13 +154,16 @@ def discover_vaps(iwconfig_text: str) -> list[dict]:
     return [v for v in vaps if (v["mode"] or "Master") == "Master"]
 
 
-def parse_wlanconfig_list(text: str, iface: str, band: str | None = None) -> list[dict]:
+def parse_wlanconfig_list(
+    text: str, iface: str, band: str | None = None, plan: "dut_model.BandPlan | None" = None
+) -> list[dict]:
     """Parse `wlanconfig <iface> list` into client dicts. Header-only (no clients)
     returns []. Verbose SNR/band tail (if present) attaches to the latest client.
 
     This command states no frequency, so `band` should be passed by a caller
     that knows it — `discover_vaps()` reads it from iwconfig. Without it the
-    iface-number guess is all there is, and that guess is wrong on some models.
+    iface-number guess is all there is, and that guess needs the model's band
+    plan to be right on anything but an 840E.
     """
     clients: list[dict] = []
     for raw in text.splitlines():
@@ -164,7 +179,7 @@ def parse_wlanconfig_list(text: str, iface: str, band: str | None = None) -> lis
             nss = _NSS_RE.search(line)
             client = {
                 "iface": iface,
-                "band": band or band_for_iface(iface),
+                "band": band or band_for_iface(iface, plan),
                 "mac": mac,
                 "vendor": vendor_for_mac(mac),
                 "aid": int(rest[0]) if rest and rest[0].isdigit() else None,
