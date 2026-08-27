@@ -33,6 +33,18 @@ vi.mock("../api/rest", async (importOriginal) => ({
   getMeshTopology: (dutId: string) => getMeshTopology(dutId),
 }));
 
+const { MeshTopologyProvider } = await import("../monitoring/MeshTopologyContext");
+
+/** The section renders what the shared read produced; it no longer fetches for
+ *  itself, so every test mounts it the way the Fleet page does. */
+function renderSection(fleet: FleetEntry[]) {
+  return render(
+    <MeshTopologyProvider fleet={fleet}>
+      <MeshTopologySection fleet={fleet} />
+    </MeshTopologyProvider>,
+  );
+}
+
 const { default: MeshTopologySection, hostOf, matchMember, meshSources } = await import(
   "./MeshTopology"
 );
@@ -76,6 +88,7 @@ function entry(over: Partial<FleetEntry> & { id: string }): FleetEntry {
     lastSerial: null,
     remote: null,
     mgmtUrl: "",
+    model: null,
     meshProbe: null,
     backhaul: {
       applicable: true,
@@ -119,7 +132,7 @@ beforeEach(() => {
 
 describe("mesh topology table", () => {
   it("lists a mesh member this dashboard has no console for", async () => {
-    render(<MeshTopologySection fleet={FLEET} />);
+    renderSection(FLEET);
     const listed = await rows();
     expect(listed).toHaveLength(2);
     expect(within(listed[1]).getByText("192.168.30.176")).toBeTruthy();
@@ -127,7 +140,7 @@ describe("mesh topology table", () => {
   });
 
   it("says which members are unknown to it rather than letting them blend in", async () => {
-    render(<MeshTopologySection fleet={FLEET} />);
+    renderSection(FLEET);
     const listed = await rows();
     expect(within(listed[0]).getByText(/AP6_420E/)).toBeTruthy();
     expect(within(listed[0]).getByText(/console open/)).toBeTruthy();
@@ -135,7 +148,7 @@ describe("mesh topology table", () => {
   });
 
   it("never prints a root's missing signal as a number", async () => {
-    render(<MeshTopologySection fleet={FLEET} />);
+    renderSection(FLEET);
     const listed = await rows();
     expect(within(listed[0]).getByText(/n\/a — root/)).toBeTruthy();
     expect(within(listed[0]).queryByText(/dBm/)).toBeNull();
@@ -151,7 +164,7 @@ describe("mesh topology table", () => {
     // stylesheet, so the alignment itself is not observable here; what IS
     // observable is that this table opts into nothing, which is what keeps it
     // matching its headers once the rule is per-cell.
-    render(<MeshTopologySection fleet={FLEET} />);
+    renderSection(FLEET);
     const listed = await rows();
     for (const row of listed) {
       for (const cell of within(row).getAllByRole("cell")) {
@@ -161,14 +174,14 @@ describe("mesh topology table", () => {
   });
 
   it("asks the DUT once on entry, without waiting for a click", async () => {
-    render(<MeshTopologySection fleet={FLEET} />);
+    renderSection(FLEET);
     await waitFor(() => expect(getMeshTopology).toHaveBeenCalledWith("default"));
     expect(getMeshTopology).toHaveBeenCalledTimes(1);
   });
 
   it("shows an error instead of a stale table when the read fails", async () => {
     getMeshTopology.mockRejectedValue(new Error("The DUT rejected the credentials (401)."));
-    render(<MeshTopologySection fleet={FLEET} />);
+    renderSection(FLEET);
     expect(await screen.findByText(/rejected the credentials/)).toBeTruthy();
     expect(screen.queryByRole("table")).toBeNull();
   });
@@ -179,7 +192,7 @@ describe("mesh topology table", () => {
        not "no mesh", and a table that showed nothing here would look like the
        read had failed. */
     getMeshTopology.mockResolvedValue({ ...TOPOLOGY, members: [TOPOLOGY.members[0]] });
-    render(<MeshTopologySection fleet={FLEET} />);
+    renderSection(FLEET);
     const listed = await rows();
     expect(listed).toHaveLength(1);
     expect(within(listed[0]).getByText("Root")).toBeTruthy();
@@ -189,13 +202,13 @@ describe("mesh topology table", () => {
 
   it("tells an empty mesh apart from a failed read", async () => {
     getMeshTopology.mockResolvedValue({ ...TOPOLOGY, members: [] });
-    render(<MeshTopologySection fleet={FLEET} />);
+    renderSection(FLEET);
     expect(await screen.findByText(/reports no mesh members/)).toBeTruthy();
   });
 
   it("offers an engineer an explanation rather than a control that can only 403", async () => {
     role = "engineer";
-    render(<MeshTopologySection fleet={FLEET} />);
+    renderSection(FLEET);
     expect(screen.getByText(/admin-only/)).toBeTruthy();
     expect(screen.queryByRole("button")).toBeNull();
     expect(getMeshTopology).not.toHaveBeenCalled();
@@ -209,17 +222,59 @@ describe("mesh topology table", () => {
   });
 
   it("offers a picker only when more than one DUT can be asked", async () => {
-    const { unmount } = render(<MeshTopologySection fleet={FLEET} />);
+    const { unmount } = renderSection(FLEET);
     await waitFor(() => expect(getMeshTopology).toHaveBeenCalled());
     expect(screen.queryByLabelText(/DUT to ask/)).toBeNull();
     unmount();
 
-    render(
-      <MeshTopologySection
-        fleet={[...FLEET, entry({ id: "lab2", mgmtUrl: "https://192.168.30.176" })]}
-      />,
-    );
+    renderSection([...FLEET, entry({ id: "lab2", mgmtUrl: "https://192.168.30.176" })]);
     expect(await screen.findByLabelText(/DUT to ask/)).toBeTruthy();
+  });
+});
+
+describe("the read is shared, and the cards get a role from it", () => {
+  it("asks the DUT once even though the table and a card both need the answer", async () => {
+    // The reason this moved into a context at all. Two consumers used to mean
+    // two components; two components must not mean two HTTPS requests to the
+    // device, which is the coalescing the serial captures already do.
+    const { default: FleetCard } = await import("./FleetCard");
+    render(
+      <MeshTopologyProvider fleet={FLEET}>
+        <MeshTopologySection fleet={FLEET} />
+        <FleetCard
+          entry={FLEET[0]}
+          reco={undefined}
+          rssiState={{ get: () => FLEET[0].backhaul, capturing: () => false, refresh: async () => {}, refreshAll: async () => {}, meshOpen: () => [] } as never}
+          variant="grid"
+          onOpen={() => {}}
+          onConsole={() => {}}
+          onClosed={async () => {}}
+        />
+      </MeshTopologyProvider>,
+    );
+    await waitFor(() => expect(getMeshTopology).toHaveBeenCalled());
+    expect(getMeshTopology).toHaveBeenCalledTimes(1);
+  });
+
+  it("names the mesh role the topology gives this DUT, and nothing when it gives none", async () => {
+    const { default: FleetCard } = await import("./FleetCard");
+    const stranger = entry({ id: "other", mgmtUrl: "https://10.0.0.9" });
+    const rssiState = { get: () => FLEET[0].backhaul, capturing: () => false, refresh: async () => {}, refreshAll: async () => {}, meshOpen: () => [] } as never;
+    render(
+      <MeshTopologyProvider fleet={FLEET}>
+        <FleetCard entry={{ ...FLEET[0], model: "AP6_420E" }} reco={undefined} rssiState={rssiState}
+          variant="grid" onOpen={() => {}} onConsole={() => {}} onClosed={async () => {}} />
+        <FleetCard entry={{ ...stranger, model: null }} reco={undefined} rssiState={rssiState}
+          variant="grid" onOpen={() => {}} onConsole={() => {}} onClosed={async () => {}} />
+      </MeshTopologyProvider>,
+    );
+    // The registered root: model from its console, role from the mesh read.
+    expect(await screen.findByText("AP6_420E Mesh Root")).toBeTruthy();
+    // A DUT the mesh has never heard of is NOT a leaf. Printing "Node" for one
+    // would invent a membership, so the role is simply absent -- and with no
+    // console ever opened there is no model either.
+    expect(screen.getByText("AP6")).toBeTruthy();
+    expect(screen.queryByText(/AP6 Mesh/)).toBeNull();
   });
 });
 

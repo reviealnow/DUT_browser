@@ -348,6 +348,14 @@ export type DutInfo = {
   mgmt_url: string;
   /** Last successful serial-open params, remembered for one-click Connect. */
   last_serial: { port: string; baudrate: number } | null;
+  /** Which AP6 this is ("AP6_420E"), read from the console prompt as it
+   *  streams past — `null` until one has been seen, which for a DUT nobody has
+   *  ever opened a console on is forever. It decides how many VAPs sit in each
+   *  band and which bands exist at all, so `vaps_per_band` and `bands` follow
+   *  from it rather than being separate facts. */
+  model: string | null;
+  vaps_per_band: number;
+  bands: string[];
   /** Where this DUT's console lives, or null when it is cabled to this
    *  machine. Connecting and disconnecting it are SSH operations; the backhaul
    *  capture is not, which is why the capture is not nested in here. */

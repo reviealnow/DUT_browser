@@ -65,6 +65,7 @@ function entry(overrides: Partial<FleetEntry> = {}): FleetEntry {
     lastSerial: { port: "/dev/cu.bench", baudrate: 115200 },
     remote: null,
     mgmtUrl: "",
+    model: null,
     meshProbe: null,
     backhaul: {
       applicable: true,
@@ -305,7 +306,10 @@ describe("the four things the backhaul rows can say", () => {
 describe("which rows belong to which kind of DUT", () => {
   it("gives a cabled DUT the backhaul rows and no SSH rows", () => {
     show(entry());
-    expect(screen.getByText("Mother server")).toBeTruthy();
+    // Renamed from "Mother server": the line says where the console is
+    // attached, and it is now highlighted because that decides whether a
+    // reading came off this desk or off a Pi in another room.
+    expect(screen.getByText("Origin_Server")).toBeTruthy();
     expect(screen.getByText("Uplink to parent")).toBeTruthy();
     expect(screen.queryByText("SSH session")).toBeNull();
   });

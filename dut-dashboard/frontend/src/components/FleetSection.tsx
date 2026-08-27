@@ -7,6 +7,7 @@ import { useFleetRecommendations } from "../monitoring/useLastRecommendation";
 import { useRemoteRssi } from "../monitoring/RemoteRssiContext";
 import FleetCard from "./FleetCard";
 import MeshTopologySection from "./MeshTopology";
+import { MeshTopologyProvider } from "../monitoring/MeshTopologyContext";
 import { Card, EmptyState } from "./shell/Card";
 
 /**
@@ -66,7 +67,9 @@ export default function FleetSection({
   }
 
   return (
-    <>
+    // One mesh read for the whole page. The table and the cards both need it,
+    // and two consumers must not become two HTTPS requests to the DUT.
+    <MeshTopologyProvider fleet={fleet}>
       {/* Above the cards on purpose. The cards are what this dashboard has
           measured; this is what the mesh actually contains, and when the two
           disagree the reader needs to meet the fuller list first. */}
@@ -120,6 +123,6 @@ export default function FleetSection({
           />
         ))}
       </div>
-    </>
+    </MeshTopologyProvider>
   );
 }
