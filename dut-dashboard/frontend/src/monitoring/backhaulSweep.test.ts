@@ -46,6 +46,7 @@ function entry(
     lastSerial: null,
     remote: null,
     mgmtUrl: "",
+    model: null,
     meshProbe: null,
     backhaul: {
       applicable,
@@ -80,6 +81,9 @@ function registryWith(uplinks: Record<string, RemoteUplink | null>): () => Promi
       last_serial: null,
       remote: null,
       mgmt_url: "",
+      model: null,
+      vaps_per_band: 16,
+      bands: ["2.4G", "5G", "6G"],
       mesh_probe: null,
       backhaul: {
         applicable: true,

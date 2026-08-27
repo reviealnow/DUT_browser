@@ -35,6 +35,10 @@ export type FleetEntry = {
    *  the device — and the only thing that says whether it can be asked for the
    *  mesh table at all. */
   mgmtUrl: string;
+  /** Which AP6 this is, read from its console prompt — null for a DUT nobody
+   *  has ever opened a console on. Named on the card because the interface
+   *  numbering, and so which band an athN belongs to, depends on it. */
+  model: string | null;
   /** What the DUT itself last said about its mesh, or null before any probe.
    *  A sibling of `backhaul`, not part of it: that is what a console measured
    *  off this DUT's radios, this is what the device reported when asked. */
@@ -80,7 +84,15 @@ export type FleetEntry = {
  *  started to. */
 type RegistryEntry = Pick<
   FleetEntry,
-  "id" | "label" | "serialOpen" | "lastSerial" | "remote" | "mgmtUrl" | "meshProbe" | "backhaul"
+  | "id"
+  | "label"
+  | "serialOpen"
+  | "lastSerial"
+  | "remote"
+  | "mgmtUrl"
+  | "model"
+  | "meshProbe"
+  | "backhaul"
 >;
 
 function fromRegistry(d: DutInfo): RegistryEntry {
@@ -93,6 +105,7 @@ function fromRegistry(d: DutInfo): RegistryEntry {
       ? { host: d.remote.host, port: d.remote.port, device: d.remote.device }
       : null,
     mgmtUrl: d.mgmt_url ?? "",
+    model: d.model ?? null,
     meshProbe: d.mesh_probe ?? null,
     backhaul: {
       applicable: d.backhaul.applicable,
@@ -235,7 +248,7 @@ export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () =>
   }, []);
 
   // Derive the view rows on each tick from the registry order + live refs.
-  const fleet = duts.map(({ id, label, serialOpen, lastSerial, remote, mgmtUrl, meshProbe, backhaul }) => {
+  const fleet = duts.map(({ id, label, serialOpen, lastSerial, remote, mgmtUrl, model, meshProbe, backhaul }) => {
     const base = baseRef.current.get(id) ?? null;
     const cpu = cpuFromSnapshot(base);
     const lastActivity = lastActivityRef.current.get(id) ?? 0;
@@ -254,6 +267,7 @@ export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () =>
       lastSerial,
       remote,
       mgmtUrl,
+      model,
       meshProbe,
       backhaul,
       cpuBusyPct: cpu.cpuBusyPct,

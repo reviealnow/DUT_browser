@@ -12,6 +12,7 @@ import {
 import { ROLE_RANK, useAuth } from "../monitoring/AuthContext";
 import { runConnectCaptures } from "../monitoring/siteSurveyStore";
 import { DutStatus } from "../monitoring/useDutMonitor";
+import { useMeshTopology } from "../monitoring/MeshTopologyContext";
 import { FleetEntry } from "../monitoring/useFleetMonitor";
 import { RemoteRssiState } from "../monitoring/RemoteRssiContext";
 import { FleetBandBadge } from "./BandRecoSummary";
@@ -145,6 +146,10 @@ export default function FleetCard({
   const uplinkMuted = !rssi.applicable || rssi.role === "root" || (rssi.captured && rssi.role === null);
   const childrenMuted = !rssi.applicable || (rssi.captured && !rssi.downlink);
   const meta = STATUS_META[entry.status];
+  // Null outside the Fleet page (Overview mounts no provider) and for anyone
+  // who is not an admin. Both are "no answer", and the line below omits the
+  // role rather than guessing one.
+  const meshRole = useMeshTopology().roleFor(entry);
   const cpu = entry.cpuBusyPct === null ? "—" : `${entry.cpuBusyPct}%`;
   const cpuSub =
     entry.cpuBusyPct === null
@@ -229,8 +234,21 @@ export default function FleetCard({
           <div className="fleet-card-titles">
             <div className="card-title">{entry.label}</div>
             <div className="card-sub">{entry.id}</div>
-            <div className="card-sub">
-              {entry.remote ? `Remote via ${entry.remote.host}:${entry.remote.port}` : "Mother server"}
+            {/* Where the console is attached — the machine, not the device.
+                Highlighted because it is the line that says whether a reading
+                came off this desk or off a Pi in another room, and it used to
+                read as quietly as the id above it. */}
+            <div className="card-sub fleet-card-origin">
+              {entry.remote ? `Remote via ${entry.remote.host}:${entry.remote.port}` : "Origin_Server"}
+            </div>
+            {/* What the device is, and where it sits in the mesh. Both are
+                answers the dashboard only sometimes has, and the line says
+                which it is missing rather than filling in a plausible one:
+                the model needs a console to have been opened, the role needs
+                an admin's mesh read. */}
+            <div className="card-sub fleet-card-identity">
+              {entry.model ?? "AP6"}
+              {meshRole ? ` Mesh ${meshRole === "root" ? "Root" : "Node"}` : ""}
             </div>
           </div>
           <span className={`pill ${meta.pill}`}>
