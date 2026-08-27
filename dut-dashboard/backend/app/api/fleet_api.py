@@ -331,7 +331,7 @@ def capture_rssi(dut_id: str, request: Request, _admin: dict = _ADMIN) -> dict:
             "peers": [
                 _peer(c)
                 for c in parse_wlanconfig_list(
-                    table, downlink_iface, per_band=dut_model.vaps_per_band(context.model)
+                    table, downlink_iface, plan=dut_model.plan_for(context.model)
                 )
             ],
         }

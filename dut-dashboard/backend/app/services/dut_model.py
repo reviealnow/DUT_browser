@@ -1,49 +1,73 @@
-"""Which AP6 model a DUT is, and how many VAPs its firmware puts in each band.
+"""Which AP6 model a DUT is, and how its athN interfaces map onto radio bands.
 
-The interface numbering is not a constant. Measured on the bench, on the DUT
-whose prompt reads ``AP6_420E#``::
+The numbering is not a constant, and a width alone does not describe it. Two
+things vary::
 
-    ath0  2.412 GHz    ath8  5.66 GHz    ath16  6.775 GHz
-    ath1  2.412 GHz    ath9  5.66 GHz    ath17  6.775 GHz
-    ath6  2.412 GHz
+    AP6 420    2.4GHz ath0-7    5GHz ath8-15                     no 6GHz radio
+    AP6 420E   2.4GHz ath0-7    5GHz ath8-15    6GHz ath16-23
+    AP6 420X   2.4GHz ath0-7    5GHz ath8-15                     no 6GHz radio
+    AP6 840    2.4GHz ath0-15   5GHz ath16-31                    no 6GHz radio
+    AP6 840E   2.4GHz ath0-15   5GHz ath16-31   6GHz ath32-47
 
-so the blocks are eight wide, not sixteen:
+`band_for_iface` used to assume sixteen-wide, three-band, for everything. That
+is the 840E row, and it is wrong twice over:
 
-    AP6 420 / 420E    2.4GHz ath0-7    5GHz ath8-15    6GHz ath16-23
-    AP6 840 / 840E    2.4GHz ath0-15   5GHz ath16-31   6GHz ath32-47
+* on the 420 family the blocks are eight wide, so ath8-15 (5GHz) came back
+  "2.4G" and ath16-23 (6GHz) came back "5G";
+* on any model without a 6GHz radio there is no third block at all, so an
+  interface past the second one is not "6G" -- it is a number that model cannot
+  produce, and answering "6G" invents a band the hardware does not have.
 
-`band_for_iface()` assumed sixteen for every model. On this 420E that is wrong
-for ath8, ath9, ath16 and ath17 — four of the seven active VAPs — and wrong in
-the most expensive way, because "5G" for a 6 GHz interface is a plausible answer
-nobody re-checks. It is only ever a fallback for output that states no
-frequency, and the one caller in that position discards the value today, so
-nothing user-visible was wrong; that is luck, not design.
+Both matter most exactly where the guess is used. A mesh backhaul may sit on
+2.4, 5 or 6 GHz, and the VAP behind it is named by number in `wlanconfig`
+output, which states no frequency at all.
 
 The model is read from the console prompt, which every DUT prints unprompted
-and which therefore costs no serial time — the connect-time capture races
-sysMon for the line and loses, so anything that needs a command is unreliable
+and which therefore costs no serial time -- the connect-time capture races
+sysMon for the line and loses, so anything needing a command is unreliable
 here. `hostname` says the same thing in a different spelling
 (``AP6420E-PB1005QPCFVFMA8``); both are accepted.
+
+Measured on the bench 420E: ath0/1/6 at 2412 MHz, ath8/9 at 5660 MHz, ath16/17
+at 6775 MHz. The block *starts* -- 0, 8, 16 -- are therefore observed, which is
+what fixes the width at eight. `iw dev` also lists one ``wifiN`` radio per band
+(wifi0/1/2 there), an independent witness that this model has three.
 """
 
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 
-# The prompt (``AP6_420E#``) and the hostname (``AP6420E-PB1005…``) differ only
-# by the underscore and what follows, so one pattern reads both. Anchored to a
-# line start so a model name quoted inside somebody's log line is not mistaken
-# for the device's own identity.
-_MODEL_RE = re.compile(r"(?m)^\s*(AP6)_?(\d{3})(E?)\b", re.IGNORECASE)
+BAND_24 = "2.4G"
+BAND_5 = "5G"
+BAND_6 = "6G"
 
-# VAPs per band, by model number. Unlisted models get no answer rather than a
-# guess: a wrong band reads exactly like a right one.
-_VAPS_PER_BAND: dict[str, int] = {
-    "420": 8,
-    "840": 16,
+# Anchored to a line start so a model name quoted inside somebody's log line is
+# not mistaken for the device saying what it is. The suffix is part of the
+# identity: E has a 6GHz radio, X does not.
+_MODEL_RE = re.compile(r"(?m)^\s*(AP6)_?(\d{3})([EX]?)\b", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class BandPlan:
+    """How many VAPs sit in each band, and which bands the model actually has."""
+
+    per_band: int
+    bands: tuple[str, ...]
+
+
+# What the code assumed for every model before any of this existed. Kept as the
+# fallback for an unrecognised device so that case is no worse off than it was.
+DEFAULT_PLAN = BandPlan(per_band=16, bands=(BAND_24, BAND_5, BAND_6))
+
+_PLANS: dict[str, BandPlan] = {
+    "AP6_420": BandPlan(8, (BAND_24, BAND_5)),
+    "AP6_420E": BandPlan(8, (BAND_24, BAND_5, BAND_6)),
+    "AP6_420X": BandPlan(8, (BAND_24, BAND_5)),
+    "AP6_840": BandPlan(16, (BAND_24, BAND_5)),
+    "AP6_840E": BandPlan(16, (BAND_24, BAND_5, BAND_6)),
 }
-
-DEFAULT_VAPS_PER_BAND = 16
 
 
 def detect_model(text: str) -> str | None:
@@ -58,22 +82,21 @@ def detect_model(text: str) -> str | None:
     return f"AP6_{match.group(2)}{match.group(3).upper()}"
 
 
-def model_number(model: str | None) -> str | None:
-    """The bare number (``"420"``) from a canonical model, for table lookups."""
+def plan_for(model: str | None) -> BandPlan:
+    """The band layout for a model, or the old sixteen-wide assumption."""
     if not model:
-        return None
-    match = _MODEL_RE.search(model)
-    return match.group(2) if match else None
+        return DEFAULT_PLAN
+    canonical = detect_model(model)
+    if canonical is None:
+        return DEFAULT_PLAN
+    return _PLANS.get(canonical, DEFAULT_PLAN)
 
 
 def vaps_per_band(model: str | None) -> int:
-    """How many VAPs this model puts in each band.
+    """How many VAPs this model puts in each band."""
+    return plan_for(model).per_band
 
-    Falls back to sixteen for an unknown model, which is what
-    `band_for_iface()` assumed before any of this existed: the fallback is no
-    worse than it was, and a known model is now right.
-    """
-    number = model_number(model)
-    if number is None:
-        return DEFAULT_VAPS_PER_BAND
-    return _VAPS_PER_BAND.get(number, DEFAULT_VAPS_PER_BAND)
+
+def bands_for(model: str | None) -> tuple[str, ...]:
+    """The radio bands this model has, in interface order."""
+    return plan_for(model).bands

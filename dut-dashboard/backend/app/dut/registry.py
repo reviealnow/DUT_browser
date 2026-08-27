@@ -627,6 +627,11 @@ class DutRegistry:
                     # numbering applies.
                     "model": ctx.model,
                     "vaps_per_band": dut_model.vaps_per_band(ctx.model),
+                    # Which bands this model actually HAS, in interface order.
+                    # A model without a 6GHz radio has no third block at all,
+                    # so a consumer mapping athN -> band needs the list, not
+                    # just the width.
+                    "bands": list(dut_model.bands_for(ctx.model)),
                     "remote": None if ctx.remote is None else {
                         "host": ctx.remote["host"],
                         "port": ctx.remote["port"],
