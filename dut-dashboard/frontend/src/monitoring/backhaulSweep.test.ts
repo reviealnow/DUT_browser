@@ -62,6 +62,7 @@ function entry(
     coreCount: 0,
     crashCount: 0,
     lastSnapshotTs: null,
+    readingDeviceId: null,
     lastEventAgeSec: null,
   };
 }

@@ -24,6 +24,12 @@ export type MemoryInfo = Record<string, number>;
 export type SnapshotPayload = {
   test_count: number;
   device_ts: string;
+  /** Which unit this reading was taken on, stamped by the registry as the
+   *  snapshot went out. Absent on every snapshot persisted before the field
+   *  existed, and null until something has identified the device — both are
+   *  "unknown provenance", which a reader must render as silence rather than
+   *  as a mismatch. */
+  device_id?: string | null;
   cpu: Record<string, CpuCore>;
   memory?: MemoryInfo;
   wifi_clients?: Record<string, { total_size: number; clients: WifiClient[] }>;
@@ -255,6 +261,13 @@ export function applySnapshotDelta(base: SnapshotPayload, delta: SnapshotDelta):
   return {
     test_count: delta.test_count ?? base.test_count,
     device_ts: delta.device_ts ?? base.device_ts,
+    // Carried from the base, never from the delta, which does not name a
+    // device: the update this chain started from did. Dropped here, every
+    // reading that arrived as a delta would lose its provenance and the card
+    // would fall silent about exactly the sessions it is meant to watch. This
+    // mirrors `_reconstruct` in snapshot_store.py, which has the same line for
+    // the same reason.
+    device_id: base.device_id,
     cpu: nextCpu,
     memory: nextMemory,
     wifi_clients: nextWifi,

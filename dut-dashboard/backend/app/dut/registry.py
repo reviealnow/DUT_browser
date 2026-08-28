@@ -374,6 +374,29 @@ class DutRegistry:
 
         def on_event(event: dict) -> None:
             event["dut_id"] = dut_id
+            # Stamp the reading with the unit it was taken on, before it reaches
+            # either the store that persists it or the browser that renders it.
+            #
+            # Here rather than in the parser, which has no idea which DUT it
+            # belongs to, and here rather than at persist time, so the live
+            # stream and the backfill carry the same field and a card does not
+            # need two rules to read one number.
+            #
+            # Only `snapshot_update` carries it. A delta is applied onto a base
+            # that already has one, and every chain of deltas starts from an
+            # update -- so restamping each one would be repeating a fact that
+            # cannot have changed without a fresh update arriving first.
+            #
+            # None until something has identified the device, and None on every
+            # snapshot recorded before this field existed. Both mean "unknown
+            # provenance", which every reader has to render as silence: a
+            # warning drawn from a missing stamp would fire on the entire
+            # existing history.
+            if event.get("type") == "snapshot_update":
+                snapshot = event.get("snapshot")
+                if isinstance(snapshot, dict):
+                    ctx = self._duts.get(dut_id)
+                    snapshot["device_id"] = None if ctx is None else ctx.device_id
             snapshot_store.observe(event)
             console_buffer.observe(event)
             self._observe_model(dut_id, event)

@@ -536,3 +536,73 @@ class DeviceIdentityTests(DutRegistryTests):
 
     def test_recording_against_an_unknown_dut_is_a_noop(self) -> None:
         self.assertIsNone(self._booted().record_device_id("nosuchdut", "AP6420E-PB1005QPCFVFMA8"))
+
+
+class ReadingStampTests(DutRegistryTests):
+    """Every snapshot leaves here naming the unit it was measured on.
+
+    Stamped in the registry's own event closure rather than in the parser, which
+    has no idea which DUT it belongs to, and rather than at persist time, so the
+    live stream and the backfill carry one field a card can read with one rule.
+    """
+
+    def _booted(self) -> DutRegistry:
+        return build_default_registry(ws_manager=self.ws, loop=self._loop)
+
+    def _snapshot(self, ts: str = "T1") -> dict:
+        return {
+            "type": "snapshot_update",
+            "snapshot": {"test_count": 1, "device_ts": ts, "cpu": {"0": {"idle": 80.0}}},
+        }
+
+    def test_a_snapshot_carries_the_identified_unit(self) -> None:
+        reg = self._booted()
+        reg.record_device_id(DEFAULT_DUT_ID, "AP6420E-PB1005QPCFVFMA8")
+        ctx = reg.get(DEFAULT_DUT_ID)
+
+        ctx.parser.on_event(self._snapshot())
+
+        self.assertEqual(
+            ctx.snapshot_store.recent(1)[0]["device_id"], "AP6420E-PB1005QPCFVFMA8"
+        )
+
+    def test_a_snapshot_taken_before_anyone_asked_is_stamped_unknown(self) -> None:
+        """Not omitted and not guessed. A reader has to be able to tell "this
+        came off another device" from "nobody knows", and only one of those is
+        worth a warning."""
+        reg = self._booted()
+        ctx = reg.get(DEFAULT_DUT_ID)
+
+        ctx.parser.on_event(self._snapshot())
+
+        self.assertIsNone(ctx.snapshot_store.recent(1)[0]["device_id"])
+
+    def test_readings_taken_before_and_after_a_swap_are_told_apart(self) -> None:
+        """The whole point, end to end through the registry: the reading held
+        from the departed unit keeps its own name while the console moves on."""
+        reg = self._booted()
+        ctx = reg.get(DEFAULT_DUT_ID)
+        reg.record_device_id(DEFAULT_DUT_ID, "AP6420E-PA10054DDHWVF2D")
+        ctx.parser.on_event(self._snapshot("T1"))
+
+        reg.record_device_id(DEFAULT_DUT_ID, "AP6420E-PB1005QPCFVFMA8")
+        ctx.parser.on_event(self._snapshot("T2"))
+
+        stamps = [snap["device_id"] for snap in ctx.snapshot_store.recent(10)]
+        self.assertEqual(
+            stamps, ["AP6420E-PA10054DDHWVF2D", "AP6420E-PB1005QPCFVFMA8"]
+        )
+
+    def test_the_browser_is_told_the_same_thing_as_the_store(self) -> None:
+        """The card reads the live stream, not only the backfill. Two sources
+        disagreeing about which device a number came from would be worse than
+        neither carrying it."""
+        reg = self._booted()
+        reg.record_device_id(DEFAULT_DUT_ID, "AP6420E-PB1005QPCFVFMA8")
+
+        reg.get(DEFAULT_DUT_ID).parser.on_event(self._snapshot())
+
+        emitted = [e for e in self.ws.events if e.get("type") == "snapshot_update"]
+        self.assertEqual(
+            emitted[-1]["snapshot"]["device_id"], "AP6420E-PB1005QPCFVFMA8"
+        )

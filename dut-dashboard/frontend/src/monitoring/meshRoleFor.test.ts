@@ -86,6 +86,7 @@ function entry(over: Partial<FleetEntry> = {}): FleetEntry {
     coreCount: 2,
     crashCount: 0,
     lastSnapshotTs: null,
+    readingDeviceId: null,
     lastEventAgeSec: null,
     ...over,
   };
