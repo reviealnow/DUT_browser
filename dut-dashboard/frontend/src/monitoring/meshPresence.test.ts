@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import type { MeshMember, MeshProbe, MeshTopology } from "../api/rest";
+import {
+  BENCH_MESH_MEMBERS,
+  BENCH_MESH_PROBE,
+  BENCH_NODE_MGMT,
+  BENCH_NO_MESH_PROBE,
+  BENCH_ROOT_MGMT,
+} from "./benchMesh.fixture";
 import { meshPresence } from "./MeshTopologyContext";
 import type { FleetEntry } from "./useFleetMonitor";
 
@@ -147,5 +154,45 @@ describe("what nobody has established", () => {
 
   it("stays unknown on an empty fleet", () => {
     expect(meshPresence([], null)).toBe("unknown");
+  });
+});
+
+
+describe("the two answers this bench actually gave", () => {
+  /* Both sides of the rule, from hardware, minutes apart on 2026-08-28 --
+     same command, same transport, same parser, and only the device's reply
+     differs. That is what makes the pair worth keeping: a constructed "none"
+     and a constructed "members" prove the branch, not the distinction. */
+
+  const root = entry({ id: "root1", mgmtUrl: BENCH_ROOT_MGMT, meshProbe: BENCH_MESH_PROBE });
+  const node = entry({ id: "node1", mgmtUrl: BENCH_NODE_MGMT, meshProbe: BENCH_MESH_PROBE });
+
+  it("sees the real two-device mesh, so the Fleet page stays whole", () => {
+    expect(meshPresence([root, node], null)).toBe("members");
+  });
+
+  it("sees the 840E's real empty reply as an answer of no mesh", () => {
+    // {"mesh_info_list":[],"total_size":0,"error_code":0} -- a device saying it
+    // stands alone, not a read that failed.
+    const alone = entry({ id: "solo", meshProbe: BENCH_NO_MESH_PROBE });
+    expect(meshPresence([alone], null)).toBe("none");
+  });
+
+  it("keeps the mesh when the standalone AP is registered beside it", () => {
+    /* All three were on this bench at once. One AP answering "no mesh" says
+       nothing about the two that are meshed, and collapsing the page around it
+       would hide the mesh this fixture came from. */
+    const alone = entry({ id: "solo", meshProbe: BENCH_NO_MESH_PROBE });
+    expect(meshPresence([alone, root, node], null)).toBe("members");
+  });
+
+  it("reads the same members off a live table", () => {
+    const live = {
+      dut: "node1",
+      mgmt_url: BENCH_NODE_MGMT,
+      captured_at: "2026-08-28 14:00:00",
+      members: BENCH_MESH_MEMBERS,
+    };
+    expect(meshPresence([entry({ meshProbe: null })], live)).toBe("members");
   });
 });
