@@ -2,12 +2,16 @@ import { useCallback, useState } from "react";
 
 import { humanizeApiError } from "../api/rest";
 import { useAuth } from "../monitoring/AuthContext";
-import { useFleetMonitor } from "../monitoring/useFleetMonitor";
+import { FleetEntry, useFleetMonitor } from "../monitoring/useFleetMonitor";
 import { useFleetRecommendations } from "../monitoring/useLastRecommendation";
 import { useRemoteRssi } from "../monitoring/RemoteRssiContext";
 import FleetCard from "./FleetCard";
 import MeshTopologySection from "./MeshTopology";
-import { MeshTopologyProvider } from "../monitoring/MeshTopologyContext";
+import {
+  meshPresence,
+  MeshTopologyProvider,
+  useMeshTopology,
+} from "../monitoring/MeshTopologyContext";
 import { Card, EmptyState } from "./shell/Card";
 
 /**
@@ -34,29 +38,6 @@ export default function FleetSection({
   onOpenConsole: (dutId: string) => void;
 }) {
   const { fleet, refreshRegistry } = useFleetMonitor();
-  const recos = useFleetRecommendations(fleet.map((e) => e.id));
-  const rssiState = useRemoteRssi();
-  const { role } = useAuth();
-  const [capturingAll, setCapturingAll] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // The capture routes are admin-only, so an engineer is offered the view and
-  // not a button that could only answer 403.
-  const canCapture = role === "admin";
-  // Every DUT a backhaul capture applies to, cabled ones included — the two
-  // commands run over a serial console exactly as they do over SSH, and the
-  // only DUT that can say "not me" is a remote node an admin declared
-  // standalone. `applicable` is the registry's own word for that.
-  const meshOpen = fleet.filter((entry) => entry.backhaul.applicable && entry.serialOpen);
-
-  const captureAll = useCallback(() => {
-    setCapturingAll(true);
-    setError(null);
-    rssiState
-      .refreshAll(fleet)
-      .catch((e) => setError(humanizeApiError(e)))
-      .finally(() => setCapturingAll(false));
-  }, [fleet, rssiState]);
 
   if (fleet.length === 0) {
     return (
@@ -70,6 +51,93 @@ export default function FleetSection({
     // One mesh read for the whole page. The table and the cards both need it,
     // and two consumers must not become two HTTPS requests to the DUT.
     <MeshTopologyProvider fleet={fleet}>
+      <FleetBody
+        fleet={fleet}
+        refreshRegistry={refreshRegistry}
+        onSelectDut={onSelectDut}
+        onOpenConsole={onOpenConsole}
+      />
+    </MeshTopologyProvider>
+  );
+}
+
+/**
+ * The page's body, inside the provider so it can see the mesh read.
+ *
+ * Split out for exactly that reason and no other: the component that MOUNTS the
+ * provider cannot consume it, and deciding whether a mesh exists from the probe
+ * alone would ignore an admin's live table — which is the better answer
+ * whenever there is one.
+ */
+function FleetBody({
+  fleet,
+  refreshRegistry,
+  onSelectDut,
+  onOpenConsole,
+}: {
+  fleet: FleetEntry[];
+  refreshRegistry: () => Promise<void>;
+  onSelectDut: (dutId: string) => void;
+  onOpenConsole: (dutId: string) => void;
+}) {
+  const recos = useFleetRecommendations(fleet.map((e) => e.id));
+  const rssiState = useRemoteRssi();
+  const { role } = useAuth();
+  const { topology } = useMeshTopology();
+  const [capturingAll, setCapturingAll] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // The capture routes are admin-only, so an engineer is offered the view and
+  // not a button that could only answer 403.
+  const canCapture = role === "admin";
+  // Every DUT a backhaul capture applies to, cabled ones included — the two
+  // commands run over a serial console exactly as they do over SSH, and the
+  // only DUT that can say "not me" is a remote node an admin declared
+  // standalone. `applicable` is the registry's own word for that.
+  const meshOpen = fleet.filter((entry) => entry.backhaul.applicable && entry.serialOpen);
+
+  // When a device has ANSWERED that it is in no mesh, this page is not a view of
+  // a fleet -- it is one AP, and listing every registry entry beside it invites
+  // the reader to look for a topology that does not exist. So it collapses to
+  // the DUT actually on a console.
+  //
+  // Only on "none". `unknown` -- nobody asked, or the console was busy and the
+  // probe could not tell -- leaves the page exactly as it was. Hiding DUTs
+  // because a read failed would turn a busy serial line into a page that
+  // silently forgets half the bench.
+  //
+  // "A console is open" is the registry's own `serialOpen`, not a guess from
+  // activity: a quiet DUT can be open and read "idle".
+  //
+  // Two more guards, and both matter more than the feature does:
+  //
+  //  * Only when something IS open. Collapsing to nothing leaves an empty grid
+  //    where the DUTs still are, which is worse than the noise it removes.
+  //  * Never silently. A registered remote node vanishing off the page with no
+  //    count and no way back is indistinguishable from the app losing it, and
+  //    a DUT can be registered, reachable and useful while standing alone --
+  //    being outside a mesh is not a reason to stop showing it, only a reason
+  //    to stop leading with it.
+  const consoleOpen = fleet.filter((entry) => entry.serialOpen);
+  const collapsed =
+    meshPresence(fleet, topology) === "none" &&
+    consoleOpen.length > 0 &&
+    consoleOpen.length < fleet.length;
+  const shown = collapsed && !showAll ? consoleOpen : fleet;
+  const hidden = fleet.length - shown.length;
+
+  const captureAll = useCallback(() => {
+    setCapturingAll(true);
+    setError(null);
+    rssiState
+      .refreshAll(fleet)
+      .catch((e) => setError(humanizeApiError(e)))
+      .finally(() => setCapturingAll(false));
+  }, [fleet, rssiState]);
+
+  return (
+    <>
       {/* Above the cards on purpose. The cards are what this dashboard has
           measured; this is what the mesh actually contains, and when the two
           disagree the reader needs to meet the fuller list first. */}
@@ -86,9 +154,31 @@ export default function FleetSection({
       <div className="fleet-section-toolbar fleet-grid-toolbar">
         <div className="setting-hint">
           <strong className="fleet-count">
-            {fleet.length} registered · {fleet.filter((e) => e.serialOpen).length} with a console
-            open.
+            {fleet.length} registered · {consoleOpen.length} with a console open.
           </strong>{" "}
+          {/* Said where the count is, because the count is what stops adding up
+              otherwise: a reader who sees "3 registered" above one card needs
+              the reason in the same breath, not two paragraphs away. */}
+          {collapsed && !showAll ? (
+            <>
+              The DUT reports no mesh, so the grid shows the{" "}
+              {consoleOpen.length === 1 ? "DUT" : "DUTs"} on a console and{" "}
+              {hidden === 1 ? "hides 1 other" : `hides ${hidden} others`}.{" "}
+              <button type="button" className="linklike" onClick={() => setShowAll(true)}>
+                Show all
+              </button>
+              .{" "}
+            </>
+          ) : null}
+          {collapsed && showAll ? (
+            <>
+              Showing every registered DUT.{" "}
+              <button type="button" className="linklike" onClick={() => setShowAll(false)}>
+                Show only the console
+              </button>
+              .{" "}
+            </>
+          ) : null}
           Backhaul figures are the last capture, not a live feed: reading one occupies that
           DUT&apos;s serial console, so nothing here refreshes on its own.
         </div>
@@ -110,7 +200,7 @@ export default function FleetSection({
       </div>
 
       <div className="fleet-grid">
-        {fleet.map((entry) => (
+        {shown.map((entry) => (
           <FleetCard
             key={entry.id}
             entry={entry}
@@ -123,6 +213,6 @@ export default function FleetSection({
           />
         ))}
       </div>
-    </MeshTopologyProvider>
+    </>
   );
 }
