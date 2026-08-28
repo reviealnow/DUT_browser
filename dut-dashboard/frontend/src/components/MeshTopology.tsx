@@ -71,7 +71,11 @@ export default function MeshTopologySection({ fleet }: { fleet: FleetEntry[] }) 
         <div className="setting-hint">
           Read from the DUT itself over HTTPS, not from a console — so it lists mesh members
           this dashboard has no console for.
-          {topology ? ` Read ${topology.captured_at} from ${topology.mgmt_url}.` : ""}
+          {topology ? ` Read ${topology.captured_at} from ${topology.mgmt_url}.` : ""}{" "}
+          {/* Said here as well as in the column heading, because the heading is
+              read once and this line is what a reader returns to when the
+              number surprises them. */}
+          Hop counts are measured from that DUT, not from the root.
         </div>
         <div className="mesh-topology-controls">
           {sources.length > 1 ? (
@@ -116,7 +120,18 @@ export default function MeshTopologySection({ fleet }: { fleet: FleetEntry[] }) 
               <tr>
                 <th>NODE</th>
                 <th>ROLE</th>
-                <th>HOP</th>
+                {/* Not "HOP". The device counts hops from ITSELF -- it reports
+                    itself as hop 0 and everything else outward from there -- so
+                    asking the root and asking a node give the same link
+                    different numbers. Measured from both ends of one mesh on
+                    2026-08-28; see `_member` in services/mesh_topology.py.
+
+                    A bare "HOP" reads as distance from the root, which is what
+                    a hop count means everywhere else, and on a table headed
+                    "Mesh topology" nothing on screen contradicted it. The
+                    source is named in the line above; the heading now says
+                    that is what the number is counted from. */}
+                <th>HOPS FROM SOURCE</th>
                 <th>ADDRESS</th>
                 <th>MAC</th>
                 <th>SIGNAL TO PARENT</th>

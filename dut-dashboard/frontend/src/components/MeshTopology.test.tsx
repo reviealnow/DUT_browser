@@ -148,6 +148,25 @@ describe("mesh topology table", () => {
     expect(within(listed[1]).getByText("Not registered here")).toBeTruthy();
   });
 
+  it("says what the hop count is counted from, in the heading and the note", async () => {
+    /* A bare "HOP" reads as distance from the root -- that is what a hop count
+       means everywhere else -- and it is not: the device counts from ITSELF,
+       so asking the root and asking a node give the same link different
+       numbers. Measured from both ends of one mesh on 2026-08-28; the parser's
+       own comment carries the payloads.
+
+       Asserted on the rendered heading rather than on a constant, because the
+       defect was a reader's misreading and nothing else on screen corrected
+       it. */
+    renderSection(FLEET);
+    await rows();
+    expect(screen.getByText("HOPS FROM SOURCE", { selector: "th" })).toBeTruthy();
+    expect(screen.queryByText("HOP", { selector: "th" })).toBeNull();
+    expect(
+      screen.getByText(/Hop counts are measured from that DUT, not from the root/),
+    ).toBeTruthy();
+  });
+
   it("never prints a root's missing signal as a number", async () => {
     renderSection(FLEET);
     const listed = await rows();
