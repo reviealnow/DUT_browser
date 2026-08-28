@@ -244,6 +244,66 @@ describe("what the device itself says about its mesh", () => {
   });
 });
 
+describe("naming a mesh role on a page that reads no mesh table", () => {
+  /* These render with no MeshTopologyProvider, which is exactly what Overview
+     mounts. The card used to show a model and no role there, so the same
+     component said two different things about one DUT depending on which screen
+     it was on — and hoisting the provider to fix it would have put an HTTPS GET
+     to a DUT behind a page that never shows a mesh table.
+
+     The role comes from `mesh_probe` instead: already on every fleet entry,
+     already stored, no request made. `show` stubs no fetch and none is needed —
+     that is the property under test as much as the text is. */
+  const meshed = (over: Partial<import("../api/rest").MeshMember> = {}) =>
+    entry({
+      mgmtUrl: "https://192.168.30.121",
+      model: "AP6_420E",
+      meshProbe: probe({
+        members: [{ ip: "192.168.30.121", role: "root", ...over }] as never,
+      }),
+    });
+
+  const identity = () =>
+    document.querySelector(".fleet-card-identity") as HTMLElement | null;
+
+  it("names the role the device reported about itself", () => {
+    show(meshed());
+    expect(identity()?.textContent).toBe("AP6_420E Mesh Root");
+  });
+
+  it("names a node as a node", () => {
+    show(meshed({ role: "node" }));
+    expect(identity()?.textContent).toBe("AP6_420E Mesh Node");
+  });
+
+  it("says on hover that the role came off a probe, and when", () => {
+    /* A stored answer and a live read must not be indistinguishable. The line
+       reads the same either way, so the timestamp is the only thing that says
+       this role is as old as the last probe rather than as old as the page. */
+    show(meshed());
+    expect(identity()?.getAttribute("title")).toBe(
+      "Mesh role as this device reported it at 2026-08-24 11:02:33",
+    );
+  });
+
+  it("omits the role rather than guessing when the probe does not name the DUT", () => {
+    show(
+      entry({
+        mgmtUrl: "https://192.168.30.121",
+        model: "AP6_420E",
+        meshProbe: probe({ members: [{ ip: "192.168.30.176", role: "node" }] as never }),
+      }),
+    );
+    expect(identity()?.textContent).toBe("AP6_420E");
+    expect(identity()?.getAttribute("title")).toBeNull();
+  });
+
+  it("still shows the model alone for a DUT nobody has probed", () => {
+    show(entry({ mgmtUrl: "https://192.168.30.121", model: "AP6_420E" }));
+    expect(identity()?.textContent).toBe("AP6_420E");
+  });
+});
+
 describe("the four things the backhaul rows can say", () => {
   it("says nobody has measured this DUT yet", () => {
     show(entry());
