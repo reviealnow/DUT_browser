@@ -556,6 +556,25 @@ class DutRegistry:
                 _forget_backhaul(ctx)
             ctx.device_id = device_id
             ctx.device_console = console
+            # A hostname names the model as well as the unit, so learning one
+            # without the other throws away an answer already in hand.
+            #
+            # `_observe_model` reads the prompt off the streaming console, and
+            # on a quiet DUT that stream can carry nothing for a long time --
+            # a capture's echo goes to the capture buffer, not to the parser.
+            # Measured on the bench 2026-08-28: the Pi's mesh node published
+            # `model: null` with `bands` claiming a 6GHz radio and
+            # `vaps_per_band` 16, while its own hostname said AP6_420, which
+            # has neither. `band_for_iface` would then have called ath8 "2.4G"
+            # on an interface measured at 5.66 GHz -- the exact mistake the
+            # model table was added to stop.
+            #
+            # Set rather than filled in, and set on a change too: this is a
+            # fresh read of the device now in front of us, so it outranks a
+            # model left behind by whatever used to be on this console.
+            implied = dut_model.detect_model(device_id)
+            if implied is not None:
+                ctx.model = implied
             self._save_locked()
             return previous
 
