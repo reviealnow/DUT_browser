@@ -154,10 +154,26 @@ def _member(entry: dict) -> dict:
     return {
         "mac": mac.upper() if mac else None,
         # The DUT's own label for the member ("0", "1"), kept as the string it
-        # sends, alongside the number it also sends. They agree on this bench;
-        # publishing one derived from the other would hide it if they stopped.
+        # sends, alongside the number it also sends. Publishing one derived from
+        # the other would hide it when they stop agreeing -- and they do:
+        # measured 2026-08-28, the node's own reply carries `node: "0"` with
+        # `node_number: 1` for itself and `node: "1"` with `node_number: 1` for
+        # the root. Both members, one `node_number`. Asked the root minutes
+        # later, the same mesh answered 0 and 1 with `node` and `node_number`
+        # matching throughout. So `node_number` tracks neither `node` nor the
+        # device, and nothing here should be built on it.
         "node": _as_str(entry.get("node")),
         "node_number": _as_int(entry.get("node_number")),
+        # **Relative to the DUT that was asked, not to the mesh.** The device
+        # answering always reports itself as `node: "0"`, `hop: 0`, and counts
+        # outward from there. Measured from both ends of the same two-device
+        # mesh on 2026-08-28: asked the root, the root is hop 0 and the node is
+        # hop 1; asked the node, those are exactly reversed.
+        #
+        # Kept verbatim rather than re-based onto the root, which would mean
+        # inventing a topology out of one device's account of it. Callers that
+        # show a hop count therefore have to say which DUT was asked -- the
+        # mesh table does, in the line above it.
         "hop": _as_int(entry.get("hop")),
         "role": role,
         # What the device actually said, for a value `_role` did not recognise.
