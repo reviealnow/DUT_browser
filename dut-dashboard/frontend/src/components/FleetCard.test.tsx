@@ -67,6 +67,7 @@ function entry(overrides: Partial<FleetEntry> = {}): FleetEntry {
     mgmtUrl: "",
     model: null,
     modelCores: null,
+    deviceId: null,
     meshProbe: null,
     backhaul: {
       applicable: true,

@@ -5,6 +5,7 @@ import {
   ChannelRecommendationResult,
   getChannelRecommendation,
   humanizeApiError,
+  identifyDut,
   probeMesh,
 } from "../api/rest";
 
@@ -114,6 +115,20 @@ export function runSurvey(dutId: string): Promise<void> {
  * on-section-entry fetches — this is additional, not a replacement.
  */
 export async function runConnectCaptures(dutId: string): Promise<void> {
+  try {
+    // First, and first for a reason: everything after it is a measurement, and
+    // this is the step that says which device the measurements are of. A
+    // capture filed before the identity is known is filed against whatever the
+    // registry last believed — which, on a bench where one entry outlives the
+    // hardware cabled to it, is how an 840E's readings came to be shown under a
+    // 420E's name. It is also the shortest command here, so the quiet line
+    // costs it least.
+    await identifyDut(dutId);
+  } catch {
+    // A closed or busy console, or a `hostname` that lost the line to sysMon.
+    // The stored identity is left exactly as it was: silence is not evidence
+    // the hardware changed, and the next connect asks again.
+  }
   try {
     await captureDutContext(dutId);
   } catch {

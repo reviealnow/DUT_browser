@@ -25,6 +25,7 @@ from app.services.dut_model import (
     DEFAULT_SPEC,
     bands_for,
     cores_for,
+    detect_device_id,
     detect_model,
     spec_for,
     vaps_per_band,
@@ -197,3 +198,57 @@ class BandForIfaceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DetectDeviceIdTests(unittest.TestCase):
+    """Which unit, as opposed to which model.
+
+    `detect_model` answers "an AP6_420E". Two of those on one bench are the same
+    answer, and the reading taken on the first survives the swap to the second
+    looking like a fresh one -- which is what happened to the `default` entry
+    here, carrying an 840E's cores under a 420E's name. The hostname is the only
+    thing on the console that separates two units of one model.
+    """
+
+    def test_reads_the_bench_units_own_name(self) -> None:
+        self.assertEqual(
+            detect_device_id("AP6420E-PB1005QPCFVFMA8"), "AP6420E-PB1005QPCFVFMA8"
+        )
+
+    def test_finds_it_beside_an_echoed_prompt(self) -> None:
+        """`hostname` output comes back with the command and the prompt around
+        it, which is why this is not anchored to a line start the way the model
+        detector is."""
+        raw = "hostname\r\nAP6420E-PB1005QPCFVFMA8\r\nAP6_420E# "
+        self.assertEqual(detect_device_id(raw), "AP6420E-PB1005QPCFVFMA8")
+
+    def test_upper_cases_so_two_spellings_are_not_two_devices(self) -> None:
+        # A lower-cased name compared unequal would be published as a swap.
+        self.assertEqual(
+            detect_device_id("ap6420e-pb1005qpcfvfma8"), "AP6420E-PB1005QPCFVFMA8"
+        )
+
+    def test_tells_the_two_bench_units_apart(self) -> None:
+        # The 420 node on the Pi and the 420E on the desk share neither serial.
+        self.assertNotEqual(
+            detect_device_id("AP6420E-PB1005QPCFVFMA8"),
+            detect_device_id("AP6420-PA10054DDHWVF2D"),
+        )
+
+    def test_a_bare_prompt_is_not_an_identity(self) -> None:
+        """The prompt names a model and nothing more. Accepting it would give
+        two units of one model the same identity, which is the whole failure."""
+        for line in ("AP6_420E#", "AP6_840E# ", "AP6420E"):
+            with self.subTest(line=line):
+                self.assertIsNone(detect_device_id(line))
+
+    def test_ordinary_console_noise_is_not_an_identity(self) -> None:
+        for line in ("BusyBox v1.31.1", "cmd>", "", "wlanconfig ath13", "hostname"):
+            with self.subTest(line=line):
+                self.assertIsNone(detect_device_id(line))
+
+    def test_an_empty_read_is_no_answer(self) -> None:
+        """A `hostname` that raced sysMon and lost returns nothing. None has to
+        mean "we did not learn" so a caller leaves a stored identity alone --
+        read as a device, silence would revoke a good capture."""
+        self.assertIsNone(detect_device_id(""))

@@ -28,7 +28,7 @@ from app.services.analyzer_service import AnalyzerService
 from app.services.capability_report import build_capability_report
 from app.services.site_survey import channel_recommendation, get_site_survey
 from app.services.survey_cache import last_recommendation, remember_recommendation
-from app.services import context_snapshot, mesh_topology, survey_snapshot
+from app.services import context_snapshot, dut_model, mesh_topology, survey_snapshot
 from app.services.wifi_clients import discover_vaps, get_ssid_capabilities, parse_apstats, parse_wlanconfig_list
 from app.services.wifi_survey import get_wifi_survey
 from app.websocket.terminal_manager import TerminalManager
@@ -395,6 +395,47 @@ def probe_dut_mesh(dut: str = DEFAULT_DUT_ID) -> dict:
     captured_at = datetime.now().isoformat(timespec="seconds")
     app.state.dut_registry.store_mesh_probe(dut, {**result, "captured_at": captured_at})
     return {"dut": dut, "captured_at": captured_at, **result}
+
+
+@app.post("/api/dut/identify", dependencies=[_ENGINEER])
+def identify_dut(dut: str = DEFAULT_DUT_ID) -> dict:
+    """Ask a connected DUT its own name, and record which unit it is.
+
+    The prompt already tells us the model, unasked and for free -- but a model
+    is not a device. Two AP6_420Es print the same prompt, report the same core
+    count and open on the same cable, so swapping one for the other changes
+    nothing the dashboard can see, and every reading taken on the first goes on
+    being shown as the second's. `hostname` is what separates them:
+    ``AP6420E-PB1005QPCFVFMA8`` names one unit.
+
+    One short console command on an explicit trigger, exactly like the mesh
+    probe beside it, and engineer-gated for the same reason: what it drives is
+    the serial console, and connecting a DUT -- the only thing that fires it --
+    is engineer already. It never polls.
+
+    Best-effort by design. sysMon saturates the console for a whole run, so a
+    command fired on connect can lose the line and come back with nothing; a
+    read that learned nothing leaves the stored identity exactly as it was.
+    Silence is not evidence the hardware changed, and treating it as such would
+    throw away a good capture every time the console was merely busy.
+    """
+    context = resolve_dut(app, dut)
+    try:
+        raw = context.serial_worker.capture_command("hostname", timeout=5.0)
+    except RuntimeError as exc:
+        # The console is closed or busy. A different problem from the DUT
+        # answering something unreadable, and the caller's to report.
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    device_id = dut_model.detect_device_id(raw)
+    if device_id is None:
+        return {"dut": dut, "device_id": None, "changed_from": None}
+    # The worker's actual transport, not the one the configuration implies: a
+    # DUT registered with an SSH console can be opened on a cable at this desk,
+    # and then the answer came from the cable.
+    previous = app.state.dut_registry.record_device_id(
+        dut, device_id, mode=context.serial_worker.mode
+    )
+    return {"dut": dut, "device_id": device_id, "changed_from": previous}
 
 
 @app.post("/api/wifi/context-capture", dependencies=[_ENGINEER])

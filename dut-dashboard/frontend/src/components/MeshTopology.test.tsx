@@ -90,6 +90,7 @@ function entry(over: Partial<FleetEntry> & { id: string }): FleetEntry {
     mgmtUrl: "",
     model: null,
     modelCores: null,
+    deviceId: null,
     meshProbe: null,
     backhaul: {
       applicable: true,

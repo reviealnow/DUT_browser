@@ -236,6 +236,23 @@ class DutContext:
     # Dropped with the rest of a capture when the console changes: it describes
     # the device that was behind this id, not the id.
     mesh_probe: dict | None = None
+    # Which physical unit is behind this console -- the device's own hostname,
+    # ``AP6420E-PB1005QPCFVFMA8``. `model` cannot do this job: two 420Es share a
+    # model and a prompt, so a reading taken on one survives the swap to the
+    # other looking exactly like a fresh one.
+    #
+    # Dropped with the rest of a capture when the console changes, for the same
+    # reason they are: it describes the device that was behind this id, and
+    # after a console change nobody has asked the new one who it is. Unknown is
+    # the honest state, and it must never be read as "a different device".
+    device_id: str | None = None
+    # The console the identity above was read from -- its own anchor, not the
+    # capture's. Sharing `backhaul_console` looked equivalent and is not: that
+    # field is None until something has been captured, so an identity learned on
+    # a DUT nobody has measured would have survived a recabling with nothing to
+    # revoke it, and then answered the next identify as a swap that never
+    # happened. Two facts with different lifetimes need two anchors.
+    device_console: str | None = None
     # The console the stored capture was actually read from — see console_token.
     # Held rather than re-derived, because the transport a reading came from is
     # not recoverable from the configuration afterwards.
@@ -297,15 +314,34 @@ def _forget_backhaul(ctx: DutContext) -> None:
     ctx.mesh_probe = None
 
 
+def _forget_device_identity(ctx: DutContext) -> None:
+    """Drop which unit is behind this DUT, back to "nobody has asked".
+
+    Separate from `_forget_backhaul` because the two are anchored separately and
+    a caller may need one without the other: a swapped device revokes the old
+    unit's captures but leaves a perfectly good new identity in place.
+    """
+    ctx.device_id = None
+    ctx.device_console = None
+
+
 def _forget_if_another_console(ctx: DutContext, opening: str) -> None:
-    """Revoke a stored capture when the console being opened is not its own.
+    """Revoke what a different console left behind, when one is opened.
 
     One rule, two callers — a serial open and an SSH connect — because a DUT can
     be opened either way regardless of how it is configured, and each of those
     opens is the moment the card starts describing a different device.
+
+    Two stored things, checked against their own anchors rather than one. The
+    capture's console is None until something has been captured, so hanging the
+    identity off it would leave an identity learned on an unmeasured DUT to
+    survive a recabling — and the next identify would then read a swap that
+    never happened onto a device that had simply moved cables.
     """
     if ctx.backhaul_console is not None and ctx.backhaul_console != opening:
         _forget_backhaul(ctx)
+    if ctx.device_console is not None and ctx.device_console != opening:
+        _forget_device_identity(ctx)
 
 
 class DutRegistry:
@@ -456,6 +492,49 @@ class DutRegistry:
                 return
             ctx.model = model
             self._save_locked()
+
+    def record_device_id(self, dut_id: str, device_id: str, mode: str | None = None) -> str | None:
+        """Store which unit is behind this DUT, and drop what the last one left.
+
+        Returns the identity that was replaced, or None -- so a caller can say
+        "this is a different device" without asking twice and racing itself.
+
+        The console-identity rule one level down (`_forget_if_another_console`)
+        revokes a capture when the *console* changes: another port, another SSH
+        config, a re-registration. It cannot see a device swapped for the same
+        model on the same cable, where every part of the console is identical
+        and only the hardware moved. That is the gap this closes, and it is the
+        commonest swap there is on a bench with two of the same AP.
+
+        Learning an identity for the first time is not a swap. `device_id` is
+        None until something asks, and treating "we now know" as "it changed"
+        would throw away a good capture on the first identify after a connect.
+        """
+        with self._lock:
+            ctx = self._duts.get(dut_id)
+            if ctx is None:
+                return None
+            # Recorded whether or not the name changed: re-confirming the same
+            # unit still says which console it answered on, and an anchor that
+            # only moved on a change would stay pinned to a console the DUT has
+            # long since left.
+            console = console_token(ctx, mode)
+            if ctx.device_id == device_id:
+                if ctx.device_console != console:
+                    ctx.device_console = console
+                    self._save_locked()
+                return None
+            previous = ctx.device_id
+            if previous is not None:
+                # A different unit answered on the same console. Whatever is
+                # stored was measured on the one that left: kept, it would go
+                # out through /api/duts as this device's current state, where
+                # nothing downstream could tell it from a fresh reading.
+                _forget_backhaul(ctx)
+            ctx.device_id = device_id
+            ctx.device_console = console
+            self._save_locked()
+            return previous
 
     def record_serial_params(self, dut_id: str, port: str, baudrate: int) -> None:
         """Remember a DUT's last successful serial-open params and persist them.
@@ -639,6 +718,13 @@ class DutRegistry:
                     # that was, and 4 cores under an AP6_420E is the shape of
                     # that mistake.
                     "model_cores": dut_model.cores_for(ctx.model),
+                    # Which unit this is, not which model. Null until something
+                    # has asked it its name, and null is "we do not know" --
+                    # never "a different device". Published because `model` and
+                    # `model_cores` above cannot answer the question they were
+                    # added for: two 420Es agree on both, so a reading taken on
+                    # one of them reads as this one's with nothing to say so.
+                    "device_id": ctx.device_id,
                     "remote": None if ctx.remote is None else {
                         "host": ctx.remote["host"],
                         "port": ctx.remote["port"],
@@ -690,6 +776,8 @@ class DutRegistry:
             entry["remote"] = ctx.remote
         if ctx.model:
             entry["model"] = ctx.model
+        if ctx.device_id:
+            entry["device_id"] = ctx.device_id
         return entry
 
     def _save_locked(self) -> None:
@@ -719,6 +807,7 @@ class DutRegistry:
             or ctx.remote
             or ctx.label != DEFAULT_DUT_LABEL
             or ctx.model
+            or ctx.device_id
         ]
         try:
             DUTS_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -767,6 +856,20 @@ class DutRegistry:
                 saved_model = dut_model.detect_model(entry.get("model") or "")
                 if saved_model is not None:
                     existing.model = saved_model
+                # Same treatment, same detector: a hand-edited file must not be
+                # able to store an identity no console could have produced, and
+                # a missing one must merge rather than clear -- an entry written
+                # before this field existed says nothing about the device.
+                saved_device_id = dut_model.detect_device_id(entry.get("device_id") or "")
+                if saved_device_id is not None:
+                    existing.device_id = saved_device_id
+                    # `device_console` is deliberately not restored with it. Every
+                    # console token carries `registration`, a fresh uuid per boot,
+                    # so a saved anchor could never match one computed now -- it
+                    # would revoke the identity on the first open, every time.
+                    # Leaving it None means the next identify is the authority on
+                    # whether the hardware moved, which is the honest answer: it
+                    # is the only thing here that has actually asked the device.
                 if remote is not None:
                     # Merge, never clear: an entry written before the DUT was
                     # given an SSH console — or one this version rejects — must
@@ -780,6 +883,7 @@ class DutRegistry:
             ctx.last_serial = last_serial
             ctx.remote = remote
             ctx.model = dut_model.detect_model(entry.get("model") or "")
+            ctx.device_id = dut_model.detect_device_id(entry.get("device_id") or "")
 
 
 def build_default_registry(

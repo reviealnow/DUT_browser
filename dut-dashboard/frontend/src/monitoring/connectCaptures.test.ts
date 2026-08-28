@@ -16,9 +16,24 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * is not blank — it is "could not tell" on a device that is perfectly healthy
  * and meshed. Hence this test: the probe runs BEFORE the survey, and reading the
  * source is exactly how a reordering would get through review unnoticed.
+ *
+ * Identify goes first for a different reason: everything after it is a
+ * measurement, and it is the step that says which device the measurements are
+ * of. A capture filed before the identity is known is filed against whatever the
+ * registry last believed, which on this bench is how an 840E's readings came to
+ * be published under a 420E's name.
+ *
+ * Every call this batch makes is mocked here, and it has to be: an unmocked step
+ * makes a real request that jsdom fails, the batch swallows the failure by
+ * design, and the assertion below goes on passing while the step it was supposed
+ * to be watching does nothing at all.
  */
 
 const order: string[] = [];
+const identifyDut = vi.fn(async () => {
+  order.push("identify");
+  return {} as never;
+});
 const captureDutContext = vi.fn(async () => { order.push("context"); });
 const probeMesh = vi.fn(async () => { order.push("probe"); return {} as never; });
 const getChannelRecommendation = vi.fn(async () => {
@@ -28,6 +43,7 @@ const getChannelRecommendation = vi.fn(async () => {
 
 vi.mock("../api/rest", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/rest")>()),
+  identifyDut: () => identifyDut(),
   captureDutContext: () => captureDutContext(),
   probeMesh: () => probeMesh(),
   getChannelRecommendation: () => getChannelRecommendation(),
@@ -37,15 +53,20 @@ const { runConnectCaptures } = await import("./siteSurveyStore");
 
 beforeEach(() => {
   order.length = 0;
+  identifyDut.mockReset();
+  identifyDut.mockImplementation(async () => {
+    order.push("identify");
+    return {} as never;
+  });
   captureDutContext.mockClear();
   probeMesh.mockClear();
   getChannelRecommendation.mockClear();
 });
 
 describe("the connect capture batch", () => {
-  it("probes for mesh before the survey floods the line", async () => {
+  it("identifies the device first, then probes before the survey floods the line", async () => {
     await runConnectCaptures("default");
-    expect(order).toEqual(["context", "probe", "survey"]);
+    expect(order).toEqual(["identify", "context", "probe", "survey"]);
   });
 
   it("runs them in sequence, never concurrently", async () => {
@@ -60,6 +81,7 @@ describe("the connect capture batch", () => {
       order.push(name);
       inFlight -= 1;
     };
+    identifyDut.mockImplementation(() => track("identify") as never);
     captureDutContext.mockImplementation(() => track("context"));
     probeMesh.mockImplementation(() => track("probe") as never);
     getChannelRecommendation.mockImplementation(() => track("survey") as never);
@@ -77,6 +99,15 @@ describe("the connect capture batch", () => {
   it("a failed context capture still lets the probe run", async () => {
     captureDutContext.mockRejectedValueOnce(new Error("no serial"));
     await runConnectCaptures("default");
-    expect(order).toEqual(["probe", "survey"]);
+    expect(order).toEqual(["identify", "probe", "survey"]);
+  });
+
+  it("a hostname that lost the line to sysMon does not stop the captures", async () => {
+    /* The likeliest failure of the lot: sysMon saturates the console for a whole
+       run. Silence about which device this is must cost the connect nothing --
+       every capture behind it is still worth taking. */
+    identifyDut.mockRejectedValueOnce(new Error("Serial capture is busy"));
+    await expect(runConnectCaptures("default")).resolves.toBeUndefined();
+    expect(order).toEqual(["context", "probe", "survey"]);
   });
 });
