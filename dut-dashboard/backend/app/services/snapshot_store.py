@@ -174,6 +174,11 @@ def _reconstruct(base: dict, delta: dict) -> dict:
     return {
         "test_count": delta.get("test_count", base.get("test_count")),
         "device_ts": delta.get("device_ts", base.get("device_ts")),
+        # Carried from the base rather than dropped. A delta never names the
+        # device -- the update it is applied onto did -- so rebuilding without
+        # this line would strip the stamp off every reading that arrived as a
+        # delta, and the whole persisted ring would read as unknown provenance.
+        "device_id": base.get("device_id"),
         "cpu": next_cpu,
         "memory": next_memory,
         "wifi_clients": next_wifi,

@@ -71,6 +71,12 @@ export type FleetEntry = {
   crashCount: number;
   /** device_ts of the latest snapshot, or null before any. */
   lastSnapshotTs: string | null;
+  /** Which unit the CPU figures above were measured on, or null when the
+   *  snapshot carries no stamp — it predates the field, or nothing had
+   *  identified the device when it was taken. Compared against `deviceId`,
+   *  which is the unit behind the console now. Null on either side is "we do
+   *  not know", and the two of them differing is the only disagreement. */
+  readingDeviceId: string | null;
   /** Whole seconds since this DUT's last stream event; null before any event. */
   lastEventAgeSec: number | null;
 };
@@ -289,6 +295,7 @@ export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () =>
       coreCount: cpu.coreCount,
       crashCount: crashRef.current.get(id) ?? 0,
       lastSnapshotTs: base?.device_ts ?? null,
+      readingDeviceId: base?.device_id ?? null,
       lastEventAgeSec,
     };
   });

@@ -160,15 +160,39 @@ export default function FleetCard({
   //
   // Both numbers have to be real for this to mean anything: no model (no
   // console yet) and no snapshot are each "no answer", not a disagreement.
+  // Two checks, because they catch different swaps and neither subsumes the
+  // other.
+  //
+  // The identity check is direct rather than inferred: the reading names the
+  // unit it was measured on, the registry names the unit behind this console
+  // now, and two different names is not an argument. It is the only one of the
+  // two that sees a 420E swapped for another 420E -- where the model, the core
+  // count, the prompt and the console token all still agree, and every other
+  // fact on this card says nothing happened.
+  //
+  // The core-count check below is the weaker, older one and it stays, because
+  // it covers what the identity check structurally cannot: a reading carrying
+  // no stamp. Every snapshot recorded before identities existed is one of
+  // those, and so is any taken before something identified the device.
+  const readingIsAnotherDevice =
+    entry.deviceId !== null &&
+    entry.readingDeviceId !== null &&
+    entry.deviceId !== entry.readingDeviceId;
   const coresDisagree =
     entry.modelCores !== null && entry.coreCount > 0 && entry.coreCount !== entry.modelCores;
   const cpuSub =
     entry.cpuBusyPct === null
       ? "Awaiting snapshot"
       : `busy · ${entry.coreCount} core${entry.coreCount === 1 ? "" : "s"}`;
-  const coresNote = coresDisagree
-    ? `${entry.model} has ${entry.modelCores} — this reading is another device's`
-    : null;
+  // Names both units when it can. "Another device's" was all the core count
+  // could support; an identity can say which, and on a bench holding two of one
+  // model that is the difference between a warning somebody can act on and one
+  // they have to go and investigate.
+  const coresNote = readingIsAnotherDevice
+    ? `Measured on ${entry.readingDeviceId} — this console now holds ${entry.deviceId}`
+    : coresDisagree
+      ? `${entry.model} has ${entry.modelCores} — this reading is another device's`
+      : null;
 
   const onCloseSerial = useCallback(() => {
     if (!window.confirm(`Close the serial session on ${entry.label}?`)) {
