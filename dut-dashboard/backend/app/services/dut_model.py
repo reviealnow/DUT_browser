@@ -48,6 +48,17 @@ BAND_6 = "6G"
 # identity: E has a 6GHz radio, X does not.
 _MODEL_RE = re.compile(r"(?m)^\s*(AP6)_?(\d{3})([EX]?)\b", re.IGNORECASE)
 
+# The device's own name -- ``AP6420E-PB1005QPCFVFMA8`` -- which unlike the prompt
+# identifies one physical unit rather than a model. That distinction is the whole
+# reason this exists: the prompt cannot tell two 420Es apart, so a reading taken
+# on one of them survives being swapped for the other with nothing to say so.
+#
+# Not anchored to a line start the way `_MODEL_RE` is, and it does not need to
+# be: the model prefix AND a serial are both required, which no prose line about
+# a device happens to contain. It is read from the output of `hostname`, where a
+# prompt echoed on the same line would otherwise defeat an anchor.
+_DEVICE_ID_RE = re.compile(r"\bAP6\d{3}[EX]?-[A-Z0-9]{6,}\b", re.IGNORECASE)
+
 
 @dataclass(frozen=True)
 class ModelSpec:
@@ -88,6 +99,21 @@ def detect_model(text: str) -> str | None:
     if not match:
         return None
     return f"AP6_{match.group(2)}{match.group(3).upper()}"
+
+
+def detect_device_id(text: str) -> str | None:
+    """The one unit named in console output, or None.
+
+    ``AP6420E-PB1005QPCFVFMA8``: model, then the serial that makes it this
+    device and not another of the same model. Upper-cased so two spellings of
+    one device never compare unequal and get read as a swap.
+
+    None means "no answer", never "a different device". Every caller has to keep
+    those apart -- a `hostname` that raced sysMon and came back empty must leave
+    a stored identity alone, not overwrite it with nothing.
+    """
+    match = _DEVICE_ID_RE.search(text or "")
+    return match.group(0).upper() if match else None
 
 
 def spec_for(model: str | None) -> ModelSpec:
