@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import type { MeshMember, MeshProbe, MeshTopology } from "../api/rest";
+import {
+  BENCH_MESH_MEMBERS,
+  BENCH_MESH_PROBE,
+  BENCH_NODE_MGMT,
+  BENCH_ROOT_MGMT,
+} from "./benchMesh.fixture";
 import { meshRoleFor } from "./MeshTopologyContext";
 import type { FleetEntry } from "./useFleetMonitor";
 
@@ -165,5 +171,69 @@ describe("when a mesh role must stay unanswered", () => {
       null,
     );
     expect(answer).toBeNull();
+  });
+});
+
+
+describe("the bench mesh, as the hardware actually answered", () => {
+  /* Everything above is constructed, and a constructed fixture agrees with
+     whatever its author believed. This one is a two-device mesh captured over a
+     real console on 2026-08-28 -- see benchMesh.fixture.ts for the raw bytes and
+     for the two oddities in them.
+
+     What it is really guarding is the fallback's reach: on the day this was
+     captured the root's console was sitting at a login prompt and could not be
+     asked anything, and the node's stored probe still gave the root its role.
+     A mesh table could not have covered that, because reading one is admin-only
+     and needs a management address the root was never asked for. */
+
+  const root = entry({ id: "root1", mgmtUrl: BENCH_ROOT_MGMT, meshProbe: BENCH_MESH_PROBE });
+  const node = entry({ id: "node1", mgmtUrl: BENCH_NODE_MGMT, meshProbe: BENCH_MESH_PROBE });
+
+  it("names the root from a probe taken on the other device", () => {
+    expect(meshRoleFor(root, null)).toEqual({
+      role: "root",
+      source: "device probe",
+      capturedAt: BENCH_MESH_PROBE.captured_at,
+    });
+  });
+
+  it("names the node from the same probe", () => {
+    expect(meshRoleFor(node, null)?.role).toBe("node");
+  });
+
+  it("resolves both DUTs from one reading, not one each", () => {
+    // Two cards, one stored probe, no request. That is the whole shape of it.
+    expect([meshRoleFor(root, null)?.role, meshRoleFor(node, null)?.role]).toEqual([
+      "root",
+      "node",
+    ]);
+  });
+
+  it("still prefers a live table over the same answer stored", () => {
+    const live: MeshTopology = {
+      dut: "node1",
+      mgmt_url: BENCH_NODE_MGMT,
+      captured_at: "2026-08-28 14:00:00",
+      members: BENCH_MESH_MEMBERS,
+    };
+    expect(meshRoleFor(root, live)?.source).toBe("mesh table");
+  });
+
+  it("keeps the device's two labels for a member even when they disagree", () => {
+    /* `node: "0"` with `node_number: 1`, from the device's own output. The two
+       are published separately precisely so this is visible; deriving either
+       from the other would have hidden it, and a later tidy-up that
+       "normalises" them would be deleting a real observation. */
+    const node0 = BENCH_MESH_MEMBERS.find((m) => m.node === "0");
+    expect(node0?.node_number).toBe(1);
+  });
+
+  it("does not read the root's inapplicable signal as a link", () => {
+    /* The device sends `signal: 0` for a root -- no parent to hear -- and the
+       backend nulls it. Nothing in the role path should resurrect it. */
+    const rootMember = BENCH_MESH_MEMBERS.find((m) => m.role === "root");
+    expect(rootMember?.rssi).toBeNull();
+    expect(rootMember?.rssi_band).toBeNull();
   });
 });
