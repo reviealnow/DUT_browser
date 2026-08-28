@@ -534,6 +534,44 @@ class DeviceIdentityTests(DutRegistryTests):
         self.assertEqual(reg.get(DEFAULT_DUT_ID).device_id, "AP6420E-PB1005QPCFVFMA8")
         self.assertIsNone(reg.get("lab2").device_id)
 
+    def test_an_identity_also_settles_the_model(self) -> None:
+        """A hostname names the model as well as the unit, and dropping that
+        half leaves the band mapping on its 840-shaped default.
+
+        Found on hardware, not in review: the Pi's mesh node published
+        `model: null`, `bands` with a 6GHz radio and `vaps_per_band` 16, while
+        its own hostname said AP6_420 -- eight VAPs per band and no 6GHz radio
+        at all. `band_for_iface` would have answered "2.4G" for ath8, measured
+        at 5.66 GHz on that very device.
+        """
+        reg = self._booted()
+        reg.record_device_id(DEFAULT_DUT_ID, "AP6420-PA10054DDHWVF2D")
+
+        published = reg.describe()[0]
+        self.assertEqual(published["model"], "AP6_420")
+        self.assertEqual(published["vaps_per_band"], 8)
+        self.assertEqual(published["bands"], ["2.4G", "5G"], "invented a 6GHz radio")
+        self.assertEqual(published["model_cores"], 2)
+
+    def test_a_swapped_device_moves_the_model_with_it(self) -> None:
+        """The identity is a read of the device in front of us now, so it
+        outranks a model left behind by whatever used to be on this console.
+        Filling the field in only when empty would leave an 840E's sixteen-wide
+        mapping over a 420 that had replaced it."""
+        reg = self._booted()
+        reg.record_device_id(DEFAULT_DUT_ID, "AP6840E-PD1005VMG3KJH9C")
+        self.assertEqual(reg.describe()[0]["model"], "AP6_840E")
+
+        reg.record_device_id(DEFAULT_DUT_ID, "AP6420-PA10054DDHWVF2D")
+
+        published = reg.describe()[0]
+        self.assertEqual(published["model"], "AP6_420")
+        self.assertEqual(published["vaps_per_band"], 8)
+
+    def test_the_model_it_implies_survives_a_restart(self) -> None:
+        self._booted().record_device_id(DEFAULT_DUT_ID, "AP6420-PA10054DDHWVF2D")
+        self.assertEqual(self._booted().get(DEFAULT_DUT_ID).model, "AP6_420")
+
     def test_recording_against_an_unknown_dut_is_a_noop(self) -> None:
         self.assertIsNone(self._booted().record_device_id("nosuchdut", "AP6420E-PB1005QPCFVFMA8"))
 
