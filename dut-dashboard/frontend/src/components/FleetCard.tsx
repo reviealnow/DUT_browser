@@ -146,9 +146,10 @@ export default function FleetCard({
   const uplinkMuted = !rssi.applicable || rssi.role === "root" || (rssi.captured && rssi.role === null);
   const childrenMuted = !rssi.applicable || (rssi.captured && !rssi.downlink);
   const meta = STATUS_META[entry.status];
-  // Null outside the Fleet page (Overview mounts no provider) and for anyone
-  // who is not an admin. Both are "no answer", and the line below omits the
-  // role rather than guessing one.
+  // The live mesh table where one was read — Fleet page, admin — and this DUT's
+  // own stored probe everywhere else, which is what lets the same card name a
+  // role on Overview without that page ever addressing a DUT. Still null when
+  // neither names it, and the line below omits the role rather than guessing.
   const meshRole = useMeshTopology().roleFor(entry);
   const cpu = entry.cpuBusyPct === null ? "—" : `${entry.cpuBusyPct}%`;
   // The CPU figures come from the last snapshot — whatever hardware that was
@@ -258,10 +259,23 @@ export default function FleetCard({
                 answers the dashboard only sometimes has, and the line says
                 which it is missing rather than filling in a plausible one:
                 the model needs a console to have been opened, the role needs
-                an admin's mesh read. */}
-            <div className="card-sub fleet-card-identity">
+                either an admin's mesh read or a probe on this DUT's console.
+
+                A role read from a stored probe says so on hover rather than in
+                the line. The two sources are not equally fresh — one was read
+                just now, one is as old as its timestamp — and printing them
+                identically with no way at all to tell them apart is the kind of
+                quiet equivalence this card exists to avoid. */}
+            <div
+              className="card-sub fleet-card-identity"
+              title={
+                meshRole?.source === "device probe"
+                  ? `Mesh role as this device reported it at ${meshRole.capturedAt}`
+                  : undefined
+              }
+            >
               {entry.model ?? "AP6"}
-              {meshRole ? ` Mesh ${meshRole === "root" ? "Root" : "Node"}` : ""}
+              {meshRole ? ` Mesh ${meshRole.role === "root" ? "Root" : "Node"}` : ""}
             </div>
           </div>
           <span className={`pill ${meta.pill}`}>
