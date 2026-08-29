@@ -43,6 +43,11 @@ export type FleetEntry = {
    *  unknown. Compared against `coreCount`, which comes from the last snapshot
    *  whatever hardware that was recorded on. */
   modelCores: number | null;
+  /** Which unit is behind this DUT's console, or null before anything asked.
+   *  A sibling of `model`, not a finer spelling of it: the model is what the
+   *  prompt says and two units of one model say the same thing, which is
+   *  exactly the swap a stale reading survives. */
+  deviceId: string | null;
   /** What the DUT itself last said about its mesh, or null before any probe.
    *  A sibling of `backhaul`, not part of it: that is what a console measured
    *  off this DUT's radios, this is what the device reported when asked. */
@@ -66,6 +71,12 @@ export type FleetEntry = {
   crashCount: number;
   /** device_ts of the latest snapshot, or null before any. */
   lastSnapshotTs: string | null;
+  /** Which unit the CPU figures above were measured on, or null when the
+   *  snapshot carries no stamp — it predates the field, or nothing had
+   *  identified the device when it was taken. Compared against `deviceId`,
+   *  which is the unit behind the console now. Null on either side is "we do
+   *  not know", and the two of them differing is the only disagreement. */
+  readingDeviceId: string | null;
   /** Whole seconds since this DUT's last stream event; null before any event. */
   lastEventAgeSec: number | null;
 };
@@ -96,6 +107,7 @@ type RegistryEntry = Pick<
   | "mgmtUrl"
   | "model"
   | "modelCores"
+  | "deviceId"
   | "meshProbe"
   | "backhaul"
 >;
@@ -112,6 +124,7 @@ function fromRegistry(d: DutInfo): RegistryEntry {
     mgmtUrl: d.mgmt_url ?? "",
     model: d.model ?? null,
     modelCores: d.model_cores ?? null,
+    deviceId: d.device_id ?? null,
     meshProbe: d.mesh_probe ?? null,
     backhaul: {
       applicable: d.backhaul.applicable,
@@ -254,7 +267,7 @@ export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () =>
   }, []);
 
   // Derive the view rows on each tick from the registry order + live refs.
-  const fleet = duts.map(({ id, label, serialOpen, lastSerial, remote, mgmtUrl, model, modelCores, meshProbe, backhaul }) => {
+  const fleet = duts.map(({ id, label, serialOpen, lastSerial, remote, mgmtUrl, model, modelCores, deviceId, meshProbe, backhaul }) => {
     const base = baseRef.current.get(id) ?? null;
     const cpu = cpuFromSnapshot(base);
     const lastActivity = lastActivityRef.current.get(id) ?? 0;
@@ -275,12 +288,14 @@ export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () =>
       mgmtUrl,
       model,
       modelCores,
+      deviceId,
       meshProbe,
       backhaul,
       cpuBusyPct: cpu.cpuBusyPct,
       coreCount: cpu.coreCount,
       crashCount: crashRef.current.get(id) ?? 0,
       lastSnapshotTs: base?.device_ts ?? null,
+      readingDeviceId: base?.device_id ?? null,
       lastEventAgeSec,
     };
   });

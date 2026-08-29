@@ -345,8 +345,12 @@ class DutModelDetectionTests(DutRegistryTests):
 
     It is not decoration: it decides how many VAPs sit in each band, and so
     which band an athN belongs to when the output states no frequency. Getting
-    it from the prompt costs no serial time, which is the point -- the
-    connect-time capture races sysMon for the line and loses.
+    it from the prompt costs no serial time, which is the point -- and it is
+    the only source that works in replay, where nothing answers a command.
+
+    It used to say a command would lose a race with sysMon. Measured
+    2026-08-28, a short one does not; the numbers are in the module docstring
+    of `services/dut_model.py`, kept in one place rather than restated here.
     """
 
     def _booted(self) -> DutRegistry:
@@ -416,3 +420,231 @@ class DutModelDetectionTests(DutRegistryTests):
         reg = self._booted()
         self.assertEqual(reg.get(DEFAULT_DUT_ID).model, "AP6_420E")
         self.assertIsNone(reg.get("lab2").model)
+
+
+class DeviceIdentityTests(DutRegistryTests):
+    """Which physical unit is behind a console, and what changes when it moves.
+
+    A model is not a device. Two AP6_420Es print the same prompt, report the
+    same core count and open on the same cable, so the console-identity rule one
+    level down -- which revokes a capture when the port, the SSH config or the
+    registration changes -- sees nothing at all when one is swapped for the
+    other. Every reading taken on the first then goes on being published as the
+    second's, which is the gap `device_id` closes.
+
+    The bench is what makes this concrete rather than theoretical: the `default`
+    entry carried snapshots recorded while an 840E was cabled to it, and a 420E
+    inherited them under its own name.
+    """
+
+    def _booted(self) -> DutRegistry:
+        return build_default_registry(ws_manager=self.ws, loop=self._loop)
+
+    def _captured(self, reg: DutRegistry) -> DutContext:
+        """A DUT holding a reading, as one that has been measured would be."""
+        ctx = reg.get(DEFAULT_DUT_ID)
+        ctx.backhaul_role = "node"
+        ctx.backhaul_uplink = {"iface": "ath15", "rssi": -37}
+        ctx.backhaul_captured = True
+        ctx.mesh_probe = {"probed": True, "mesh": True, "members": [], "detail": ""}
+        return ctx
+
+    def test_learning_an_identity_for_the_first_time_keeps_the_capture(self) -> None:
+        """Nobody had asked before, so "we now know" is not "it changed". Read as
+        a swap, the first identify after every connect would throw away the
+        capture that connect had just taken."""
+        reg = self._booted()
+        self._captured(reg)
+
+        previous = reg.record_device_id(DEFAULT_DUT_ID, "AP6420E-PB1005QPCFVFMA8")
+
+        self.assertIsNone(previous)
+        self.assertTrue(reg.describe()[0]["backhaul"]["captured"])
+        self.assertEqual(reg.describe()[0]["device_id"], "AP6420E-PB1005QPCFVFMA8")
+
+    def test_a_different_unit_on_the_same_console_revokes_the_reading(self) -> None:
+        """Same cable, same model, same prompt, same core count: nothing else in
+        this registry can tell these two apart."""
+        reg = self._booted()
+        reg.record_device_id(DEFAULT_DUT_ID, "AP6420E-PB1005QPCFVFMA8")
+        self._captured(reg)
+
+        previous = reg.record_device_id(DEFAULT_DUT_ID, "AP6420E-PA10054DDHWVF2D")
+
+        self.assertEqual(previous, "AP6420E-PB1005QPCFVFMA8")
+        published = reg.describe()[0]
+        self.assertEqual(published["device_id"], "AP6420E-PA10054DDHWVF2D")
+        self.assertIsNone(published["backhaul"]["role"], "the old unit's reading was published")
+        self.assertIsNone(published["backhaul"]["uplink"])
+        self.assertFalse(published["backhaul"]["captured"])
+        self.assertIsNone(published["mesh_probe"])
+
+    def test_the_same_unit_answering_again_costs_nothing(self) -> None:
+        """Identify runs on every connect. If re-confirming the same device
+        dropped the capture, the feature would be a capture shredder."""
+        reg = self._booted()
+        reg.record_device_id(DEFAULT_DUT_ID, "AP6420E-PB1005QPCFVFMA8")
+        self._captured(reg)
+
+        self.assertIsNone(reg.record_device_id(DEFAULT_DUT_ID, "AP6420E-PB1005QPCFVFMA8"))
+        self.assertTrue(reg.describe()[0]["backhaul"]["captured"])
+
+    def test_a_console_change_leaves_the_identity_unknown_not_wrong(self) -> None:
+        """A capture is dropped when the console changes; so is the identity,
+        because nobody has asked the device now behind it who it is. Keeping the
+        old name would have the next identify read as a swap that never
+        happened -- and unknown must never be published as a mismatch."""
+        reg = self._booted()
+        reg.record_serial_params(DEFAULT_DUT_ID, "/dev/cu.bench", 115200)
+        reg.record_device_id(DEFAULT_DUT_ID, "AP6420E-PB1005QPCFVFMA8")
+
+        reg.record_serial_params(DEFAULT_DUT_ID, "/dev/cu.other", 115200)
+
+        self.assertIsNone(reg.get(DEFAULT_DUT_ID).device_id)
+        self.assertIsNone(reg.describe()[0]["device_id"])
+
+    def test_a_reopen_on_the_same_console_keeps_the_identity(self) -> None:
+        """The revocation must cost an identity only when the console changed.
+        Cleared on every open, the card would spend every session unable to say
+        whether its reading came off this device or another."""
+        reg = self._booted()
+        reg.record_serial_params(DEFAULT_DUT_ID, "/dev/cu.bench", 115200)
+        reg.record_device_id(DEFAULT_DUT_ID, "AP6420E-PB1005QPCFVFMA8", mode="serial")
+
+        reg.record_serial_params(DEFAULT_DUT_ID, "/dev/cu.bench", 115200)
+
+        self.assertEqual(reg.get(DEFAULT_DUT_ID).device_id, "AP6420E-PB1005QPCFVFMA8")
+
+    def test_an_identity_survives_a_restart(self) -> None:
+        """It is learned by a console command, so without persistence it would
+        be relearned only after the next connect -- and until then a stale
+        reading would have nothing to be compared against."""
+        self._booted().record_device_id(DEFAULT_DUT_ID, "AP6420E-PB1005QPCFVFMA8")
+        self.assertEqual(self._booted().get(DEFAULT_DUT_ID).device_id, "AP6420E-PB1005QPCFVFMA8")
+
+    def test_an_untouched_default_still_writes_no_bare_entry(self) -> None:
+        reg = self._booted()
+        reg.record_device_id(DEFAULT_DUT_ID, "AP6420E-PB1005QPCFVFMA8")
+        self.assertIn("AP6420E-PB1005QPCFVFMA8", self._duts_file.read_text())
+
+    def test_a_hand_edited_identity_goes_through_the_same_detector(self) -> None:
+        """A file must not be able to store an identity no console could produce
+        -- otherwise an edit could silence the mismatch it exists to report."""
+        self._duts_file.write_text(
+            '[{"id": "default", "device_id": "ap6420e-pb1005qpcfvfma8"},'
+            ' {"id": "lab2", "device_id": "somebody typed this"}]'
+        )
+        reg = self._booted()
+        self.assertEqual(reg.get(DEFAULT_DUT_ID).device_id, "AP6420E-PB1005QPCFVFMA8")
+        self.assertIsNone(reg.get("lab2").device_id)
+
+    def test_an_identity_also_settles_the_model(self) -> None:
+        """A hostname names the model as well as the unit, and dropping that
+        half leaves the band mapping on its 840-shaped default.
+
+        Found on hardware, not in review: the Pi's mesh node published
+        `model: null`, `bands` with a 6GHz radio and `vaps_per_band` 16, while
+        its own hostname said AP6_420 -- eight VAPs per band and no 6GHz radio
+        at all. `band_for_iface` would have answered "2.4G" for ath8, measured
+        at 5.66 GHz on that very device.
+        """
+        reg = self._booted()
+        reg.record_device_id(DEFAULT_DUT_ID, "AP6420-PA10054DDHWVF2D")
+
+        published = reg.describe()[0]
+        self.assertEqual(published["model"], "AP6_420")
+        self.assertEqual(published["vaps_per_band"], 8)
+        self.assertEqual(published["bands"], ["2.4G", "5G"], "invented a 6GHz radio")
+        self.assertEqual(published["model_cores"], 2)
+
+    def test_a_swapped_device_moves_the_model_with_it(self) -> None:
+        """The identity is a read of the device in front of us now, so it
+        outranks a model left behind by whatever used to be on this console.
+        Filling the field in only when empty would leave an 840E's sixteen-wide
+        mapping over a 420 that had replaced it."""
+        reg = self._booted()
+        reg.record_device_id(DEFAULT_DUT_ID, "AP6840E-PD1005VMG3KJH9C")
+        self.assertEqual(reg.describe()[0]["model"], "AP6_840E")
+
+        reg.record_device_id(DEFAULT_DUT_ID, "AP6420-PA10054DDHWVF2D")
+
+        published = reg.describe()[0]
+        self.assertEqual(published["model"], "AP6_420")
+        self.assertEqual(published["vaps_per_band"], 8)
+
+    def test_the_model_it_implies_survives_a_restart(self) -> None:
+        self._booted().record_device_id(DEFAULT_DUT_ID, "AP6420-PA10054DDHWVF2D")
+        self.assertEqual(self._booted().get(DEFAULT_DUT_ID).model, "AP6_420")
+
+    def test_recording_against_an_unknown_dut_is_a_noop(self) -> None:
+        self.assertIsNone(self._booted().record_device_id("nosuchdut", "AP6420E-PB1005QPCFVFMA8"))
+
+
+class ReadingStampTests(DutRegistryTests):
+    """Every snapshot leaves here naming the unit it was measured on.
+
+    Stamped in the registry's own event closure rather than in the parser, which
+    has no idea which DUT it belongs to, and rather than at persist time, so the
+    live stream and the backfill carry one field a card can read with one rule.
+    """
+
+    def _booted(self) -> DutRegistry:
+        return build_default_registry(ws_manager=self.ws, loop=self._loop)
+
+    def _snapshot(self, ts: str = "T1") -> dict:
+        return {
+            "type": "snapshot_update",
+            "snapshot": {"test_count": 1, "device_ts": ts, "cpu": {"0": {"idle": 80.0}}},
+        }
+
+    def test_a_snapshot_carries_the_identified_unit(self) -> None:
+        reg = self._booted()
+        reg.record_device_id(DEFAULT_DUT_ID, "AP6420E-PB1005QPCFVFMA8")
+        ctx = reg.get(DEFAULT_DUT_ID)
+
+        ctx.parser.on_event(self._snapshot())
+
+        self.assertEqual(
+            ctx.snapshot_store.recent(1)[0]["device_id"], "AP6420E-PB1005QPCFVFMA8"
+        )
+
+    def test_a_snapshot_taken_before_anyone_asked_is_stamped_unknown(self) -> None:
+        """Not omitted and not guessed. A reader has to be able to tell "this
+        came off another device" from "nobody knows", and only one of those is
+        worth a warning."""
+        reg = self._booted()
+        ctx = reg.get(DEFAULT_DUT_ID)
+
+        ctx.parser.on_event(self._snapshot())
+
+        self.assertIsNone(ctx.snapshot_store.recent(1)[0]["device_id"])
+
+    def test_readings_taken_before_and_after_a_swap_are_told_apart(self) -> None:
+        """The whole point, end to end through the registry: the reading held
+        from the departed unit keeps its own name while the console moves on."""
+        reg = self._booted()
+        ctx = reg.get(DEFAULT_DUT_ID)
+        reg.record_device_id(DEFAULT_DUT_ID, "AP6420E-PA10054DDHWVF2D")
+        ctx.parser.on_event(self._snapshot("T1"))
+
+        reg.record_device_id(DEFAULT_DUT_ID, "AP6420E-PB1005QPCFVFMA8")
+        ctx.parser.on_event(self._snapshot("T2"))
+
+        stamps = [snap["device_id"] for snap in ctx.snapshot_store.recent(10)]
+        self.assertEqual(
+            stamps, ["AP6420E-PA10054DDHWVF2D", "AP6420E-PB1005QPCFVFMA8"]
+        )
+
+    def test_the_browser_is_told_the_same_thing_as_the_store(self) -> None:
+        """The card reads the live stream, not only the backfill. Two sources
+        disagreeing about which device a number came from would be worse than
+        neither carrying it."""
+        reg = self._booted()
+        reg.record_device_id(DEFAULT_DUT_ID, "AP6420E-PB1005QPCFVFMA8")
+
+        reg.get(DEFAULT_DUT_ID).parser.on_event(self._snapshot())
+
+        emitted = [e for e in self.ws.events if e.get("type") == "snapshot_update"]
+        self.assertEqual(
+            emitted[-1]["snapshot"]["device_id"], "AP6420E-PB1005QPCFVFMA8"
+        )

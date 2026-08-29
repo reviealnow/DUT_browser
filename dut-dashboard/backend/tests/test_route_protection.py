@@ -162,6 +162,10 @@ ROLE_MAP: dict[tuple[str, str], str | None] = {
     # Deliberately NOT under /api/fleet (all admin): an engineer's connect would
     # then trigger a probe that can only answer 403.
     ("POST", "/api/wifi/mesh-probe"): "engineer",
+    # One `hostname` on the same trigger as the two above, and gated with them:
+    # it drives the console, and a connect is engineer already. Admin would make
+    # every engineer's connect fire a 403.
+    ("POST", "/api/dut/identify"): "engineer",
     # -- read-only telemetry, open by design ------------------------------
     ("GET", "/health"): None,
     ("GET", "/api/version"): None,

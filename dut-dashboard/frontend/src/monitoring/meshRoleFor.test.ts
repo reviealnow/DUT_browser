@@ -72,6 +72,7 @@ function entry(over: Partial<FleetEntry> = {}): FleetEntry {
     mgmtUrl: `https://${HOST}`,
     model: "AP6_420E",
     modelCores: 2,
+    deviceId: null,
     meshProbe: null,
     backhaul: {
       applicable: true,
@@ -85,6 +86,7 @@ function entry(over: Partial<FleetEntry> = {}): FleetEntry {
     coreCount: 2,
     crashCount: 0,
     lastSnapshotTs: null,
+    readingDeviceId: null,
     lastEventAgeSec: null,
     ...over,
   };

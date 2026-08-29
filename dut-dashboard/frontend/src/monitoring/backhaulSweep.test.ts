@@ -48,6 +48,7 @@ function entry(
     mgmtUrl: "",
     model: null,
     modelCores: null,
+    deviceId: null,
     meshProbe: null,
     backhaul: {
       applicable,
@@ -61,6 +62,7 @@ function entry(
     coreCount: 0,
     crashCount: 0,
     lastSnapshotTs: null,
+    readingDeviceId: null,
     lastEventAgeSec: null,
   };
 }
@@ -86,6 +88,7 @@ function registryWith(uplinks: Record<string, RemoteUplink | null>): () => Promi
       vaps_per_band: 16,
       bands: ["2.4G", "5G", "6G"],
       model_cores: null,
+      device_id: null,
       mesh_probe: null,
       backhaul: {
         applicable: true,

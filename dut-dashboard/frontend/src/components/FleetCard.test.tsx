@@ -67,6 +67,7 @@ function entry(overrides: Partial<FleetEntry> = {}): FleetEntry {
     mgmtUrl: "",
     model: null,
     modelCores: null,
+    deviceId: null,
     meshProbe: null,
     backhaul: {
       applicable: true,
@@ -80,6 +81,7 @@ function entry(overrides: Partial<FleetEntry> = {}): FleetEntry {
     coreCount: 2,
     crashCount: 0,
     lastSnapshotTs: null,
+    readingDeviceId: null,
     lastEventAgeSec: null,
     ...overrides,
   };
@@ -398,6 +400,98 @@ describe("a CPU reading older than the device under it", () => {
     show(entry({ model: "AP6_420E", modelCores: 2, cpuBusyPct: null, coreCount: 0 }));
     expect(screen.getByText("Awaiting snapshot")).toBeTruthy();
     expect(screen.queryByText(/another device/)).toBeNull();
+  });
+
+  /* The core count is a property of the MODEL, so everything above is blind to
+     the likelier swap on a bench that owns two of one AP: a 420E replaced by
+     another 420E agrees on the model, the core count, the prompt and the
+     console token, and the reading from the first goes on being shown as the
+     second's with every check on this card satisfied.
+
+     The reading now names the unit it was measured on, so the card compares two
+     names instead of inferring from a number. */
+
+  it("names both units when the reading came off a different one", () => {
+    show(entry({
+      model: "AP6_420E",
+      modelCores: 2,
+      cpuBusyPct: 5,
+      coreCount: 2,
+      deviceId: "AP6420E-PB1005QPCFVFMA8",
+      readingDeviceId: "AP6420E-PA10054DDHWVF2D",
+    }));
+    expect(
+      screen.getByText(
+        /Measured on AP6420E-PA10054DDHWVF2D — this console now holds AP6420E-PB1005QPCFVFMA8/,
+      ),
+    ).toBeTruthy();
+  });
+
+  it("catches the swap the core count cannot see", () => {
+    // Same model, same core count: every older check on this card is satisfied.
+    show(entry({
+      model: "AP6_420E",
+      modelCores: 2,
+      coreCount: 2,
+      cpuBusyPct: 5,
+      deviceId: "AP6420E-PB1005QPCFVFMA8",
+      readingDeviceId: "AP6420E-PA10054DDHWVF2D",
+    }));
+    expect(screen.getByText(/Measured on/)).toBeTruthy();
+  });
+
+  it("says nothing when the same unit took the reading", () => {
+    show(entry({
+      model: "AP6_420E",
+      modelCores: 2,
+      coreCount: 2,
+      cpuBusyPct: 5,
+      deviceId: "AP6420E-PB1005QPCFVFMA8",
+      readingDeviceId: "AP6420E-PB1005QPCFVFMA8",
+    }));
+    expect(screen.queryByText(/Measured on/)).toBeNull();
+    expect(screen.queryByText(/another device/)).toBeNull();
+  });
+
+  it("stays quiet for a reading that carries no stamp at all", () => {
+    /* Every snapshot recorded before identities existed is one of these, and so
+       is any taken before something identified the device. Read as a mismatch,
+       unknown provenance would put a warning on the whole existing history. */
+    show(entry({
+      model: "AP6_420E",
+      modelCores: 2,
+      coreCount: 2,
+      cpuBusyPct: 5,
+      deviceId: "AP6420E-PB1005QPCFVFMA8",
+      readingDeviceId: null,
+    }));
+    expect(screen.queryByText(/Measured on/)).toBeNull();
+  });
+
+  it("stays quiet when nothing has identified the console's device", () => {
+    show(entry({
+      model: "AP6_420E",
+      modelCores: 2,
+      coreCount: 2,
+      cpuBusyPct: 5,
+      deviceId: null,
+      readingDeviceId: "AP6420E-PA10054DDHWVF2D",
+    }));
+    expect(screen.queryByText(/Measured on/)).toBeNull();
+  });
+
+  it("still falls back to the core count for an unstamped reading", () => {
+    /* The weaker check earns its keep exactly here: no identity on either side,
+       and a core count that cannot belong to this model. */
+    show(entry({
+      model: "AP6_420E",
+      modelCores: 2,
+      coreCount: 4,
+      cpuBusyPct: 5,
+      deviceId: null,
+      readingDeviceId: null,
+    }));
+    expect(screen.getByText(/AP6_420E has 2 — this reading is another device's/)).toBeTruthy();
   });
 });
 

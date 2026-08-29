@@ -91,3 +91,60 @@ class SnapshotStoreTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReadingProvenanceTests(SnapshotStoreTests):
+    """The stamp that says which unit a stored reading was measured on.
+
+    A registry entry outlives the hardware cabled to it, so the backfill this
+    store feeds is where a departed device's CPU figures come back under the
+    current one's name. The stamp is what lets a card tell the two apart, and
+    the ring is the only place a reading survives long enough to need it.
+    """
+
+    def test_a_stamped_update_keeps_its_stamp(self) -> None:
+        store = self._store()
+        event = _update(1, "T1", {"0": {"idle": 80.0}})
+        event["snapshot"]["device_id"] = "AP6420E-PB1005QPCFVFMA8"
+        store.observe(event)
+        self.assertEqual(store.recent(10)[0]["device_id"], "AP6420E-PB1005QPCFVFMA8")
+
+    def test_a_delta_does_not_strip_the_stamp_off_the_reading(self) -> None:
+        """A delta names no device -- the update it is applied onto did. The
+        reconstruction rebuilds the snapshot from a fixed set of keys, so a stamp
+        left out of that set would vanish from every reading that arrived as a
+        delta, which on a live console is most of them."""
+        store = self._store()
+        event = _update(1, "T1", {"0": {"idle": 80.0}})
+        event["snapshot"]["device_id"] = "AP6420E-PB1005QPCFVFMA8"
+        store.observe(event)
+        store.observe(
+            {"type": "snapshot_delta", "delta": {"device_ts": "T1", "cpu": {"1": {"idle": 90.0}}}}
+        )
+        snaps = store.recent(10)
+        self.assertEqual(set(snaps[0]["cpu"].keys()), {"0", "1"})
+        self.assertEqual(snaps[0]["device_id"], "AP6420E-PB1005QPCFVFMA8")
+
+    def test_the_stamp_survives_the_file(self) -> None:
+        """The backfill reads it back off disk after a restart, which is the one
+        path where a reading can outlive the device that produced it."""
+        path = Path(self._dir.name) / "persisted.jsonl"
+        store = SnapshotStore(path)
+        first = _update(1, "T1", {"0": {"idle": 80.0}})
+        first["snapshot"]["device_id"] = "AP6420E-PB1005QPCFVFMA8"
+        store.observe(first)
+        store.observe(_update(2, "T2", {"0": {"idle": 70.0}}))  # boundary persists T1
+
+        reloaded = SnapshotStore(path).recent(10)
+        self.assertEqual(reloaded[0]["device_id"], "AP6420E-PB1005QPCFVFMA8")
+
+    def test_an_unstamped_reading_stays_unstamped_rather_than_guessing(self) -> None:
+        """Every snapshot recorded before this field existed has no stamp, and
+        the ring loads them unchanged. Filling one in would put a confident
+        provenance on a reading nobody can account for."""
+        store = self._store()
+        store.observe(_update(1, "T1", {"0": {"idle": 80.0}}))
+        store.observe(
+            {"type": "snapshot_delta", "delta": {"device_ts": "T1", "cpu": {"1": {"idle": 90.0}}}}
+        )
+        self.assertIsNone(store.recent(10)[0]["device_id"])

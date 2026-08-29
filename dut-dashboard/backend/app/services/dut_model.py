@@ -23,10 +23,27 @@ Both matter most exactly where the guess is used. A mesh backhaul may sit on
 output, which states no frequency at all.
 
 The model is read from the console prompt, which every DUT prints unprompted
-and which therefore costs no serial time -- the connect-time capture races
-sysMon for the line and loses, so anything needing a command is unreliable
-here. `hostname` says the same thing in a different spelling
-(``AP6420E-PB1005QPCFVFMA8``); both are accepted.
+and which therefore costs no serial time. That is still why the prompt is the
+primary source: it needs nothing asked of the device at all. `hostname` says
+the same thing in a different spelling (``AP6420E-PB1005QPCFVFMA8``); both are
+accepted, and the hostname carries a serial as well, which is what
+``detect_device_id`` below reads.
+
+This used to say that a command-driven read is unreliable here, because the
+connect-time capture "races sysMon for the line and loses". **Measured, that is
+no longer true.** On AP6840E-PD1005VMG3KJH9C, 2026-08-28, with sysMon running
+at a 1s step and the console carrying 21.7 lines/s (0.0 when idle), `hostname`
+through ``capture_command`` returned the right answer 10 times out of 10, in
+0.01s each. The claim predates the sentinel handling in #143: a capture used to
+drop any line holding its marker, so a reply sharing that line was lost whole,
+and `SerialWorker` now splits the marker off instead.
+
+What remains true is narrower and is about ORDERING, not about commands. A
+capture started right after a site survey has its window filled by tens of
+thousands of `iw scan` lines still draining at 115200 baud, and reads nothing
+of its own -- measured, and the reason `siteSurveyStore.runConnectCaptures`
+puts the short commands before the survey rather than after it. Steady sysMon
+traffic is not that; a survey backlog is.
 
 Measured on the bench 420E: ath0/1/6 at 2412 MHz, ath8/9 at 5660 MHz, ath16/17
 at 6775 MHz. The block *starts* -- 0, 8, 16 -- are therefore observed, which is
@@ -47,6 +64,17 @@ BAND_6 = "6G"
 # not mistaken for the device saying what it is. The suffix is part of the
 # identity: E has a 6GHz radio, X does not.
 _MODEL_RE = re.compile(r"(?m)^\s*(AP6)_?(\d{3})([EX]?)\b", re.IGNORECASE)
+
+# The device's own name -- ``AP6420E-PB1005QPCFVFMA8`` -- which unlike the prompt
+# identifies one physical unit rather than a model. That distinction is the whole
+# reason this exists: the prompt cannot tell two 420Es apart, so a reading taken
+# on one of them survives being swapped for the other with nothing to say so.
+#
+# Not anchored to a line start the way `_MODEL_RE` is, and it does not need to
+# be: the model prefix AND a serial are both required, which no prose line about
+# a device happens to contain. It is read from the output of `hostname`, where a
+# prompt echoed on the same line would otherwise defeat an anchor.
+_DEVICE_ID_RE = re.compile(r"\bAP6\d{3}[EX]?-[A-Z0-9]{6,}\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -88,6 +116,21 @@ def detect_model(text: str) -> str | None:
     if not match:
         return None
     return f"AP6_{match.group(2)}{match.group(3).upper()}"
+
+
+def detect_device_id(text: str) -> str | None:
+    """The one unit named in console output, or None.
+
+    ``AP6420E-PB1005QPCFVFMA8``: model, then the serial that makes it this
+    device and not another of the same model. Upper-cased so two spellings of
+    one device never compare unequal and get read as a swap.
+
+    None means "no answer", never "a different device". Every caller has to keep
+    those apart -- a `hostname` that raced sysMon and came back empty must leave
+    a stored identity alone, not overwrite it with nothing.
+    """
+    match = _DEVICE_ID_RE.search(text or "")
+    return match.group(0).upper() if match else None
 
 
 def spec_for(model: str | None) -> ModelSpec:

@@ -360,6 +360,12 @@ export type DutInfo = {
    *  not "unknown so assume the usual": a guessed number here would invent the
    *  hardware mismatch the card uses this to detect. */
   model_cores: number | null;
+  /** Which physical unit is behind this DUT's console — the device's own
+   *  hostname — or null when nothing has asked it. `model` above cannot answer
+   *  this: two AP6_420Es agree on the model, the core count and the prompt, so
+   *  a reading taken on one of them reads as the other's with nothing to say
+   *  so. Null is "we do not know", never "a different device". */
+  device_id: string | null;
   /** Where this DUT's console lives, or null when it is cabled to this
    *  machine. Connecting and disconnecting it are SSH operations; the backhaul
    *  capture is not, which is why the capture is not nested in here. */
@@ -588,6 +594,37 @@ export function probeMesh(dutId: string): Promise<MeshProbeResult> {
     {},
   ).finally(() => meshProbeInflight.delete(dutId));
   meshProbeInflight.set(dutId, request);
+  return request;
+}
+
+export type IdentifyResult = {
+  dut: string;
+  /** What the device called itself, or null when the read learned nothing. */
+  device_id: string | null;
+  /** The unit this replaced, when a different one answered on the same
+   *  console. Null both when nothing changed and when nothing was learned. */
+  changed_from: string | null;
+};
+
+const identifyInflight = new Map<string, Promise<IdentifyResult>>();
+
+/** Ask a connected DUT its own name, and record which unit it is.
+ *
+ *  One short console command, so it is coalesced per DUT like every other
+ *  capture: the console is a single channel and two of these would simply
+ *  queue behind each other.
+ *
+ *  Engineer-gated, like the mesh probe beside it and for the same reason: what
+ *  it drives is the serial console, and connecting a DUT — the only thing that
+ *  fires it — is engineer already. */
+export function identifyDut(dutId: string): Promise<IdentifyResult> {
+  const current = identifyInflight.get(dutId);
+  if (current) return current;
+  const request = post<IdentifyResult>(
+    `/api/dut/identify?dut=${encodeURIComponent(dutId)}`,
+    {},
+  ).finally(() => identifyInflight.delete(dutId));
+  identifyInflight.set(dutId, request);
   return request;
 }
 
