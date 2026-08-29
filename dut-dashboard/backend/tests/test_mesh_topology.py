@@ -10,6 +10,12 @@ It is the reason this feature exists -- two members were listed there while the
 Fleet view showed only the one the dashboard had a console for -- so it is the
 fixture rather than an invented shape. Note `signal: 0` on the root: that is the
 single most misleading value in the payload, and it has its own test.
+
+Two more payloads follow it, captured 2026-08-28 from **both ends of one mesh**
+minutes apart. One payload cannot show what those two do: `node` and `hop` are
+relative to whichever DUT was asked, and `node_number` tracks neither. A single
+capture reads as an absolute topology, which is how the comment in `_member`
+came to say the two labels agree.
 """
 
 from __future__ import annotations
@@ -52,6 +58,127 @@ REAL_PAYLOAD = {
     "error_code": 0,
     "error_msg": "",
 }
+
+
+# The same two-device mesh, asked from each end on 2026-08-28. Root is the
+# AP6420E cabled to the desk (192.168.30.121); node is the AP6420 on the Pi
+# (192.168.30.176). Verbatim, field order included.
+ASKED_THE_ROOT = {
+    "data": {
+        "mesh_info_list": [
+            {
+                "mac_address": "C8:4F:86:91:47:E1",
+                "node": "0",
+                "hop": 0,
+                "mesh_type": "Root",
+                "ip_address": "192.168.30.121",
+                "signal": 0,
+                "node_number": 0,
+            },
+            {
+                "mac_address": "C8:4F:86:89:F1:68",
+                "node": "1",
+                "hop": 1,
+                "mesh_type": "Node",
+                "ip_address": "192.168.30.176",
+                "signal": -32,
+                "node_number": 1,
+            },
+        ],
+        "total_size": 2,
+    },
+    "error_code": 0,
+    "error_msg": "",
+}
+
+ASKED_THE_NODE = {
+    "data": {
+        "mesh_info_list": [
+            {
+                "mac_address": "C8:4F:86:91:47:E1",
+                "node": "1",
+                "hop": 1,
+                "mesh_type": "Root",
+                "ip_address": "192.168.30.121",
+                "signal": 0,
+                "node_number": 1,
+            },
+            {
+                "mac_address": "C8:4F:86:89:F1:68",
+                "node": "0",
+                "hop": 0,
+                "mesh_type": "Node",
+                "ip_address": "192.168.30.176",
+                "signal": -31,
+                "node_number": 1,
+            },
+        ],
+        "total_size": 2,
+    },
+    "error_code": 0,
+    "error_msg": "",
+}
+
+
+def _by_ip(payload: dict) -> dict:
+    return {m["ip"]: m for m in mesh_topology.parse_mesh_payload(payload)}
+
+
+class RelativeToWhoeverWasAskedTests(unittest.TestCase):
+    """`node` and `hop` describe the answering device's view, not the mesh.
+
+    Both payloads are the same two devices, the same link, minutes apart. Only
+    the DUT asked differs, and the labels swap -- so a hop count here cannot be
+    read as distance from the root, and a caller showing one has to say which
+    DUT it asked.
+    """
+
+    ROOT_IP = "192.168.30.121"
+    NODE_IP = "192.168.30.176"
+
+    def test_the_device_asked_always_calls_itself_zero(self) -> None:
+        asked_root = _by_ip(ASKED_THE_ROOT)
+        asked_node = _by_ip(ASKED_THE_NODE)
+        self.assertEqual(asked_root[self.ROOT_IP]["node"], "0")
+        self.assertEqual(asked_root[self.ROOT_IP]["hop"], 0)
+        self.assertEqual(asked_node[self.NODE_IP]["node"], "0")
+        self.assertEqual(asked_node[self.NODE_IP]["hop"], 0)
+
+    def test_the_same_device_gets_a_different_hop_from_the_other_end(self) -> None:
+        # The root is hop 0 to itself and hop 1 to its node. Re-basing either
+        # onto the other would be inventing a topology from one account of it.
+        self.assertEqual(_by_ip(ASKED_THE_ROOT)[self.ROOT_IP]["hop"], 0)
+        self.assertEqual(_by_ip(ASKED_THE_NODE)[self.ROOT_IP]["hop"], 1)
+
+    def test_the_role_does_not_move_with_the_viewpoint(self) -> None:
+        """`mesh_type` is a fact about the device; `node` and `hop` are not.
+        Nothing here should conflate them."""
+        for payload in (ASKED_THE_ROOT, ASKED_THE_NODE):
+            with self.subTest(payload=payload["data"]["mesh_info_list"][0]["node"]):
+                members = _by_ip(payload)
+                self.assertEqual(members[self.ROOT_IP]["role"], "root")
+                self.assertEqual(members[self.NODE_IP]["role"], "node")
+
+    def test_node_number_tracks_neither_the_label_nor_the_device(self) -> None:
+        """Why both are published rather than one derived from the other.
+
+        Asked the node, BOTH members come back with `node_number: 1` while
+        `node` is "1" and "0" -- so it is not the label, and not an identity
+        for the device either, since the root is 0 in the other payload.
+        """
+        asked_node = _by_ip(ASKED_THE_NODE)
+        self.assertEqual(
+            [asked_node[self.ROOT_IP]["node_number"], asked_node[self.NODE_IP]["node_number"]],
+            [1, 1],
+        )
+        self.assertEqual(asked_node[self.NODE_IP]["node"], "0")
+        self.assertEqual(_by_ip(ASKED_THE_ROOT)[self.ROOT_IP]["node_number"], 0)
+
+    def test_both_roots_still_report_no_reading_rather_than_zero_dbm(self) -> None:
+        for payload in (ASKED_THE_ROOT, ASKED_THE_NODE):
+            with self.subTest(payload=payload["data"]["mesh_info_list"][0]["node"]):
+                self.assertIsNone(_by_ip(payload)[self.ROOT_IP]["rssi"])
+                self.assertIsNone(_by_ip(payload)[self.ROOT_IP]["rssi_band"])
 
 
 class ParseMeshPayloadTests(unittest.TestCase):
