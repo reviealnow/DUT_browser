@@ -149,6 +149,51 @@ export function meshRoleFor(
   return probed ? { role: probed, source: "device probe", capturedAt: probe.captured_at } : null;
 }
 
+/**
+ * What is known about whether a mesh exists here at all — three answers.
+ *
+ * Three, not two, and the third is the one that keeps this honest. "Nobody has
+ * asked" and "we asked and could not tell" are not "this AP stands alone": the
+ * mesh probe already reports those separately for exactly that reason, and a
+ * caller that folded them into "no" would be acting on a failed read. Here that
+ * would mean hiding DUTs off a page because a console was busy.
+ *
+ * Both readings are consulted, for the same reason `meshRoleFor` consults both:
+ * the table is live and admin-only, the probe is stored and arrives free on
+ * every fleet entry, and asking only the first would answer "no mesh" for every
+ * engineer who looked at the page.
+ *
+ * Evidence of members outranks evidence of absence. They can legitimately
+ * disagree — one DUT of several standing alone says nothing about the rest.
+ */
+export type MeshPresence = "members" | "none" | "unknown";
+
+export function meshPresence(
+  fleet: FleetEntry[],
+  topology: MeshTopology | null,
+): MeshPresence {
+  if (topology !== null && topology.members.length > 0) {
+    return "members";
+  }
+  if (
+    fleet.some((entry) => entry.meshProbe?.mesh === true && entry.meshProbe.members.length > 0)
+  ) {
+    return "members";
+  }
+  // A read that came back with an empty list is the device answering, not a
+  // failure -- measured on AP6840E-PD1005VMG3KJH9C, which replies
+  // `{"mesh_info_list":[],"total_size":0,"error_code":0}` when it is in no
+  // mesh. An error code would have produced `mesh: null` instead, and that
+  // falls through to "unknown" below.
+  if (topology !== null) {
+    return "none";
+  }
+  if (fleet.some((entry) => entry.meshProbe?.mesh === false)) {
+    return "none";
+  }
+  return "unknown";
+}
+
 export function MeshTopologyProvider({
   fleet,
   children,
