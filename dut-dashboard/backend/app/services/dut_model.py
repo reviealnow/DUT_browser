@@ -23,10 +23,27 @@ Both matter most exactly where the guess is used. A mesh backhaul may sit on
 output, which states no frequency at all.
 
 The model is read from the console prompt, which every DUT prints unprompted
-and which therefore costs no serial time -- the connect-time capture races
-sysMon for the line and loses, so anything needing a command is unreliable
-here. `hostname` says the same thing in a different spelling
-(``AP6420E-PB1005QPCFVFMA8``); both are accepted.
+and which therefore costs no serial time. That is still why the prompt is the
+primary source: it needs nothing asked of the device at all. `hostname` says
+the same thing in a different spelling (``AP6420E-PB1005QPCFVFMA8``); both are
+accepted, and the hostname carries a serial as well, which is what
+``detect_device_id`` below reads.
+
+This used to say that a command-driven read is unreliable here, because the
+connect-time capture "races sysMon for the line and loses". **Measured, that is
+no longer true.** On AP6840E-PD1005VMG3KJH9C, 2026-08-28, with sysMon running
+at a 1s step and the console carrying 21.7 lines/s (0.0 when idle), `hostname`
+through ``capture_command`` returned the right answer 10 times out of 10, in
+0.01s each. The claim predates the sentinel handling in #143: a capture used to
+drop any line holding its marker, so a reply sharing that line was lost whole,
+and `SerialWorker` now splits the marker off instead.
+
+What remains true is narrower and is about ORDERING, not about commands. A
+capture started right after a site survey has its window filled by tens of
+thousands of `iw scan` lines still draining at 115200 baud, and reads nothing
+of its own -- measured, and the reason `siteSurveyStore.runConnectCaptures`
+puts the short commands before the survey rather than after it. Steady sysMon
+traffic is not that; a survey backlog is.
 
 Measured on the bench 420E: ath0/1/6 at 2412 MHz, ath8/9 at 5660 MHz, ath16/17
 at 6775 MHz. The block *starts* -- 0, 8, 16 -- are therefore observed, which is

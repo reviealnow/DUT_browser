@@ -345,8 +345,12 @@ class DutModelDetectionTests(DutRegistryTests):
 
     It is not decoration: it decides how many VAPs sit in each band, and so
     which band an athN belongs to when the output states no frequency. Getting
-    it from the prompt costs no serial time, which is the point -- the
-    connect-time capture races sysMon for the line and loses.
+    it from the prompt costs no serial time, which is the point -- and it is
+    the only source that works in replay, where nothing answers a command.
+
+    It used to say a command would lose a race with sysMon. Measured
+    2026-08-28, a short one does not; the numbers are in the module docstring
+    of `services/dut_model.py`, kept in one place rather than restated here.
     """
 
     def _booted(self) -> DutRegistry:
