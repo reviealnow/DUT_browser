@@ -472,9 +472,15 @@ class DutRegistry:
         """Read the model out of console output as it streams past.
 
         The prompt (``AP6_420E#``) arrives on its own, unasked, on every DUT
-        and in replay alike, so this costs no serial time -- which matters:
-        the connect-time capture races sysMon for the line and loses, so
-        anything that needs a command would be unreliable here.
+        and in replay alike, so this costs no serial time -- which is the
+        whole reason to read it here rather than ask for it.
+
+        This used to add that a command would be unreliable because the
+        connect-time capture "races sysMon for the line and loses". Measured
+        2026-08-28, a short command is not: see the module docstring of
+        `services/dut_model.py`, which carries the numbers so they live in one
+        place. Replay is still the case only this path covers -- a log file
+        answers no commands at all.
 
         Runs on the SerialWorker thread, inside the per-DUT ``on_event``
         closure, on every console line. Kept cheap on the hot path: once a
