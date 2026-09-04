@@ -102,9 +102,19 @@ where it gets recorded.
 Sessions (increasingly several agents at once) share **one** physical test bench.
 Check before you take anything:
 
-- **The serial port admits exactly one process.** `lsof /dev/cu.PL2303G-*`
-  before opening it. If the backend holds it, a `minicom` will fail with
-  `Resource busy` — and vice versa, which silently costs the app its console.
+- **The serial port admits exactly one process**, and one adapter presents it
+  under **two** device nodes. Check both before opening it:
+  ```bash
+  lsof /dev/cu.PL2303G-* /dev/tty.PL2303G-*
+  ```
+  If the backend holds it, a `minicom` will fail with `Resource busy` — and vice
+  versa, which silently costs the app its console. **`lsof` on the `cu.*` node
+  alone is not that check.** `minicom -D /dev/tty.PL2303G-…` holds the *tty*
+  twin, which blocks the `cu.*` node while leaving a `cu.*`-only `lsof`
+  completely empty. Measured on this bench 2026-09-04: a minicom running since
+  the previous afternoon was invisible to the command this line used to give,
+  the backend failed every open with `Resource busy`, and the bench read it as
+  "the app's serial console became unstable".
 - **Hand the port back for console logins.** The DUT requires a login on its
   serial console after every reboot, and only a human can do it. Release the
   port, confirm it is free, and wait for confirmation that the prompt reads

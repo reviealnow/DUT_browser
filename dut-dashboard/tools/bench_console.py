@@ -16,8 +16,10 @@ single-owner and shared with other sessions (see ../../CLAUDE.md).
         --ssh-user nelson --ssh-key ~/.ssh/dut_fleet_ed25519 \\
         --ssh-device /dev/ttyUSB0
 
-`lsof /dev/cu.*` first: if the backend is holding the port this fails with
-`Resource busy`, and if this is holding it the backend cannot open it.
+`lsof /dev/cu.* /dev/tty.*` first: if the backend is holding the port this fails
+with `Resource busy`, and if this is holding it the backend cannot open it. Both
+node families, because a `minicom` opens the *tty* twin of the same adapter and
+blocks the `cu.*` node without showing up in a `cu.*`-only listing at all.
 
 **A console that answers nothing is usually waiting for a login.** The DUT
 requires one after every reboot and only a person can give it; an empty

@@ -68,6 +68,21 @@ export function humanizeApiError(error: unknown): string {
   if (detail.includes("Serial port is not open")) {
     return "Not connected — select a serial port above and click Open first.";
   }
+  if (detail.includes("Resource busy")) {
+    // pyserial's errno reaches the operator verbatim: "[Errno 16] could not open
+    // port /dev/cu.PL2303G-…: Resource busy". It is accurate and it points at
+    // the wrong node. One USB adapter presents two of them, and a `minicom -D
+    // /dev/tty.PL2303G-…` holds the tty twin while blocking the cu node — so
+    // the obvious `lsof /dev/cu.*` comes back empty and the failure reads as the
+    // app being flaky rather than as somebody else owning the cable. Measured on
+    // the bench 2026-09-04, after a minicom left running overnight cost a
+    // session its console.
+    return (
+      "Serial port is busy — another process already has this cable. " +
+      "Check both device nodes (lsof /dev/cu.* /dev/tty.*): a minicom holds the " +
+      "tty one, which blocks this port without appearing under cu."
+    );
+  }
   if (!detail.trim()) {
     return "Something went wrong. Please try again.";
   }
