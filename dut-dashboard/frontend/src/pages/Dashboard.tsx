@@ -41,7 +41,7 @@ export default function Dashboard({
 }) {
   // Console lines come from the single shared WebSocket (useDutMonitor) instead
   // of Dashboard opening its own connection.
-  const { lines, serialDisconnect } = useDutMonitorContext();
+  const { lines, linesStartSeq, serialDisconnect } = useDutMonitorContext();
   const [mode, setMode] = useState<"serial" | "replay">("serial");
   const [port, setPort] = useState(DEFAULT_SERIAL_PORT);
   const [baudrate, setBaudrate] = useState(() => loadSettings().defaultBaud);
@@ -562,6 +562,7 @@ export default function Dashboard({
         ) : (
           <ConsolePanel
             lines={lines}
+            linesStartSeq={linesStartSeq}
             onSend={handleSend}
             onDownloadLog={() => void runAction(handleDownloadLog)}
             canDownloadLog={Boolean(currentLogFileName)}
