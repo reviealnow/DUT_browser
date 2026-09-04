@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DEFAULT_DUT_ID } from "../api/dut";
 import { getConsoleTail, getSnapshots } from "../api/rest";
 import { connectDashboardWebSocket, SnapshotPayload } from "../api/websocket";
+import { createLineBuffer } from "./consoleLineBuffer";
 import { setFirmwareProgress } from "./firmwareStore";
 import { setSurveyProgress } from "./siteSurveyStore";
 import { useCrashKeywords } from "./useCrashKeywords";
@@ -175,11 +176,25 @@ export function useDutMonitor(dutId: string = DEFAULT_DUT_ID): DutMonitorState {
       lastActivityRef.current = Date.now();
     };
 
+    // Coalesced rather than committed per batch. The backend already batches,
+    // so a flooding console arrives as ~20 setLines a second, and each one
+    // re-renders this tree and re-lays out the console box -- 6.25 ms a time,
+    // measured in Chrome on 1000 lines of real sysMon output. A site survey
+    // holds that rate for minutes, which is when the page stops answering the
+    // mouse. See consoleLineBuffer.ts for why it is a window and not a debounce.
+    //
+    // `recordActivity` stays on the ARRIVAL, not on the flush: "last event Ns
+    // ago" answers whether the DUT is talking, and delaying that by up to a
+    // flush window would make a healthy console look stale.
+    const buffer = createLineBuffer((flushed) => {
+      setLines((prev) => [...prev, ...flushed].slice(-MAX_LINES));
+    });
+
     const ingestLines = (incoming: string[]) => {
       if (incoming.length === 0) {
         return;
       }
-      setLines((prev) => [...prev, ...incoming].slice(-MAX_LINES));
+      buffer.push(incoming);
       recordActivity();
     };
 
@@ -255,6 +270,10 @@ export function useDutMonitor(dutId: string = DEFAULT_DUT_ID): DutMonitorState {
     return () => {
       window.clearInterval(interval);
       socket.close();
+      // Dropped, not flushed: this tears down on a DUT switch, and the effect
+      // below clears `lines` for the new DUT. Flushing here would push the old
+      // DUT's last few lines into the new one's console.
+      buffer.cancel();
     };
   }, [runBackfill]);
 
