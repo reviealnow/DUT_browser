@@ -27,7 +27,9 @@ ever prove itself.
 ## Rules they all follow
 
 - **The console is released in a `finally`.** It admits exactly one process and
-  is shared with other sessions; `lsof /dev/cu.PL2303G-*` before you start.
+  is shared with other sessions; `lsof /dev/cu.PL2303G-* /dev/tty.PL2303G-*`
+  before you start. Both nodes, because a `minicom` holds the *tty* twin and
+  blocks the `cu.*` node without appearing in a `cu.*`-only listing.
 - **Nothing is written outside a temporary directory.** The real
   `logs/duts.json` describes the operator's bench and is not a scratch file.
 - **Read-only on the device**, apart from `bench_identify_load.py` starting the
