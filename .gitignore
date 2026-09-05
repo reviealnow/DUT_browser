@@ -33,6 +33,14 @@ dut-dashboard/data/
 # (e.g. dut-dashboard/.claude/) unignored for anyone whose personal global
 # gitignore does not already cover it.
 **/.claude/settings.local.json
+# Environment configuration. `.env` holds role passcodes and the DUT's own
+# management credentials; `.env.example` is the committed inventory and carries
+# no values. data/role-passcodes.env is already covered by data/ above.
+.env
+.env.local
+.env.*.local
+!.env.example
+
 **/.claude/settings.json
 
 # Firmware images staged for an upgrade. Vendor build artifacts, ~34 MB per model
