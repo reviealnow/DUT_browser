@@ -16,6 +16,7 @@ import { useMeshTopology } from "../monitoring/MeshTopologyContext";
 import { FleetEntry } from "../monitoring/useFleetMonitor";
 import { RemoteRssiState } from "../monitoring/RemoteRssiContext";
 import { FleetBandBadge } from "./BandRecoSummary";
+import LiveDot from "./shell/LiveDot";
 
 type StatusMeta = { label: string; pill: "ok" | "idle" | "danger" };
 
@@ -327,7 +328,18 @@ export default function FleetCard({
                     than a fault. Whether bytes are actually arriving is the
                     console row below. */}
                 <dt>SSH session</dt>
-                <dd className={entry.serialOpen ? "fleet-fact-ok" : "fleet-fact-idle"}>
+                {/* The dot repeats what the word already says, and repeats it
+                    on purpose: it is the only part of this row that stops
+                    moving when the session goes. The word is what carries the
+                    state to a screen reader and to anyone who asked for less
+                    motion, so it stays first-class rather than being replaced
+                    by a light. */}
+                <dd
+                  className={`fleet-fact-live ${
+                    entry.serialOpen ? "fleet-fact-ok" : "fleet-fact-idle"
+                  }`}
+                >
+                  <LiveDot live={entry.serialOpen} />
                   {entry.serialOpen ? "Connected" : "Not connected"}
                 </dd>
               </div>
