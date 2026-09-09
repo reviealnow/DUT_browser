@@ -25,6 +25,8 @@ from app.dut.registry import (
     REMOTE_TOKEN_RE,
     console_token,
 )
+from app.collector import migration as collector_migration
+from app.collector.registry import AUTH_KEY, CollectorError
 from app.services import auth_service, dut_model, mesh_topology
 from app.services.wifi_clients import (
     classify_backhaul,
@@ -83,6 +85,50 @@ class RemoteNodeBody(BaseModel):
         return value
 
 
+def _collector_for(request: Request, remote: dict) -> str:
+    """The collector this node's console lives on, creating it if need be.
+
+    One derivation, shared with the startup migration, so a node registered
+    today and a node converted from `duts.json` land on the same row for the
+    same Pi.
+    """
+    collectors = request.app.state.collector_registry
+    existing = collector_migration._matching(collectors, remote)  # noqa: SLF001
+    if existing is not None:
+        return existing
+    collector_id = collector_migration._free_id(  # noqa: SLF001
+        collectors, collector_migration.collector_id_for(remote["host"])
+    )
+    collectors.configure({
+        "id": collector_id,
+        "label": f"Collector {remote['host']}",
+        "ip": remote["host"],
+        "hostname": None,
+        "user": remote["user"],
+        "port": remote["port"],
+        "auth": AUTH_KEY,
+        "key_path": remote["key_path"],
+    })
+    return collector_id
+
+
+def _console_credentials(request: Request, remote: dict) -> dict:
+    """How to log in for this console: the collector's answer, or the node's own.
+
+    The fallback is not dead code. A node registered before the merge, or one
+    whose collector an admin removed, still carries the key it was registered
+    with -- and refusing to connect it because a derived row is missing would
+    break a console over bookkeeping.
+    """
+    collector_id = remote.get("collector_id")
+    if collector_id:
+        try:
+            return request.app.state.collector_registry.credentials_for(collector_id)
+        except (KeyError, CollectorError):
+            pass
+    return {"key_path": remote.get("key_path", ""), "password": ""}
+
+
 def _context(request: Request, dut_id: str):
     try:
         return request.app.state.dut_registry.get(dut_id)
@@ -112,6 +158,20 @@ def configure_node(body: RemoteNodeBody, request: Request, _admin: dict = _ADMIN
     remote = body.model_dump(include={
         "host", "user", "key_path", "port", "device", "baudrate", "is_mesh", "backhaul_iface"
     })
+    # A node registered here is a console on a collector, and has been since the
+    # two models were merged. Registering it as one immediately is what keeps
+    # this route and `/api/collectors` describing the same bench rather than two
+    # overlapping ones -- and it means a second node on the same Pi joins the
+    # collector the first one created instead of inventing a rival row.
+    #
+    # Best-effort on purpose: a full collector table must not turn a working
+    # node registration into a 400. The node keeps its own `key_path` and opens
+    # on its own terms either way, which is the same reason the migration is
+    # additive.
+    try:
+        remote["collector_id"] = _collector_for(request, remote)
+    except CollectorError:
+        pass
     try:
         registry.configure_remote(context.dut_id, remote)
     except ValueError as exc:
@@ -135,7 +195,7 @@ def connect_node(dut_id: str, request: Request, _admin: dict = _ADMIN) -> dict:
             baudrate=context.remote["baudrate"],
             mode="ssh",
             session_label=context.label,
-            ssh=context.remote,
+            ssh={**context.remote, **_console_credentials(request, context.remote)},
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

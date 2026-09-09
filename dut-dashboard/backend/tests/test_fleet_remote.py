@@ -15,6 +15,7 @@ import app.dut.registry as registry_mod
 import app.serial.serial_worker as serial_worker_mod
 from app.api.fleet_api import RemoteNodeBody, capture_rssi, configure_node, connect_node
 from app.services.wifi_clients import classify_backhaul, parse_iwconfig_links
+from app.collector.registry import CollectorRegistry
 from app.dut.registry import REMOTE_PORT_MAX, DutRegistry
 from app.parser.sysmon_parser import SysMonParser
 from app.serial.serial_worker import SSH_CAPTURE_TIMEOUT_SEC, _SSH_READY, SerialWorker
@@ -88,6 +89,22 @@ class _Ws:
         pass
 
 
+def _request_for(registry, collectors=None):
+    """A stub request carrying both registries these routes now read.
+
+    `configure_node` and `connect_node` reach the collector registry since the
+    two models were merged: a node is a console on a collector, and registering
+    one derives that row. A stub without it fails on a Mock rather than on the
+    behaviour under test.
+    """
+    request = mock.Mock()
+    request.app.state.dut_registry = registry
+    request.app.state.collector_registry = collectors or CollectorRegistry(
+        state_file=Path(tempfile.mkdtemp()) / "collectors.json"
+    )
+    return request
+
+
 @contextlib.contextmanager
 def _registries_under(root: Path):
     """Yield a factory for registries whose duts.json and snapshots live in `root`."""
@@ -103,6 +120,48 @@ def _registries_under(root: Path):
 
 
 class RemoteRegistryTests(unittest.TestCase):
+    def test_a_password_never_survives_into_a_persisted_remote(self) -> None:
+        """The guard that makes the collector feature's promise structural.
+
+        A console behind an edge log collector is opened with a password, and
+        the password is held in that registry's memory. `_clean_remote` builds a
+        fresh dict from named fields rather than copying what it was handed, so
+        a caller that passes one -- by mistake, or by a later edit that looked
+        harmless -- cannot put it in `duts.json`. Asserted here rather than only
+        through the API, because this is the layer that actually decides it.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with _registries_under(root) as make_registry:
+                registry = make_registry()
+                registry.register_dut("edge1-ttyusb0", "Edge ttyUSB0")
+                registry.configure_remote("edge1-ttyusb0", {
+                    "host": "192.168.30.122", "user": "dut", "key_path": "",
+                    "collector_id": "edge1", "port": 22, "device": "/dev/ttyUSB0",
+                    "baudrate": 115200, "is_mesh": False, "backhaul_iface": None,
+                    "password": "must-not-be-written",
+                })
+                stored = registry.get("edge1-ttyusb0").remote
+                self.assertNotIn("password", stored)
+                self.assertEqual(stored["collector_id"], "edge1")
+                self.assertNotIn("must-not-be-written", (root / "duts.json").read_text())
+
+    def test_a_console_with_neither_a_key_nor_a_collector_is_refused(self) -> None:
+        # The two authentication routes are the only two. A remote with neither
+        # is a console nothing can open, and storing it would put a DUT in the
+        # switcher that answers every Connect with the same failure.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with _registries_under(root) as make_registry:
+                registry = make_registry()
+                registry.register_dut("nokey", "No key")
+                with self.assertRaises(ValueError):
+                    registry.configure_remote("nokey", {
+                        "host": "192.168.30.122", "user": "dut", "key_path": "",
+                        "port": 22, "device": "/dev/ttyUSB0", "baudrate": 115200,
+                        "is_mesh": False, "backhaul_iface": None,
+                    })
+
     def test_remote_round_trip_keeps_secret_server_side(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -390,8 +449,7 @@ class RemoteNodeApiTests(unittest.TestCase):
             root = Path(directory)
             with _registries_under(root) as make_registry:
                 registry = make_registry()
-                request = mock.Mock()
-                request.app.state.dut_registry = registry
+                request = _request_for(registry)
                 body = RemoteNodeBody(
                     id="mesh1",
                     host=REMOTE["host"],
@@ -453,8 +511,7 @@ def _bench(
                 registry.record_serial_params(dut_id, port, 115200)
             context = registry.get(dut_id)
             context.serial_worker = _worker_answering(replies or {}, mode=mode)
-            request = mock.Mock()
-            request.app.state.dut_registry = registry
+            request = _request_for(registry)
             yield registry, context, request
 
 
@@ -778,8 +835,7 @@ class LocalDutCaptureTests(unittest.TestCase):
                     "iwconfig": IWCONFIG_AP6420,
                     "wlanconfig ath14 list": "ADDR AID CHAN\n",
                 }, mode="serial")
-                request = mock.Mock()
-                request.app.state.dut_registry = registry
+                request = _request_for(registry)
 
                 result = capture_rssi("mesh1", request)
 
@@ -860,8 +916,7 @@ class LocalDutCaptureTests(unittest.TestCase):
                 context.serial_worker = mock.Mock()
                 context.serial_worker.mode = "serial"
                 context.serial_worker.capture_command.side_effect = capture
-                request = mock.Mock()
-                request.app.state.dut_registry = registry
+                request = _request_for(registry)
 
                 with self.assertRaises(HTTPException) as caught:
                     capture_rssi("bench", request)

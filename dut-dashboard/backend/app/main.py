@@ -23,6 +23,7 @@ from app.api.settings_api import router as settings_router
 from app.api.workspace_api import router as workspace_router
 from app.config import ANALYZER_OUTPUT_DIR, FRONTEND_DIST, LOG_DIR, SURVEY_SNAPSHOT_DIR, UPLOAD_DIR
 from app.db.workspace import init_db
+from app.collector.migration import migrate_remote_nodes
 from app.collector.registry import CollectorRegistry
 from app.dut.registry import DEFAULT_DUT_ID, DutContext, DutRegistry, build_default_registry
 from app.services import api_consumers, auth_service
@@ -114,6 +115,17 @@ async def on_startup() -> None:
     # their passwords deliberately do not.
     app.state.collector_registry = CollectorRegistry()
     app.state.collector_registry.load_persisted()
+    # Every remote node already registered anywhere is a console on a collector
+    # and now says so. Additive and repeatable: nothing is removed from the
+    # node, so a boot that cannot convert one leaves it working exactly as it
+    # was. See collector/migration.py.
+    converted = migrate_remote_nodes(app.state.dut_registry, app.state.collector_registry)
+    for entry in converted:
+        if entry["ok"]:
+            logging.info("Fleet node %s is now a console on %s", entry["dut"], entry["collector"])
+        else:
+            logging.warning("Fleet node %s was not converted: %s", entry["dut"], entry["detail"])
+
     # Rebuild the in-memory recommendation cache from persisted survey snapshots
     # so Overview / Fleet band badges survive a restart with no new scan.
     survey_snapshot.restore_cache()

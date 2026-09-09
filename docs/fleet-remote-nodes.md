@@ -1,5 +1,20 @@
 # Fleet remote nodes — deploying and using them
 
+> **A remote node is a console on an edge log collector.** The two models were
+> merged: the Pi is a *collector* (`docs/edge-log-collectors.md`), and each
+> serial device on it is a *console*. Everything on this page still works —
+> `POST /api/fleet/nodes` registers a node exactly as before, and now derives
+> its collector in the same request — and every node already in `duts.json` is
+> converted on startup, additively, keeping its own key. Two DUTs on one Pi are
+> two consoles on one collector rather than two rows repeating the same host,
+> user and key.
+>
+> What that page adds is the half this one never had: a collector can be logged
+> into with a **password**, and it can be **asked what is behind it** — which
+> serial devices exist, whether `socat` is installed, whether the login is in
+> `dialout`, whether a port is already busy. Those are the four checks section 1
+> and section 7 below tell you to SSH in and run by hand.
+
 Monitoring a DUT that is not plugged into the machine running the dashboard. Its
 console is reached over SSH to a Raspberry Pi, which pipes the serial port
 through `socat`. Everything downstream — the parser, `capture_command`, terminal
