@@ -5,6 +5,9 @@ LOG_DIR = BASE_DIR / "logs"
 SNAPSHOT_FILE = LOG_DIR / "snapshots.jsonl"
 # Persisted list of dynamically-registered DUTs (runtime state; gitignored).
 DUTS_FILE = LOG_DIR / "duts.json"
+# Registered edge log collectors (runtime state; gitignored). Their passwords
+# are NOT here and are not written anywhere -- see collector/registry.py.
+COLLECTORS_FILE = LOG_DIR / "collectors.json"
 
 
 def snapshot_file_for(dut_id: str) -> Path:

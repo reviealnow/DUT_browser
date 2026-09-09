@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import {
+  BAUD_RATES,
   configureRemoteNode,
   createInvite,
   CreatedInvite,
@@ -23,9 +24,9 @@ import { useAuth } from "../monitoring/AuthContext";
 import { useCrashKeywords } from "../monitoring/useCrashKeywords";
 import { ACCENT_PRESETS, useSettings } from "../monitoring/useSettings";
 import { copyToClipboard } from "../utils/clipboard";
+import EdgeCollectorsCard from "./EdgeCollectorsCard";
 import { Card } from "./shell/Card";
 
-const BAUD_RATES = [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600];
 
 export default function SettingsSection({
   selectedDut,
@@ -178,6 +179,7 @@ export default function SettingsSection({
         onSelectDut={onSelectDut}
         onRegistryChanged={onRegistryChanged}
       />
+      <EdgeCollectorsCard />
       <InvitesCard />
       <UsersCard />
     </>

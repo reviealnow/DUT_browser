@@ -1544,6 +1544,105 @@ body {
   gap: var(--space-2);
 }
 
+/* ---------- Edge log collectors ----------
+
+   One row per collector: what it is on the left, what can be done to it on the
+   right. The row wraps rather than truncating -- an address and a login are the
+   two things somebody is checking when a connection will not come up, and a
+   card that hides half of one is the reason they go and read the JSON. */
+
+.collector-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.collector-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: var(--space-3);
+}
+
+.collector-identity { min-width: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+
+.collector-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 600;
+}
+
+.collector-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.collector-password { display: flex; align-items: center; gap: var(--space-2); }
+.collector-password .input { width: 160px; }
+
+/* The consoles behind a collector: indented under it, because they are on it
+   rather than beside it, and a flat list of both reads as one fleet of
+   unrelated things. */
+
+.collector-consoles {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+.collector-consoles-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.collector-baud { display: flex; align-items: center; gap: var(--space-2); font-size: 13px; }
+.collector-baud .input { width: 110px; }
+
+.collector-blockers {
+  margin: 0;
+  padding-left: var(--space-5);
+  color: var(--warn);
+  font-size: 13px;
+}
+
+.collector-device-list { list-style: none; margin: 0; padding: 0; }
+
+.collector-device {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.collector-device:last-child { border-bottom: none; }
+.collector-device .card-sub { flex: 1; min-width: 140px; }
+.collector-mesh {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 13px;
+  color: var(--muted);
+}
+.collector-iface { width: 90px; }
+
 /* ---------- Live indicator ----------
 
    The first animation in this stylesheet, and deliberately the only shape it

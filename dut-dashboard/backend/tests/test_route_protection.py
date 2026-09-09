@@ -116,6 +116,21 @@ ROLE_MAP: dict[tuple[str, str], str | None] = {
     # DUT with the management-API credentials, the same reach /api/firmware is
     # gated on.
     ("GET", "/api/fleet/nodes/{dut_id}/mesh"): "admin",
+    # -- edge log collectors: every route logs into a machine with a password
+    #    an operator typed, and the connect route holds that session open.
+    #    Admin for the same reason the fleet routes are, and the GET included:
+    #    it names addresses and logins on this bench.
+    ("GET", "/api/collectors"): "admin",
+    ("POST", "/api/collectors"): "admin",
+    ("POST", "/api/collectors/{collector_id}/password"): "admin",
+    ("POST", "/api/collectors/{collector_id}/connect"): "admin",
+    ("POST", "/api/collectors/{collector_id}/disconnect"): "admin",
+    ("DELETE", "/api/collectors/{collector_id}"): "admin",
+    # The consoles behind a collector: reading the list runs commands on it, and
+    # attaching opens a DUT console over its serial port.
+    ("GET", "/api/collectors/{collector_id}/consoles"): "admin",
+    ("POST", "/api/collectors/{collector_id}/consoles/attach"): "admin",
+    ("POST", "/api/collectors/{collector_id}/consoles/detach"): "admin",
     # -- serial: drives the DUT ------------------------------------------
     ("GET", "/api/serial/ports"): "engineer",
     ("POST", "/api/serial/open"): "engineer",

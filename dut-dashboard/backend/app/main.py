@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api.analyzer_api import router as analyzer_router
 from app.api.auth_api import router as auth_router
 from app.api.bulletin_api import router as bulletin_router
+from app.api.collectors_api import router as collectors_router
 from app.api.duts_api import router as duts_router
 from app.api.firmware_api import router as firmware_router
 from app.api.files_api import router as files_router
@@ -22,6 +23,7 @@ from app.api.settings_api import router as settings_router
 from app.api.workspace_api import router as workspace_router
 from app.config import ANALYZER_OUTPUT_DIR, FRONTEND_DIST, LOG_DIR, SURVEY_SNAPSHOT_DIR, UPLOAD_DIR
 from app.db.workspace import init_db
+from app.collector.registry import CollectorRegistry
 from app.dut.registry import DEFAULT_DUT_ID, DutContext, DutRegistry, build_default_registry
 from app.services import api_consumers, auth_service
 from app.services.analyzer_service import AnalyzerService
@@ -55,6 +57,9 @@ app.include_router(duts_router)
 # which the DUT's cookieless curl authorises with a single-use token.
 app.include_router(firmware_router)
 app.include_router(fleet_router)
+# Gated inside the router, like fleet_api: every route reaches a machine with
+# an operator's credentials, which is admin.
+app.include_router(collectors_router)
 app.include_router(files_router, dependencies=[_ENGINEER])
 app.include_router(bulletin_router, dependencies=[_ENGINEER])
 app.include_router(settings_router)
@@ -104,6 +109,11 @@ async def on_startup() -> None:
     # Per-DUT runtime; A0 registers the single default DUT (behaviour unchanged).
     app.state.dut_registry = build_default_registry(ws_manager=ws_manager, loop=loop)
 
+    # Edge log collectors. Its own registry rather than a shape inside the DUT
+    # one -- see collector/registry.py for why. Saved collectors come back;
+    # their passwords deliberately do not.
+    app.state.collector_registry = CollectorRegistry()
+    app.state.collector_registry.load_persisted()
     # Rebuild the in-memory recommendation cache from persisted survey snapshots
     # so Overview / Fleet band badges survive a restart with no new scan.
     survey_snapshot.restore_cache()
@@ -112,6 +122,12 @@ async def on_startup() -> None:
 @app.on_event("shutdown")
 async def on_shutdown() -> None:
     """Reap serial transports, including every system-ssh child."""
+    collectors = getattr(app.state, "collector_registry", None)
+    if collectors is not None:
+        # Before the DUT loop and unconditionally: a held collector session is
+        # an ssh process attached to a pty, and leaving one behind keeps a login
+        # open on somebody's box after this one has exited.
+        collectors.close_all()
     registry = getattr(app.state, "dut_registry", None)
     if registry is None:
         return

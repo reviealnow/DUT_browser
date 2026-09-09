@@ -139,9 +139,26 @@ def _clean_remote(value: object) -> dict | None:
     """Validate persisted SSH console configuration without inventing a store."""
     if not isinstance(value, dict):
         return None
-    required = ("host", "user", "key_path", "device")
+    required = ("host", "user", "device")
     if any(not isinstance(value.get(key), str) or not value[key].strip() for key in required):
         return None
+    # Two ways a console is authenticated, and exactly one of them may be
+    # absent. A node registered by hand names a key file; a console attached
+    # behind an edge log collector names the collector, and the password that
+    # opens it is held in that registry's memory and fetched at connect time.
+    # It is deliberately impossible to arrive here: a password in a persisted
+    # DUT entry is a password on disk, which is the one thing the collector
+    # feature promises never to do.
+    collector_id = value.get("collector_id")
+    if collector_id is not None and (
+        not isinstance(collector_id, str) or not _DUT_ID_RE.match(collector_id.strip())
+    ):
+        return None
+    key_path = value.get("key_path")
+    if not isinstance(key_path, str) or not key_path.strip():
+        if collector_id is None:
+            return None
+        key_path = ""
     host = value["host"].strip()
     user = value["user"].strip()
     if not REMOTE_TOKEN_RE.fullmatch(host) or not REMOTE_TOKEN_RE.fullmatch(user):
@@ -163,16 +180,22 @@ def _clean_remote(value: object) -> dict | None:
         return None
     if is_mesh and not isinstance(backhaul_iface, str):
         return None
-    return {
+    cleaned = {
         "host": host,
         "user": user,
-        "key_path": value["key_path"].strip(),
+        "key_path": key_path.strip(),
         "port": port,
         "device": device,
         "baudrate": baudrate,
         "is_mesh": is_mesh,
         "backhaul_iface": backhaul_iface.strip() if isinstance(backhaul_iface, str) else None,
     }
+    if collector_id is not None:
+        # Present only for a collector-backed console, so every node registered
+        # by hand keeps the shape it already has on disk -- a null field written
+        # into every existing entry is churn on a live bench file for nothing.
+        cleaned["collector_id"] = collector_id.strip()
+    return cleaned
 
 
 @dataclass
