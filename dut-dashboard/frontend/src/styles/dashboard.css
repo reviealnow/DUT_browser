@@ -1538,6 +1538,155 @@ body {
 .fleet-card-cpu { display: flex; flex-direction: column; gap: var(--space-1); }
 .fleet-fact-ok { color: var(--ok, #16a34a); }
 .fleet-fact-idle { color: var(--muted); }
+.fleet-fact-live {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* ---------- Edge log collectors ----------
+
+   One row per collector: what it is on the left, what can be done to it on the
+   right. The row wraps rather than truncating -- an address and a login are the
+   two things somebody is checking when a connection will not come up, and a
+   card that hides half of one is the reason they go and read the JSON. */
+
+.collector-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.collector-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: var(--space-3);
+}
+
+.collector-identity { min-width: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+
+.collector-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 600;
+}
+
+.collector-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.collector-password { display: flex; align-items: center; gap: var(--space-2); }
+.collector-password .input { width: 160px; }
+
+/* The consoles behind a collector: indented under it, because they are on it
+   rather than beside it, and a flat list of both reads as one fleet of
+   unrelated things. */
+
+.collector-consoles {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+.collector-consoles-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.collector-baud { display: flex; align-items: center; gap: var(--space-2); font-size: 13px; }
+.collector-baud .input { width: 110px; }
+
+.collector-blockers {
+  margin: 0;
+  padding-left: var(--space-5);
+  color: var(--warn);
+  font-size: 13px;
+}
+
+.collector-device-list { list-style: none; margin: 0; padding: 0; }
+
+.collector-device {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.collector-device:last-child { border-bottom: none; }
+.collector-device .card-sub { flex: 1; min-width: 140px; }
+.collector-mesh {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 13px;
+  color: var(--muted);
+}
+.collector-iface { width: 90px; }
+
+/* ---------- Live indicator ----------
+
+   The first animation in this stylesheet, and deliberately the only shape it
+   takes: a caller says whether something is live, and this decides how that
+   looks. A second set of keyframes for the next liveness dot would drift out of
+   step with this one within a release.
+
+   Motion is the point -- a static green dot says "connected" exactly as loudly
+   after the session has died and nothing re-rendered -- so `is-live` is the
+   only state that moves, and the resting dot is muted rather than a dimmer
+   green. Anyone who asked their system for less motion gets the colour alone,
+   which is why the colour has to be right on its own. */
+
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex: none;
+  display: inline-block;
+  background: var(--muted);
+}
+
+.live-dot.is-live {
+  background: var(--ok);
+  animation: live-breathe 2.4s ease-in-out infinite;
+}
+
+@keyframes live-breathe {
+  0%, 100% {
+    opacity: 0.4;
+    box-shadow: 0 0 0 0 var(--ok-weak);
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 0 4px var(--ok-weak);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot.is-live {
+    animation: none;
+    opacity: 1;
+  }
+}
 .fleet-rssi-na {
   color: var(--muted);
   font-style: italic;

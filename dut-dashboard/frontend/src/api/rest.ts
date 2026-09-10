@@ -516,6 +516,209 @@ export function captureRemoteRssi(dutId: string): Promise<RemoteRssiResult> {
   return request;
 }
 
+/* ---------------------------------------------------------------------------
+ * Edge log collectors
+ *
+ * A collector is not a DUT and not a DUT's console: it is the Raspberry Pi
+ * itself, as a machine somebody logs into. The bench topology it sits in --
+ *
+ *   LAN DUT console  <<Server>>  Raspberry Pi  (ssh)  >>  LAN DUT console
+ *
+ * -- means the same box can also be hosting a remote node's console over in
+ * `/api/fleet`. The two are separate registries and separate statements about
+ * it; neither implies the other.
+ *
+ * The password is write-only in every direction. It goes up in a body, is held
+ * in the backend's memory for the life of that process, and no response ever
+ * returns it -- which is why `CollectorStatus` has `has_password` (whether a
+ * login is possible right now) and nothing else about it.
+ * ------------------------------------------------------------------------- */
+
+/** What an admin supplies. Mirrors `CollectorBody` in collectors_api.py. */
+export type CollectorConfig = {
+  id: string;
+  label?: string;
+  /** An address, not a name: the backend refuses a hostname here, so DNS is
+   *  never between the operator and the box they picked. */
+  ip: string;
+  /** What the box is expected to call itself, checked at login against what it
+   *  actually answers — see `hostname_matches` on a connect result. Optional:
+   *  a collector derived from an existing remote node carries nobody's
+   *  expectation, and inventing one would manufacture a mismatch or hide one. */
+  hostname?: string | null;
+  user: string;
+  port: number;
+  /** Omit to leave whatever the backend is already holding in memory. */
+  password?: string;
+  /** Key authentication instead of a password — the shape an existing remote
+   *  node arrives as. A path on the **dashboard's** machine, never a secret in
+   *  itself; the file does not travel. */
+  key_path?: string | null;
+  auth?: "key" | "password";
+};
+
+/** One collector as the backend describes it. Never carries a password. */
+export type CollectorStatus = {
+  id: string;
+  label: string;
+  ip: string;
+  /** Null when nobody recorded what this box should call itself. */
+  hostname: string | null;
+  user: string;
+  port: number;
+  /** How this collector logs in. A `key` collector is one an existing remote
+   *  node became; a `password` one was registered by hand here. */
+  auth: "key" | "password";
+  /** Set for `auth: "key"`. A path on this machine, shown for the same reason
+   *  the fleet card shows a node's device: it is what somebody checks when a
+   *  login fails. */
+  key_path: string | null;
+  /** Whether an SSH session is being held **right now**. Asked of the process
+   *  table on every read, not remembered: this is what the breathing light on
+   *  the card claims, and a cached true is how that light lies. */
+  connected: boolean;
+  /** Whether a login is possible right now. False for a password collector
+   *  after a backend restart, which forgets every password by design — the card
+   *  asks for it again rather than offering a Connect that can only fail.
+   *  Always true for a key, whose file outlives the process. */
+  ready: boolean;
+  /** Whether a password is held in memory. Distinct from `ready`, which a key
+   *  collector satisfies without one. */
+  has_password: boolean;
+  /** What the box answered when asked its own name, while connected. */
+  reported_hostname: string | null;
+  connected_since: string | null;
+  /** Why the last attempt ended as it did, when there is something to say. */
+  detail: string | null;
+};
+
+export type CollectorConnectResult = CollectorStatus & {
+  ok: boolean;
+  /** False when the box's own name is not the one registered. Not an error —
+   *  the login worked — but it means this is a different machine than the
+   *  operator believes, which a log collector must not be wrong about. */
+  hostname_matches: boolean;
+};
+
+/** At most eight (`MAX_COLLECTORS` in collector/registry.py). */
+export const MAX_COLLECTORS = 8;
+
+/** One serial device on a collector, as the probe found it. */
+export type CollectorDevice = {
+  device: string;
+  /** `null` means **nobody checked** — the collector has no `fuser`. Kept
+   *  distinct from `false` on purpose: reporting an unchecked port as free is
+   *  how a bench spends an afternoon on a `socat` that is losing to a `minicom`
+   *  somebody left running yesterday. */
+  busy: boolean | null;
+  /** The pids holding it, when that could be read. */
+  held_by: string | null;
+  /** The DUT **this dashboard** has attached here, if any. Not the same fact as
+   *  `busy`, and the difference decides the next move: press Detach, or go and
+   *  look at the box. */
+  attached_dut: string | null;
+};
+
+/** What is behind one collector, and what stands between it and a console. */
+export type CollectorConsoles = {
+  collector: string;
+  hostname: string;
+  socat: { present: boolean; path: string | null };
+  serial_group: { name: string; member: boolean; groups: string[] };
+  busy_check: "fuser" | "unavailable";
+  devices: CollectorDevice[];
+  /** Whole sentences, because the reader's next action differs for each. */
+  blockers: string[];
+};
+
+export async function getCollectorConsoles(id: string): Promise<CollectorConsoles> {
+  return get<CollectorConsoles>(`/api/collectors/${encodeURIComponent(id)}/consoles`);
+}
+
+/** What an admin declares about a console that cannot be measured from it.
+ *
+ *  Both fields were carried by the node-registration form that this replaced.
+ *  `backhaul_iface` is only a **fallback**: detection overrides it wherever it
+ *  works, and it is what a root falls back to, since a root cannot name its own
+ *  backhaul VAP from its own console.
+ */
+export type ConsoleMesh = {
+  is_mesh: boolean;
+  /** Required when `is_mesh`; the backend refuses a mesh node without one. */
+  backhaul_iface: string | null;
+};
+
+/** Open a DUT console on a serial device behind this collector. */
+export async function attachCollectorConsole(
+  id: string,
+  device: string,
+  baudrate: number,
+  mesh: ConsoleMesh = { is_mesh: false, backhaul_iface: null },
+): Promise<{ dut: string; label: string; device: string }> {
+  return post(`/api/collectors/${encodeURIComponent(id)}/consoles/attach`, {
+    device,
+    baudrate,
+    is_mesh: mesh.is_mesh,
+    // A standalone console has no backhaul to name, and sending a stale one
+    // would persist a value the card then reports as configured.
+    backhaul_iface: mesh.is_mesh ? mesh.backhaul_iface : null,
+  });
+}
+
+export async function detachCollectorConsole(
+  id: string,
+  device: string,
+): Promise<{ dut: string; device: string }> {
+  return post(`/api/collectors/${encodeURIComponent(id)}/consoles/detach`, { device });
+}
+
+/** Baud rates offered wherever a console is opened.
+ *
+ *  Here rather than in a component because there are now three places that ask
+ *  for one — the serial connect dialog, remote node registration, and attaching
+ *  a console behind a collector — and a fourth copy is how a list that gained
+ *  921600 in one dialog keeps stopping at 115200 in another.
+ */
+export const BAUD_RATES = [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600];
+
+
+export async function getCollectors(): Promise<CollectorStatus[]> {
+  const body = await get<{ collectors: CollectorStatus[] }>("/api/collectors");
+  return body.collectors;
+}
+
+/** Register a collector, or re-configure one by posting the same id. */
+export async function configureCollector(config: CollectorConfig): Promise<CollectorStatus> {
+  return post<CollectorStatus>("/api/collectors", config);
+}
+
+/** Hand back a password a restart forgot, without re-sending the address. */
+export async function setCollectorPassword(
+  id: string,
+  password: string,
+): Promise<CollectorStatus> {
+  return post<CollectorStatus>(`/api/collectors/${encodeURIComponent(id)}/password`, {
+    password,
+  });
+}
+
+export async function connectCollector(id: string): Promise<CollectorConnectResult> {
+  return post<CollectorConnectResult>(`/api/collectors/${encodeURIComponent(id)}/connect`, {});
+}
+
+export async function disconnectCollector(id: string): Promise<CollectorStatus> {
+  return post<CollectorStatus>(`/api/collectors/${encodeURIComponent(id)}/disconnect`, {});
+}
+
+export async function removeCollector(id: string): Promise<void> {
+  const response = await fetch(`/api/collectors/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    await fail(response);
+  }
+}
+
 /** One member of the mesh, exactly as the DUT itself lists it.
  *
  *  Not a measurement this dashboard took: it is the device's own table, which

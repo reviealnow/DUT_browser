@@ -513,6 +513,48 @@ describe("which rows belong to which kind of DUT", () => {
   });
 });
 
+describe("the breathing dot on a held SSH session", () => {
+  /** The `<dd>` element beside a row's label, rather than its text. */
+  function cell(label: string): HTMLElement {
+    const term = screen.getByText(label, { selector: "dt" });
+    const value = term.parentElement?.querySelector("dd");
+    if (!value) {
+      throw new Error(`no <dd> beside ${label}`);
+    }
+    return value as HTMLElement;
+  }
+
+  const node = (serialOpen: boolean) =>
+    entry({ serialOpen, remote: { host: "10.0.0.24", port: 22, device: "/dev/ttyUSB0" } });
+
+  it("breathes while the backend holds the session", () => {
+    show(node(true));
+    expect(cell("SSH session").querySelector(".live-dot.is-live")).toBeTruthy();
+  });
+
+  it("rests -- present, not moving -- when nothing is connected", () => {
+    // The dot does not disappear: a row that sometimes has an indicator and
+    // sometimes has none reads as a rendering glitch, and the resting state is
+    // a state rather than an absence.
+    show(node(false));
+    const dot = cell("SSH session").querySelector(".live-dot");
+    expect(dot).toBeTruthy();
+    expect(dot?.classList.contains("is-live")).toBe(false);
+  });
+
+  it("keeps the word, which is what a screen reader gets", () => {
+    // The animation is a second channel for the same fact. If it ever becomes
+    // the only one, this row stops saying anything to anyone who cannot see it
+    // -- or who asked their system for less motion, which turns the dot static
+    // and leaves colour alone to carry the state.
+    show(node(true));
+    expect(cell("SSH session").textContent).toContain("Connected");
+    expect(cell("SSH session").querySelector(".live-dot")?.getAttribute("aria-hidden")).toBe(
+      "true",
+    );
+  });
+});
+
 describe("who is offered the capture", () => {
   const refreshButton = () =>
     screen.queryAllByRole("button").find((button) => button.textContent === "Refresh RSSI");

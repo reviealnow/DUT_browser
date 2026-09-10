@@ -13,6 +13,7 @@ import serial
 
 from app.config import LOG_DIR
 from app.parser.sysmon_parser import SysMonParser
+from app.serial import pty_ssh
 
 # Allowlist for the TERM value written to the DUT shell (shell-injection guard).
 _TERM_PATTERN = re.compile(r"^[A-Za-z0-9.-]+$")
@@ -84,6 +85,11 @@ class SerialWorker:
         self._serial: serial.Serial | None = None
         self._ssh: subprocess.Popen[bytes] | None = None
         self._ssh_stderr: list[bytes] = []
+        # Only for a password login: the terminal ssh asked its question on, and
+        # the thread that keeps it read. Both are None for a key, which is the
+        # transport this worker has always used.
+        self._ssh_tty: int | None = None
+        self._ssh_drain = None
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
@@ -203,6 +209,7 @@ class SerialWorker:
             # Deliberately after the join: see _close_ssh_pipes. A join that
             # timed out leaves the original window open, but holding the
             # descriptors forever would be worse than a narrow race.
+            self._release_ssh_tty()
             self._close_ssh_pipes(ssh)
 
         self.parser.flush()
@@ -224,35 +231,92 @@ class SerialWorker:
         return self._serial is not None and self._serial.is_open
 
     def _open_ssh(self, config: dict, baudrate: int) -> None:
-        """Start system ssh with a bidirectional socat serial pipe."""
+        """Start system ssh with a bidirectional socat serial pipe.
+
+        Two ways in, and everything after the login is identical for both: the
+        child is a plain ``Popen`` with real pipes either way, so the readiness
+        handshake below, the reader loop, and ``close`` never learn which was
+        used.
+
+        * **A key**, with ``BatchMode=yes`` -- a node registered by hand. This
+          is the original path and is unchanged; BatchMode means ssh will never
+          stop to ask a human anything, which is the only thing that works for a
+          service.
+        * **A password**, for a console behind an edge log collector. ssh reads
+          one from its controlling terminal and nowhere else, so that path
+          spawns with a pty attached for the prompt alone -- see
+          ``serial/pty_ssh.py`` for why the console bytes stay off it.
+
+        The password is never stored: it is not in the DUT's persisted remote
+        configuration, and arrives here from the collector registry's memory at
+        the moment somebody presses Connect.
+        """
         host = config["host"]
         user = config["user"]
-        key_path = config["key_path"]
         ssh_port = int(config.get("port", 22))
         device = config["device"]
-        command = [
-            "ssh",
-            "-o", "BatchMode=yes",
-            "-o", f"ConnectTimeout={SSH_CONNECT_TIMEOUT_SEC}",
-            "-o", "ConnectionAttempts=1",
-            "-i", key_path,
-            "-p", str(ssh_port),
-            f"{user}@{host}",
+        password = config.get("password") or ""
+        remote_command = (
             "command -v socat >/dev/null 2>&1 || { echo 'socat: command not found' >&2; exit 127; }; "
-            f"echo {_SSH_READY.decode()} >&2; exec socat - {device},b{baudrate},raw,echo=0",
-        ]
-        try:
-            process = subprocess.Popen(
-                command,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                bufsize=0,
-            )
-        except (OSError, ValueError) as exc:
-            raise RuntimeError(f"Could not start system ssh: {exc}") from exc
-        self._ssh = process
-        self._ssh_stderr = []
+            f"echo {_SSH_READY.decode()} >&2; exec socat - {device},b{baudrate},raw,echo=0"
+        )
+        if password:
+            command = [
+                "ssh",
+                *pty_ssh.password_auth_options(),
+                "-o", f"ConnectTimeout={SSH_CONNECT_TIMEOUT_SEC}",
+                "-o", "ConnectionAttempts=1",
+                "-p", str(ssh_port),
+                f"{user}@{host}",
+                remote_command,
+            ]
+        else:
+            command = [
+                "ssh",
+                "-o", "BatchMode=yes",
+                "-o", f"ConnectTimeout={SSH_CONNECT_TIMEOUT_SEC}",
+                "-o", "ConnectionAttempts=1",
+                "-i", config["key_path"],
+                "-p", str(ssh_port),
+                f"{user}@{host}",
+                remote_command,
+            ]
+        if password:
+            try:
+                process, master_fd = pty_ssh.spawn_with_tty(command)
+            except pty_ssh.PtySshError as exc:
+                raise RuntimeError(str(exc)) from exc
+            self._ssh = process
+            self._ssh_tty = master_fd
+            self._ssh_stderr = []
+            try:
+                pty_ssh.answer_password_prompt(
+                    master_fd, password, process,
+                    timeout=SSH_CONNECT_TIMEOUT_SEC + SSH_STARTUP_GRACE_SEC,
+                )
+            except pty_ssh.PtySshError as exc:
+                self._release_ssh_tty()
+                self._terminate_ssh(process)
+                self._close_ssh_pipes(process)
+                self._ssh = None
+                raise RuntimeError(str(exc)) from exc
+            # Started before anything waits on the child: a pty nobody reads
+            # keeps a session leader from finishing its exit, and a failed
+            # login would then look like a timeout instead of saying why.
+            self._ssh_drain = pty_ssh.TtyDrain(master_fd)
+        else:
+            try:
+                process = subprocess.Popen(
+                    command,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    bufsize=0,
+                )
+            except (OSError, ValueError) as exc:
+                raise RuntimeError(f"Could not start system ssh: {exc}") from exc
+            self._ssh = process
+            self._ssh_stderr = []
         assert process.stderr is not None
         try:
             deadline = time.monotonic() + SSH_CONNECT_TIMEOUT_SEC + SSH_STARTUP_GRACE_SEC
@@ -281,10 +345,29 @@ class SerialWorker:
         except Exception:
             if self._ssh is not None:
                 # Same as the caller's rollback: nothing is reading these yet.
+                self._release_ssh_tty()
                 self._terminate_ssh(process)
                 self._close_ssh_pipes(process)
                 self._ssh = None
             raise
+
+    def _release_ssh_tty(self) -> None:
+        """Stop draining the login terminal and drop it. Safe when there is none.
+
+        Ordered: the drain thread is stopped before the descriptor closes, for
+        the same reason ``_close_ssh_pipes`` waits for the reader -- closing a
+        descriptor another thread is selecting on frees the number for reuse,
+        and the next transport opened anywhere in this process can be handed it.
+        """
+        drain, self._ssh_drain = self._ssh_drain, None
+        if drain is not None:
+            drain.stop()
+        tty_fd, self._ssh_tty = self._ssh_tty, None
+        if tty_fd is not None:
+            try:
+                os.close(tty_fd)
+            except OSError:
+                pass
 
     @staticmethod
     def _terminate_ssh(process: subprocess.Popen[bytes]) -> None:

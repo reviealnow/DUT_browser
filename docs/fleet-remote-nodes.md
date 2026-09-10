@@ -1,5 +1,20 @@
 # Fleet remote nodes — deploying and using them
 
+> **A remote node is a console on an edge log collector.** The two models were
+> merged: the Pi is a *collector* (`docs/edge-log-collectors.md`), and each
+> serial device on it is a *console*. Everything on this page still works —
+> `POST /api/fleet/nodes` registers a node exactly as before, and now derives
+> its collector in the same request — and every node already in `duts.json` is
+> converted on startup, additively, keeping its own key. Two DUTs on one Pi are
+> two consoles on one collector rather than two rows repeating the same host,
+> user and key.
+>
+> What that page adds is the half this one never had: a collector can be logged
+> into with a **password**, and it can be **asked what is behind it** — which
+> serial devices exist, whether `socat` is installed, whether the login is in
+> `dialout`, whether a port is already busy. Those are the four checks section 1
+> and section 7 below tell you to SSH in and run by hand.
+
 Monitoring a DUT that is not plugged into the machine running the dashboard. Its
 console is reached over SSH to a Raspberry Pi, which pipes the serial port
 through `socat`. Everything downstream — the parser, `capture_command`, terminal
@@ -74,14 +89,24 @@ environment variable; with neither, the role stays locked. Log in, choose
 
 ## 4. Register each node
 
-**Settings → Fleet remote nodes**, logged in as admin. Fill the form and press
-*Register node*; the card lists what is registered and removes one on request.
-It is in Settings rather than on the strip because the strip hides itself when
-the fleet has one DUT or fewer — which is the state you are in before the first
-node exists, so a control there could never add the first one.
+**Settings → Edge log collectors**, logged in as admin. There is one card now:
+the *Fleet remote nodes* card was retired when the two models were merged, and
+everything it did is done here in two steps that match what is actually on the
+bench.
 
-Nothing about the form reaches the Pi: it writes the configuration, and the
-first SSH attempt is *Connect* on the strip (step 5).
+1. **Register the Pi** as a collector — address, login, and either a password
+   (held in memory) or the key path this page used to ask for. One row per box,
+   not one per DUT.
+2. **Connect it, then Attach a console.** The card lists the serial devices it
+   found, says whether `socat` is installed, whether the login is in `dialout`
+   and whether a port is already busy, and attaches any of them as a DUT. *Mesh*
+   and the backhaul interface are declared per port, right there — they are the
+   two fields the old form carried that nothing can measure.
+
+The API in this file is unchanged and still works: `POST /api/fleet/nodes`
+registers a node exactly as before, and now derives its collector in the same
+request. Nothing about either reaches the Pi at registration time; the first SSH
+attempt is *Connect*.
 
 The same registration over the API, for a script — the session cookie comes from
 a login:
@@ -104,7 +129,8 @@ Register the root the same way, with its own `device`.
 
 ## 5. Using it
 
-In the Fleet strip at the top of Overview:
+In the Fleet strip at the top of Overview (a console attached from the
+collectors card appears here like any other DUT):
 
 1. **Connect the node first, then the root.** Connecting also runs one capture.
 2. **Refresh RSSI** re-reads both directions on demand.

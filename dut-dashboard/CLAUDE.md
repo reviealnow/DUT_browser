@@ -53,11 +53,20 @@ served over the LAN. It monitors a QCA/Atheros AP6 DUT over a **serial console**
 dut-dashboard/
   backend/app/
     parser/       SysMonParser + pydantic models (snapshot / cpu / wifi / console)
-    serial/       SerialWorker (background thread; capture_command RPC)
+    serial/       SerialWorker (background thread; capture_command RPC) +
+                  pty_ssh.py: spawning ssh with a controlling terminal so a
+                  password can be typed at it, console bytes staying on pipes
     services/     stateless parsers & stores (wifi_clients.py, console_buffer,
                   auth_service, invite_service, file_service, firmware_service, ...)
     db/           workspace SQLite schema + _ensure_column migrations
     dut/          DUT registry (per-DUT context: worker, parser, buffers)
+    collector/    Edge log collectors: their own registry (password OR key
+                  auth), an SSH session held open as a shell, probe.py (which
+                  DUT consoles are behind one, and what is in the way), and
+                  migration.py (every remote node is a console on a collector;
+                  converted at startup, additively). Deliberately NOT part of
+                  dut/ -- a collector is a machine somebody logs into, not a
+                  DUT or a DUT's console. See docs/edge-log-collectors.md
     websocket/    ws_manager (event fan-out)
     api/          REST routers (serial_api, files_api, bulletin_api, duts_api,
                   auth_api, firmware_api, ...)
