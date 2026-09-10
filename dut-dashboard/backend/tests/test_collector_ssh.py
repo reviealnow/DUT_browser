@@ -145,13 +145,21 @@ class PtyPasswordLoginTest(unittest.TestCase):
         The messages that matter here come from ssh and not from this codebase
         -- "Host key verification failed", "No route to host" -- so the last
         line it printed is the most useful thing to show.
+
+        Driven by the fake rather than by a real binary misused as one. This
+        test used to run `/bin/cat` with ssh's arguments and assert on the word
+        "usage", which is BSD cat's wording: it passed on macOS and failed on
+        the Linux runner, where GNU coreutils says "Try '/bin/cat --help'".
+        The behaviour was right on both; the assertion was reading a foreign
+        program's error text.
         """
+        os.environ["FAKE_SSH_MODE"] = "unreachable"
         with self.assertRaises(CollectorSshError) as caught:
             open_session(
                 ip="10.0.0.9", user="dut", password=PASSWORD,
-                ssh_binary="/bin/cat", login_timeout=3,
+                ssh_binary=FAKE_SSH, login_timeout=3,
             )
-        self.assertIn("usage", str(caught.exception).lower())
+        self.assertIn("No route to host", str(caught.exception))
 
     def test_a_login_that_fails_after_the_prompt_does_not_hang(self) -> None:
         """Regression, and the failure mode was a hang rather than a wrong answer.

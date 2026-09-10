@@ -12,7 +12,8 @@ Three behaviours are modelled, and each one is load-bearing:
 
 Driven by the environment so one script covers every case:
 
-  FAKE_SSH_MODE      ok | denied | hostkey | echo | silent  (default: ok)
+  FAKE_SSH_MODE      ok | denied | hostkey | echo | silent | unreachable
+                     (default: ok)
   FAKE_SSH_PASSWORD  what counts as correct        (default: correct)
   FAKE_SSH_ANSWERED  a path written to iff this script is ever answered
 
@@ -31,6 +32,16 @@ ANSWERED = os.environ.get("FAKE_SSH_ANSWERED")
 
 
 def main() -> int:
+    if MODE == "unreachable":
+        # A connection that never happened: ssh says why on stderr and exits
+        # without ever opening a terminal, so there is no prompt to answer.
+        # Its own words are the useful ones -- "No route to host", "Host key
+        # verification failed" -- and the caller must surface them rather than
+        # inventing a message of its own.
+        sys.stderr.write("ssh: connect to host 10.0.0.9 port 22: No route to host\n")
+        sys.stderr.flush()
+        return 255
+
     if MODE == "silent":
         # Reachable, alive, and never says anything -- a box that accepted the
         # TCP connection and then stopped. The caller must give up on its own.
