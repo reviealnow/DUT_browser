@@ -137,6 +137,22 @@ async function put<T>(url: string, body: unknown): Promise<T> {
   return (await response.json()) as T;
 }
 
+/**
+ * DELETE with the same failure handling as its three neighbours.
+ *
+ * Written once because the ad-hoc copies drifted: two of them throw the
+ * response text directly, which skips `fail` and therefore skips the
+ * unauthorized event that signs a stale session out. Only routes that answer a
+ * JSON body use this; `removeCollector` below is the one converted so far.
+ */
+async function del<T>(url: string): Promise<T> {
+  const response = await fetch(url, { method: "DELETE" });
+  if (!response.ok) {
+    await fail(response);
+  }
+  return (await response.json()) as T;
+}
+
 export async function openSerial(
   params: OpenSerialParams,
   dutId = DEFAULT_DUT_ID,
@@ -711,12 +727,72 @@ export async function disconnectCollector(id: string): Promise<CollectorStatus> 
 }
 
 export async function removeCollector(id: string): Promise<void> {
-  const response = await fetch(`/api/collectors/${encodeURIComponent(id)}`, {
-    method: "DELETE",
-  });
-  if (!response.ok) {
-    await fail(response);
-  }
+  await del<{ ok: boolean }>(`/api/collectors/${encodeURIComponent(id)}`);
+}
+
+/* ---------------------------------------------------------------------------
+ * Saved fleet-host settings (Fleet > Profiles)
+ *
+ * A profile is the Hosts form, kept: where a box is, which port, who to log in
+ * as, what to call it. Applying one fills the fields and configures nothing --
+ * and it carries **no password**, by the same rule that keeps a collector's
+ * password in the backend's memory and out of every file. There is no field
+ * here to put one in, which is the point.
+ * ------------------------------------------------------------------------- */
+
+/** Who else sees a profile. Only its owner may ever change it. */
+export type ProfileScope = "shared" | "private";
+
+export type FleetProfile = {
+  id: number;
+  /** Free text, unique among that owner's profiles. */
+  name: string;
+  /** What to call the box once registered — the collector's label. */
+  device_name: string | null;
+  host: string;
+  port: number;
+  username: string;
+  scope: ProfileScope;
+  /** Display name of the person who saved it. */
+  owner: string;
+  owner_user_id: number;
+  /** Whether the viewer owns it. The backend answers this rather than leaving
+   *  the page to compare ids, so the pencil and the 403 cannot disagree. */
+  can_edit: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+/** What the form sends. Deliberately without a password — see above. */
+export type FleetProfileInput = {
+  name: string;
+  device_name?: string | null;
+  host: string;
+  port: number;
+  username: string;
+  scope: ProfileScope;
+};
+
+export async function getFleetProfiles(): Promise<FleetProfile[]> {
+  const body = await get<{ profiles: FleetProfile[] }>("/api/fleet/profiles");
+  return body.profiles;
+}
+
+export async function createFleetProfile(input: FleetProfileInput): Promise<FleetProfile> {
+  const body = await post<{ profile: FleetProfile }>("/api/fleet/profiles", input);
+  return body.profile;
+}
+
+export async function updateFleetProfile(
+  id: number,
+  input: FleetProfileInput,
+): Promise<FleetProfile> {
+  const body = await put<{ profile: FleetProfile }>(`/api/fleet/profiles/${id}`, input);
+  return body.profile;
+}
+
+export async function deleteFleetProfile(id: number): Promise<void> {
+  await del<{ ok: boolean }>(`/api/fleet/profiles/${id}`);
 }
 
 /** One member of the mesh, exactly as the DUT itself lists it.
