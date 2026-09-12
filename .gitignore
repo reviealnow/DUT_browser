@@ -66,6 +66,18 @@ test_*-signed/
 /*.png
 /dut-dashboard/*.png
 
+# A stale nested clone of this same repository, cloned into the working copy on
+# 2026-06-17 and untouched since. It is untracked rather than ignored, which
+# makes it the same accident as the screenshots above and a larger one: 12 MB,
+# 11 of them a second .git, and a single `git add -A` would stage all of it.
+# Anchored and non-recursive, so it covers exactly that directory and no path
+# named DUT_browser anywhere else.
+#
+# Ignoring it is not a judgement that it should stay. It holds no commit that is
+# not already on the remote and no captured data, but removing it is the
+# operator's call, not a side effect of a gitignore rule.
+/DUT_browser/
+
 # Serial captures. Unlike the screenshots above, these are ignored EVERYWHERE and
 # legitimate fixtures are allowlisted back in. The two defaults point opposite
 # ways on purpose, because the two mistakes cost different amounts: miss a new
