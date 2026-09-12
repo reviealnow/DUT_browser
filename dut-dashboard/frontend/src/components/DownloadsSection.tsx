@@ -15,6 +15,7 @@ import {
   LogList,
   SessionLogEntry,
 } from "../api/rest";
+import { formatTimestamp } from "../utils/datetime";
 import { Card, EmptyState } from "./shell/Card";
 
 const TAIL_LINES = 200;
@@ -27,10 +28,6 @@ function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function formatTime(iso: string): string {
-  return iso.replace("T", " ");
 }
 
 const isPng = (name: string): boolean => name.toLowerCase().endsWith(".png");
@@ -85,7 +82,7 @@ function FileTable({ rows, hrefFor }: { rows: LogEntry[]; hrefFor: (name: string
                   {row.name}
                 </td>
                 <td>{formatSize(row.size)}</td>
-                <td>{formatTime(row.mtime)}</td>
+                <td>{formatTimestamp(row.mtime)}</td>
                 <td className="filetable-actions">
                   <a className="btn" href={hrefFor(row.name)} download style={{ padding: "2px 10px" }}>
                     Download
@@ -131,7 +128,7 @@ function ContextTable({ rows }: { rows: ContextEntry[] }) {
             <td className="filetable-name">{row.name}</td>
             <td>{row.kind}</td>
             <td>{formatSize(row.size)}</td>
-            <td>{formatTime(row.mtime)}</td>
+            <td>{formatTimestamp(row.mtime)}</td>
             <td className="filetable-actions">
               <a
                 className="btn"
@@ -253,7 +250,7 @@ function SessionLogTable({ rows, onAnalyzed }: { rows: SessionLogEntry[]; onAnal
                 </span>
               </td>
               <td>{formatSize(row.size)}</td>
-              <td>{formatTime(row.mtime)}</td>
+              <td>{formatTimestamp(row.mtime)}</td>
               <td className="filetable-actions">
                 <div style={{ display: "flex", gap: "var(--space-2)", justifyContent: "flex-end" }}>
                   <button
