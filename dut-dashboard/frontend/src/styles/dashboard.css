@@ -347,7 +347,7 @@ body {
   white-space: nowrap;
 }
 
-.btn:hover {
+.btn:hover:not(:disabled) {
   border-color: var(--accent);
   color: var(--accent);
 }
@@ -358,9 +358,45 @@ body {
   color: #fff;
 }
 
-.btn.primary:hover {
+.btn.primary:hover:not(:disabled) {
   background: #11529c;
   color: #fff;
+}
+
+/* Disabled buttons, app-wide.
+ *
+ * Only .btn.danger-btn and .kw-chip-remove used to dim themselves, so on every
+ * other screen a disabled button was pixel-identical to a working one and the
+ * only feedback was the click doing nothing. .icon-btn joins the same rule
+ * because it is a sibling primitive, not a .btn variant -- some call sites
+ * write `icon-btn`, others `btn icon-btn`, and both must dim.
+ *
+ * pointer-events deliberately stays on: the not-allowed cursor and the title
+ * tooltip explaining why the control is unavailable are the whole point. */
+.btn:disabled,
+.icon-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---------- Inline status banner ---------- */
+
+/* `.flash` is the in-place banner a component shows when an action fails --
+ * over twenty call sites across the app. The only rule for it was
+ * `.modal .flash`, so outside a dialog every one of them rendered as unstyled
+ * body text sitting in the layout with no tint, padding or corner.
+ *
+ * Almost all of them are errors, so --danger is the default. A few set `color`
+ * inline for another tone (DownloadsSection's success notice, FleetCard's
+ * .fleet-port-note), so the tint is mixed from currentColor rather than pinned
+ * to --danger-weak -- the background then follows whatever colour the call site
+ * chose instead of contradicting it with a red box around green text. */
+.flash {
+  color: var(--danger);
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  border-radius: 8px;
+  padding: var(--space-2) var(--space-3);
+  font-size: 13px;
 }
 
 /* ---------- Content + KPIs ---------- */
@@ -1393,9 +1429,9 @@ body {
   background: var(--accent-weak); color: var(--accent); cursor: pointer;
   text-decoration: none; font-size: 14px;
 }
-.icon-btn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+.icon-btn:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); color: #fff; }
 .icon-btn.danger { background: var(--danger-weak); color: var(--danger); }
-.icon-btn.danger:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
+.icon-btn.danger:hover:not(:disabled) { background: var(--danger); border-color: var(--danger); color: #fff; }
 .ftype {
   width: 28px; height: 28px; border-radius: 7px; display: inline-grid; place-items: center;
   font-size: 10px; font-weight: 800; color: #fff; margin-right: var(--space-2);
@@ -1877,14 +1913,6 @@ body {
   border-color: var(--accent);
 }
 
-.modal .flash {
-  background: var(--danger-weak);
-  color: var(--danger);
-  border-radius: 8px;
-  padding: var(--space-2) var(--space-3);
-  font-size: 13px;
-}
-
 .modal-actions {
   display: flex;
   justify-content: flex-end;
@@ -2019,11 +2047,6 @@ body {
 .btn.danger-btn:hover:not(:disabled) {
   background: var(--danger);
   color: #fff;
-}
-
-.btn.danger-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 /* Firmware upgrade form.
