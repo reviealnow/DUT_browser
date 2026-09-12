@@ -33,11 +33,24 @@ export type NavItem = {
 };
 
 // Sidebar order mirrors the Luna "Spacing - Dashboards" reference shell, grouped
-// into Monitoring / Workspace / System (see mockup_lanfs_integration.html).
+// into Monitoring / Fleet / Workspace / System (see mockup_lanfs_integration.html).
+//
+// This array is in the order the sidebar DRAWS, not merely a set: groups render
+// in NAV_GROUPS order, so every item of a group has to sit together here and in
+// that group's position. The demo kit's navigation verifier reads this file as
+// the sidebar's order and compares it entry by entry against each demo page.
 // Role split (P71b): read-only monitoring (incl. the crash feed) is guest;
 // anything that drives the DUT, downloads logs or posts content is engineer.
 export const NAV_ITEMS: NavItem[] = [
   { id: "overview", label: "Overview", icon: "▣", title: "Overview", subtitle: "Live DUT monitoring summary", group: "Monitoring", minRole: "guest" },
+  { id: "cpu", label: "CPU / Memory", icon: "📈", title: "CPU / Memory", subtitle: "Per-core CPU and memory trends", group: "Monitoring", minRole: "guest" },
+  { id: "wifi", label: "Wi-Fi Clients", icon: "📶", title: "Wi-Fi Clients", subtitle: "Associated clients by radio", group: "Monitoring", minRole: "guest" },
+  { id: "ssid", label: "SSID Capability", icon: "🔍", title: "SSID Capability", subtitle: "DUT config vs host-side scan reconciliation", group: "Monitoring", minRole: "guest" },
+  { id: "sitesurvey", label: "Site Survey", icon: "📡", title: "Site Survey", subtitle: "DUT-side neighbor scan and channel recommendation", group: "Monitoring", minRole: "guest" },
+  { id: "logs", label: "Logs / Crash Events", icon: "⚠", title: "Logs / Crash Events", subtitle: "Critical crash and log event detection", group: "Monitoring", minRole: "guest" },
+  { id: "console", label: "Serial Console", icon: "⌨", title: "Serial Console", subtitle: "DUT serial / replay console", group: "Monitoring", minRole: "engineer" },
+  { id: "downloads", label: "Downloads", icon: "⬇", title: "Downloads", subtitle: "Log bundles and analyzer artifacts", group: "Monitoring", minRole: "engineer" },
+  { id: "offline", label: "Offline Analyzer", icon: "⌁", title: "Offline Analyzer", subtitle: "Local log comparison and charts", group: "Monitoring", minRole: "guest" },
   // P69 folded the fleet into an Overview strip and dropped this entry, because
   // the cards then held three numbers and a nav slot was too much for them.
   // What a card holds now is a mesh backhaul measured in both directions, per
@@ -53,14 +66,6 @@ export const NAV_ITEMS: NavItem[] = [
   { id: "fleet", label: "DUTs & Mesh", icon: "🛰", title: "Fleet", subtitle: "", group: "Fleet", minRole: "guest" },
   { id: "fleethosts", label: "Hosts", icon: "🗄", title: "Fleet hosts", subtitle: "Boxes reached over SSH, and their DUT consoles", group: "Fleet", minRole: "admin" },
   { id: "fleetprofiles", label: "Profiles", icon: "▥", title: "Profiles", subtitle: "Saved host settings, never passwords", group: "Fleet", minRole: "admin" },
-  { id: "cpu", label: "CPU / Memory", icon: "📈", title: "CPU / Memory", subtitle: "Per-core CPU and memory trends", group: "Monitoring", minRole: "guest" },
-  { id: "wifi", label: "Wi-Fi Clients", icon: "📶", title: "Wi-Fi Clients", subtitle: "Associated clients by radio", group: "Monitoring", minRole: "guest" },
-  { id: "ssid", label: "SSID Capability", icon: "🔍", title: "SSID Capability", subtitle: "DUT config vs host-side scan reconciliation", group: "Monitoring", minRole: "guest" },
-  { id: "sitesurvey", label: "Site Survey", icon: "📡", title: "Site Survey", subtitle: "DUT-side neighbor scan and channel recommendation", group: "Monitoring", minRole: "guest" },
-  { id: "logs", label: "Logs / Crash Events", icon: "⚠", title: "Logs / Crash Events", subtitle: "Critical crash and log event detection", group: "Monitoring", minRole: "guest" },
-  { id: "console", label: "Serial Console", icon: "⌨", title: "Serial Console", subtitle: "DUT serial / replay console", group: "Monitoring", minRole: "engineer" },
-  { id: "downloads", label: "Downloads", icon: "⬇", title: "Downloads", subtitle: "Log bundles and analyzer artifacts", group: "Monitoring", minRole: "engineer" },
-  { id: "offline", label: "Offline Analyzer", icon: "⌁", title: "Offline Analyzer", subtitle: "Local log comparison and charts", group: "Monitoring", minRole: "guest" },
   { id: "files", label: "Files", icon: "🗂", title: "Files", subtitle: "Shared file workspace", group: "Workspace", minRole: "engineer" },
   { id: "bulletin", label: "Bulletin", icon: "📌", title: "Bulletin", subtitle: "Team notes and replies", group: "Workspace", minRole: "engineer" },
   { id: "settings", label: "Settings", icon: "⚙", title: "Settings", subtitle: "Dashboard configuration", group: "System", minRole: "engineer" },
