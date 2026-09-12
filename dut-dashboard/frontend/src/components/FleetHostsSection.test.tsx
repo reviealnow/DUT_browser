@@ -155,11 +155,11 @@ describe("what the light claims", () => {
 describe("a password the backend has forgotten", () => {
   it("refuses to try a login it has no password for", async () => {
     // Memory-only passwords mean `has_password` is false after every restart.
-    // A Connect that can only answer 400 teaches people the feature is broken,
+    // A Verify that can only answer 400 teaches people the feature is broken,
     // so the button is held shut and the footer says which of the two things is
     // missing — the network, or the password.
     await show([collector({ has_password: false, ready: false })]);
-    expect(button("Connect")?.hasAttribute("disabled")).toBe(true);
+    expect(button("Verify")?.hasAttribute("disabled")).toBe(true);
     expect(screen.getByText("Needs its password again")).toBeTruthy();
   });
 
@@ -168,9 +168,9 @@ describe("a password the backend has forgotten", () => {
     fireEvent.change(screen.getByLabelText("SSH password for edge1"), {
       target: { value: "hunter2" },
     });
-    expect(button("Connect")?.hasAttribute("disabled")).toBe(false);
+    expect(button("Verify")?.hasAttribute("disabled")).toBe(false);
 
-    button("Connect")!.click();
+    button("Verify")!.click();
     await waitFor(() => expect(connectCollector).toHaveBeenCalledWith("edge1"));
     // Written with the rest of the fields rather than through a second
     // endpoint: one press is the whole transaction the card offers.
@@ -183,7 +183,7 @@ describe("a password the backend has forgotten", () => {
     // Absent means "keep what is in memory". Sending an empty string would
     // replace a working login with a blank one.
     await show([collector({ has_password: true })]);
-    button("Connect")!.click();
+    button("Verify")!.click();
     await waitFor(() => expect(configureCollector).toHaveBeenCalled());
     expect(configureCollector.mock.calls[0][0]).not.toHaveProperty("password");
   });
@@ -214,7 +214,7 @@ describe("a host that an existing remote node became", () => {
   /**
    * The merge, from the page's side. A node that was registered with a key is
    * now a host like any other — and must never be shown a field asking for a
-   * password it does not use, or a Connect held shut waiting for one.
+   * password it does not use, or a Verify held shut waiting for one.
    */
   const keyed = () =>
     collector({
@@ -227,9 +227,9 @@ describe("a host that an existing remote node became", () => {
       hostname: null,
     });
 
-  it("offers Connect without ever asking for a password", async () => {
+  it("offers Verify without ever asking for a password", async () => {
     await show([keyed()]);
-    expect(button("Connect")?.hasAttribute("disabled")).toBe(false);
+    expect(button("Verify")?.hasAttribute("disabled")).toBe(false);
     expect(screen.queryByLabelText(/SSH password for/)).toBeNull();
   });
 
@@ -252,7 +252,7 @@ describe("a host that an existing remote node became", () => {
     )) as HTMLInputElement;
     expect(field.value).toBe("");
 
-    button("Connect")!.click();
+    button("Verify")!.click();
     await waitFor(() => expect(configureCollector).toHaveBeenCalled());
     expect(configureCollector.mock.calls[0][0].hostname).toBeNull();
   });
@@ -261,7 +261,7 @@ describe("a host that an existing remote node became", () => {
     // The other side of the same gate, so `ready` cannot quietly become "true
     // for everything".
     await show([collector({ auth: "password", has_password: false, ready: false })]);
-    expect(button("Connect")?.hasAttribute("disabled")).toBe(true);
+    expect(button("Verify")?.hasAttribute("disabled")).toBe(true);
     expect(screen.getByLabelText(/SSH password for/)).toBeTruthy();
   });
 });
@@ -275,7 +275,7 @@ describe("logging in to something that is not what was registered", () => {
       reported_hostname: "some-other-pi",
     });
     await show([collector({ has_password: true })]);
-    button("Connect")!.click();
+    button("Verify")!.click();
     await waitFor(() =>
       expect(screen.getByText(/calls itself "some-other-pi"/)).toBeTruthy(),
     );
@@ -391,7 +391,7 @@ describe("the DUT consoles behind a collector", () => {
 
 describe("adding a host nobody has registered", () => {
   const connects = () =>
-    screen.getAllByRole("button").filter((element) => element.textContent === "Connect");
+    screen.getAllByRole("button").filter((element) => element.textContent === "Verify");
 
   async function addCard(): Promise<void> {
     button("Add new host")!.click();

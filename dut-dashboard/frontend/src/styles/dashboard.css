@@ -2257,7 +2257,7 @@ body {
   font-size: 13px;
 }
 
-/* This page gates more buttons than any other -- Connect waits for a password,
+/* This page gates more buttons than any other -- Verify waits for a password,
    Save for an address -- and the design system styles no disabled state, so a
    held-shut primary button is indistinguishable from a working one. Scoped
    here rather than applied to `.btn` globally, which is a change to every

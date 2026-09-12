@@ -33,13 +33,18 @@ import LiveDot from "./shell/LiveDot";
  * **The password is typed here and kept nowhere.** The backend holds it in
  * memory for the life of its process and writes it to no file, so a restart
  * leaves the host registered and unable to log in. That is what the footer says
- * in words, rather than offering a Connect that could only fail.
+ * in words, rather than offering a Verify that could only fail.
  *
  * The card is also the editor. There is no separate registration form: a new
  * host is an empty card, an existing one is the same card with its fields
- * filled, and Connect writes whatever is in them before logging in. The two
+ * filled, and Verify writes whatever is in them before logging in. The two
  * used to be different shapes for the same six fields, and the form was the
  * only way to correct a typo in an address.
+ *
+ * **Verify is not a dry run.** It writes the fields and opens the session that
+ * the light at the top then reports; Disconnect is what closes it again. The
+ * word is the one the bench uses for this button, and the state beside it is
+ * what keeps it from reading as a test that changes nothing.
  */
 export default function FleetHostsSection({
   onManageProfiles,
@@ -634,7 +639,7 @@ function HostCard({
                 : undefined
             }
           >
-            {busy ? "Connecting…" : "Connect"}
+            {busy ? "Verifying…" : "Verify"}
           </button>
         )}
       </div>
