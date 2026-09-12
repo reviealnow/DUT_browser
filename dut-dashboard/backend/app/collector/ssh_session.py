@@ -269,7 +269,15 @@ def _await_ready(process, password: str, deadline: float) -> str:
                         return after.split("\n", 1)[0].strip()
                     continue
                 if pty_ssh.DENIED_RE.search(seen):
-                    raise PtySshError("The collector refused these credentials.")
+                    # ssh's own words, carried rather than replaced: which
+                    # refusal it is decides the next move, and this branch used
+                    # to answer all three with one sentence. `denial_line`
+                    # scrubs the password out of it.
+                    said = pty_ssh.denial_line(seen, password)
+                    raise PtySshError(
+                        "The collector refused these credentials."
+                        + (f' ssh said: "{said}"' if said else "")
+                    )
                 if pty_ssh.HOSTKEY_RE.search(seen):
                     raise PtySshError(pty_ssh.HOSTKEY_MESSAGE)
         if process.poll() is not None:

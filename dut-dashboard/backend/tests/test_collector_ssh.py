@@ -29,11 +29,12 @@ class PtyPasswordLoginTest(unittest.TestCase):
     def setUp(self) -> None:
         self._saved = {
             key: os.environ.get(key)
-            for key in ("FAKE_SSH_MODE", "FAKE_SSH_PASSWORD", "FAKE_SSH_ANSWERED")
+            for key in ("FAKE_SSH_MODE", "FAKE_SSH_PASSWORD", "FAKE_SSH_ANSWERED", "FAKE_SSH_DENIAL")
         }
         os.environ["FAKE_SSH_PASSWORD"] = PASSWORD
         os.environ.pop("FAKE_SSH_MODE", None)
         os.environ.pop("FAKE_SSH_ANSWERED", None)
+        os.environ.pop("FAKE_SSH_DENIAL", None)
         self.sessions = []
 
     def tearDown(self) -> None:
@@ -94,6 +95,43 @@ class PtyPasswordLoginTest(unittest.TestCase):
             session = self.login(password="not-the-one")
         self.assertIsNone(session)
         self.assertIn("refused", str(caught.exception).lower())
+
+    def test_the_refusal_carries_what_ssh_actually_said(self) -> None:
+        """Which refusal it is decides the next move.
+
+        "Permission denied, please try again." is a password to re-type;
+        "Permission denied (publickey)." is a server that does not offer
+        password logins at all, and no amount of re-typing will help. Both used
+        to arrive as one sentence of ours, which is what sent a bench session
+        looking for a wrong password on a box that was refusing the method.
+
+        The wording is supplied by the fake rather than asserted as a constant:
+        pinning one phrasing here would be asserting on a foreign program's
+        words, which this suite has already been burned by once.
+        """
+        os.environ["FAKE_SSH_DENIAL"] = "Permission denied (publickey,keyboard-interactive)."
+        with self.assertRaises(CollectorSshError) as caught:
+            self.login(password="not-the-one")
+        message = str(caught.exception)
+        self.assertIn("refused", message.lower())
+        self.assertIn("Permission denied (publickey,keyboard-interactive).", message)
+
+    def test_a_refusal_that_echoes_the_password_still_hides_it(self) -> None:
+        """The buffer this line comes from is the terminal it was typed on.
+
+        ssh turns echo off, so a real one never does this -- but the whole
+        reason `scrub` exists is that the abnormal remote is the one that ends
+        up in an HTTP error body.
+        """
+        os.environ["FAKE_SSH_DENIAL"] = f"Permission denied for password {PASSWORD}"
+        # `denied` refuses whatever it is given, so the password under test is
+        # the correct one and still ends up in the line that comes back.
+        os.environ["FAKE_SSH_MODE"] = "denied"
+        with self.assertRaises(CollectorSshError) as caught:
+            self.login(password=PASSWORD)
+        message = str(caught.exception)
+        self.assertNotIn(PASSWORD, message)
+        self.assertIn("***", message)
 
     def test_an_unknown_host_key_is_never_answered_for_the_operator(self) -> None:
         """The prompt is reported, not accepted.

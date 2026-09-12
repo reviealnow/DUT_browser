@@ -15,6 +15,7 @@ Driven by the environment so one script covers every case:
   FAKE_SSH_MODE      ok | denied | hostkey | echo | silent | unreachable
                      (default: ok)
   FAKE_SSH_PASSWORD  what counts as correct        (default: correct)
+  FAKE_SSH_DENIAL    the refusal line to print     (default: ssh's usual one)
   FAKE_SSH_ANSWERED  a path written to iff this script is ever answered
 
 `echo` is the abnormal remote: one that repeats what it was sent, putting the
@@ -28,6 +29,10 @@ import time
 
 MODE = os.environ.get("FAKE_SSH_MODE", "ok")
 EXPECTED = os.environ.get("FAKE_SSH_PASSWORD", "correct")
+# Configurable because real ssh has three of these and they mean three
+# different things; a test that pinned one wording would be asserting on a
+# foreign program's words again.
+DENIAL = os.environ.get("FAKE_SSH_DENIAL", "Permission denied, please try again.")
 ANSWERED = os.environ.get("FAKE_SSH_ANSWERED")
 
 
@@ -78,7 +83,7 @@ def main() -> int:
         sys.stderr.flush()
         return 255
     if MODE == "denied" or supplied != EXPECTED:
-        sys.stderr.write("Permission denied, please try again.\n")
+        sys.stderr.write(DENIAL + "\n")
         sys.stderr.flush()
         return 255
 
