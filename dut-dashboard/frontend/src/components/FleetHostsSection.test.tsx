@@ -210,6 +210,56 @@ describe("a password the backend has forgotten", () => {
   });
 });
 
+describe("what the footer says after an attempt that left no session", () => {
+  /**
+   * Reported from the bench: a host whose login failed on an unknown host key
+   * read "Ready · The host key is not known to this machine…" — two claims that
+   * contradict each other. The first says press the button; the second says
+   * pressing it changes nothing until somebody accepts a key by hand.
+   *
+   * `ready` stays true through a failed login, because it means "a password is
+   * held", not "the last attempt worked". So the detail has to win.
+   */
+  const KEY = "The host key is not known to this machine. SSH to it by hand once, "
+    + "check the fingerprint, then retry.";
+
+  it("says what happened, not that the host is ready", async () => {
+    await show([collector({ connected: false, ready: true, detail: KEY })]);
+    expect(screen.getByText(KEY)).toBeTruthy();
+    expect(screen.queryByText("Ready")).toBeNull();
+  });
+
+  it("says it exactly once", async () => {
+    // It used to be the status AND the sentence appended to it; a reader would
+    // have seen the reason twice on one line.
+    await show([collector({ connected: false, ready: true, detail: KEY })]);
+    expect(screen.getAllByText(KEY)).toHaveLength(1);
+  });
+
+  it("still says Ready when nothing has gone wrong", async () => {
+    await show([collector({ connected: false, ready: true, detail: null })]);
+    expect(screen.getByText("Ready")).toBeTruthy();
+  });
+
+  it("keeps the password sentence ahead of an older failure", async () => {
+    // A restart forgets the password and keeps whatever detail was there. The
+    // actionable thing is the password, so that stays the status — and the
+    // older reason is still printed beside it rather than dropped.
+    await show([collector({ connected: false, ready: false, has_password: false, detail: KEY })]);
+    expect(screen.getByText("Needs its password again")).toBeTruthy();
+    expect(screen.getByText(`· ${KEY}`)).toBeTruthy();
+  });
+
+  it("keeps a connected host's detail beside the time, not instead of it", async () => {
+    // The other kind of detail: the login worked, and the box answered to a
+    // name nobody registered. That is not a status, it is a footnote to one.
+    const mismatch = 'Logged in, but the box calls itself "some-other-pi", not "edge-collector".';
+    await show([collector({ connected: true, connected_since: "11:02:33", detail: mismatch })]);
+    expect(screen.getByText("Since 11:02:33")).toBeTruthy();
+    expect(screen.getByText(`· ${mismatch}`)).toBeTruthy();
+  });
+});
+
 describe("a host that an existing remote node became", () => {
   /**
    * The merge, from the page's side. A node that was registered with a key is
