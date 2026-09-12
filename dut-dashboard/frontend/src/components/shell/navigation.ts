@@ -4,6 +4,8 @@ import { ROLE_RANK } from "../../monitoring/AuthContext";
 export type SectionId =
   | "overview"
   | "fleet"
+  | "fleethosts"
+  | "fleetprofiles"
   | "cpu"
   | "wifi"
   | "ssid"
@@ -17,7 +19,7 @@ export type SectionId =
   | "settings"
   | "firmware";
 
-export type NavGroup = "Monitoring" | "Workspace" | "System";
+export type NavGroup = "Monitoring" | "Fleet" | "Workspace" | "System";
 
 export type NavItem = {
   id: SectionId;
@@ -43,7 +45,14 @@ export const NAV_ITEMS: NavItem[] = [
   // No subtitle: the page now leads with the mesh table and a toolbar that says
   // how many DUTs are registered, so a header line restating "every registered
   // DUT and its mesh backhaul" was the third heading in a row saying the same.
-  { id: "fleet", label: "Fleet", icon: "🛰", title: "Fleet", subtitle: "", group: "Monitoring", minRole: "guest" },
+  // Its own group rather than one Monitoring row, because the fleet is now
+  // three separate questions: what the registered DUTs are doing, which boxes
+  // this dashboard can reach, and what host settings are saved. They share a
+  // subject and nothing else -- the first is read-only and open to a guest, the
+  // other two register machines and are admin.
+  { id: "fleet", label: "DUTs & Mesh", icon: "🛰", title: "Fleet", subtitle: "", group: "Fleet", minRole: "guest" },
+  { id: "fleethosts", label: "Hosts", icon: "🗄", title: "Fleet hosts", subtitle: "Boxes reached over SSH, and their DUT consoles", group: "Fleet", minRole: "admin" },
+  { id: "fleetprofiles", label: "Profiles", icon: "▥", title: "Profiles", subtitle: "Saved host settings, never passwords", group: "Fleet", minRole: "admin" },
   { id: "cpu", label: "CPU / Memory", icon: "📈", title: "CPU / Memory", subtitle: "Per-core CPU and memory trends", group: "Monitoring", minRole: "guest" },
   { id: "wifi", label: "Wi-Fi Clients", icon: "📶", title: "Wi-Fi Clients", subtitle: "Associated clients by radio", group: "Monitoring", minRole: "guest" },
   { id: "ssid", label: "SSID Capability", icon: "🔍", title: "SSID Capability", subtitle: "DUT config vs host-side scan reconciliation", group: "Monitoring", minRole: "guest" },
@@ -73,6 +82,7 @@ export type NavGroupMeta = { id: NavGroup; icon: string };
 
 export const NAV_GROUPS: NavGroupMeta[] = [
   { id: "Monitoring", icon: "◉" },
+  { id: "Fleet", icon: "⬡" },
   { id: "Workspace", icon: "▤" },
   { id: "System", icon: "◆" },
 ];

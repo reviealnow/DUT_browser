@@ -31,6 +31,8 @@ const BulletinSection = lazy(() => import("../components/BulletinSection"));
 const WorkspaceSearchResults = lazy(() => import("../components/WorkspaceSearchResults"));
 const FleetStrip = lazy(() => import("../components/FleetStrip"));
 const FleetSection = lazy(() => import("../components/FleetSection"));
+const FleetHostsSection = lazy(() => import("../components/FleetHostsSection"));
+const FleetProfilesSection = lazy(() => import("../components/FleetProfilesSection"));
 const DownloadsSection = lazy(() => import("../components/DownloadsSection"));
 const OfflineAnalyzerSection = lazy(() => import("../components/OfflineAnalyzerSection"));
 const FilesSection = lazy(() => import("../components/FilesSection"));
@@ -332,6 +334,12 @@ function renderSection(
       );
     case "fleet":
       return <FleetSection onSelectDut={onSelectDut} onOpenConsole={onOpenConsole} />;
+    case "fleethosts":
+      // The 🗂 button on a host card goes to the page that owns saved settings,
+      // rather than growing a second editor for them here.
+      return <FleetHostsSection onManageProfiles={() => onNavigate("fleetprofiles")} />;
+    case "fleetprofiles":
+      return <FleetProfilesSection />;
     case "console":
       // Rendered separately (always mounted) so its session/state persists.
       return null;

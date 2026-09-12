@@ -112,6 +112,12 @@ body {
   flex: none;
 }
 
+.brand-name,
+.brand-sub,
+.nav-item {
+  white-space: nowrap;
+}
+
 .brand-name {
   font-weight: 700;
   font-size: 15px;
@@ -2102,6 +2108,198 @@ body {
 
 .invite-table {
   min-width: 420px;
+}
+
+/* ---------- Fleet > Hosts ------------------------------------------------
+
+   One card per box, laid out as the form it is: identity across the top, the
+   five fields that reach it in a row, and what can be done about them along
+   the bottom. The fields wrap rather than shrink -- an address and a login
+   name are exactly what somebody is reading when a session will not come up,
+   and half of either is worse than a second line. */
+
+.hosts-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.hosts-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.hosts-head .setting-hint {
+  flex: 1 1 320px;
+  max-width: 62ch;
+}
+
+.hosts-head-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* Tabular figures so the count does not jitter as hosts come and go. */
+.hosts-count {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: var(--muted);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: var(--space-1) var(--space-3);
+  white-space: nowrap;
+}
+
+.host-card {
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.host-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* The name is an input that reads as a heading: it is the first thing on the
+   card and the thing most often wrong on a bench where four boxes look alike. */
+.host-name {
+  flex: 0 1 260px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.host-card-head .icon-btn {
+  margin-left: auto;
+}
+
+.host-fields {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+/* Capped as well as floored. Without a ceiling the last field to wrap grows to
+   the width of the card, which reads as a different kind of field rather than
+   as the same row on a narrower screen. */
+.host-fields .modal-label {
+  flex: 1 1 150px;
+  min-width: 130px;
+  max-width: 260px;
+}
+
+.host-fields .host-port {
+  flex: 0 1 92px;
+  min-width: 78px;
+}
+
+.host-field-actions {
+  display: flex;
+  gap: var(--space-2);
+  padding-bottom: 1px;
+}
+
+/* Dashed rather than solid: this panel is a question being asked, not another
+   part of the record above it. */
+.host-save-profile {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: var(--space-3);
+}
+
+.host-save-profile .modal-label {
+  flex: 1 1 180px;
+}
+
+.host-save-profile .setting-hint,
+.host-advanced .setting-hint {
+  flex-basis: 100%;
+}
+
+.host-advanced-toggle {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  box-shadow: none;
+  color: var(--accent);
+  font-size: 12px;
+  padding: 0;
+}
+
+.host-advanced {
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-3);
+}
+
+.host-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-3);
+}
+
+.host-status {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* This page gates more buttons than any other -- Connect waits for a password,
+   Save for an address -- and the design system styles no disabled state, so a
+   held-shut primary button is indistinguishable from a working one. Scoped
+   here rather than applied to `.btn` globally, which is a change to every
+   screen in the app and not this feature's to make. */
+.host-card .btn:disabled,
+.hosts-head .btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---------- Fleet > Profiles --------------------------------------------
+
+   Nine columns do not fit a laptop half-screen, let alone a phone. Scroll the
+   table inside its own box rather than letting it clip (unreachable Delete
+   buttons) or push the page sideways. */
+
+.profiles-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.profiles-table {
+  min-width: 820px;
+}
+
+.profiles-actions {
+  display: flex;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+/* An editing row's inputs fill the cell they are in rather than carrying their
+   own intrinsic width -- which pushed the table past its container and left
+   Save scrolled off the right edge of the very row being edited. */
+.profiles-editing .input {
+  width: 100%;
+  min-width: 60px;
+  box-sizing: border-box;
+}
+
+.profiles-editing .profiles-actions {
+  gap: var(--space-1);
 }
 
 /* --- Audit (P71d): unverified author marker + role history ----------------- */
