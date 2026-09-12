@@ -59,6 +59,7 @@ ADMIN_ROUTES = [
     "/api/auth/invites",
     "/api/auth/role-changes",
     "/api/firmware/config",
+    "/api/fleet/profiles",
     # Safe to execute only because the stub context carries no mgmt_url, so the
     # handler refuses before any socket is opened. Give the stub an address and
     # this sweep starts dialling a device from a unit test.
@@ -116,6 +117,15 @@ ROLE_MAP: dict[tuple[str, str], str | None] = {
     # DUT with the management-API credentials, the same reach /api/firmware is
     # gated on.
     ("GET", "/api/fleet/nodes/{dut_id}/mesh"): "admin",
+    # -- saved host settings: no credential in them, but a list of where the
+    #    boxes are and who logs into them, so it is gated with its neighbours.
+    #    The per-row owner rule (who may edit a shared profile) is enforced in
+    #    the service and covered by tests/test_fleet_profiles.py -- a role gate
+    #    cannot express it, since every caller here is already an admin.
+    ("GET", "/api/fleet/profiles"): "admin",
+    ("POST", "/api/fleet/profiles"): "admin",
+    ("PUT", "/api/fleet/profiles/{profile_id}"): "admin",
+    ("DELETE", "/api/fleet/profiles/{profile_id}"): "admin",
     # -- edge log collectors: every route logs into a machine with a password
     #    an operator typed, and the connect route holds that session open.
     #    Admin for the same reason the fleet routes are, and the GET included:

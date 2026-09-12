@@ -150,6 +150,35 @@ CREATE TABLE IF NOT EXISTS role_changes (
 """
 
 
+# Saved fleet-host settings (Fleet > Profiles). A profile is what an operator
+# would otherwise retype into the Hosts page: where the box is and who to log in
+# as. `scope` decides who else sees it -- 'shared' is the whole bench, 'private'
+# is its owner alone -- and `owner_user_id` is a real session's user, not the
+# free-text authorship the workspace tables carry, because that column is what
+# the visibility rule is enforced on.
+#
+# **There is deliberately no password column.** A collector's password lives in
+# the backend's memory for the life of its process and is written nowhere; a
+# profile that carried one would put on disk the one thing that model promises
+# never to store. Applying a profile fills the form and still asks for the
+# login.
+FLEET_PROFILES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS fleet_profiles (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  device_name TEXT,
+  host TEXT NOT NULL,
+  port INTEGER NOT NULL DEFAULT 22,
+  username TEXT NOT NULL,
+  scope TEXT NOT NULL CHECK(scope IN ('shared','private')),
+  owner_user_id INTEGER NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(owner_user_id, name)
+);
+"""
+
+
 def _db_path() -> Path:
     return WORKSPACE_DB
 
@@ -193,6 +222,7 @@ def init_db() -> None:
         conn.execute(USERS_SCHEMA)
         conn.execute(AUTH_TOKENS_SCHEMA)
         conn.execute(ROLE_CHANGES_SCHEMA)
+        conn.execute(FLEET_PROFILES_SCHEMA)
         _ensure_column(conn, "users", "updated_at")
         _ensure_column(conn, "users", "last_seen_at")
         # Verified authorship (P71d). Nullable with no backfill on purpose: a
