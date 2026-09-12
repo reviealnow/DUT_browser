@@ -110,7 +110,6 @@ tbody tr:hover{background:var(--bg)}
     <div class="brand"><span class="brand-mark">D</span><span class="brand-name">DUT_browser</span></div>
     <div class="nav-group">Monitoring</div>
     <a class="nav-item" href="overview.html" data-screen="Overview"><span class="nav-icon">▣</span>Overview</a>
-    <a class="nav-item" href="fleet.html" data-screen="Fleet"><span class="nav-icon">🛰</span>Fleet</a>
     <a class="nav-item" href="cpu-memory.html" data-screen="CPU / Memory"><span class="nav-icon">📈</span>CPU / Memory</a>
     <a class="nav-item" href="wifi-clients.html" data-screen="Wi-Fi Clients"><span class="nav-icon">📶</span>Wi-Fi Clients</a>
     <a class="nav-item" href="ssid-capability.html" data-screen="SSID Capability"><span class="nav-icon">🔍</span>SSID Capability</a>
@@ -119,6 +118,10 @@ tbody tr:hover{background:var(--bg)}
     <a class="nav-item" href="serial-console.html" data-screen="Serial Console"><span class="nav-icon">⌨</span>Serial Console</a>
     <a class="nav-item" href="downloads.html" data-screen="Downloads"><span class="nav-icon">⬇</span>Downloads</a>
     <button class="nav-item" data-screen="Offline Analyzer"><span class="nav-icon">⌁</span>Offline Analyzer</button>
+    <div class="nav-group">Fleet</div>
+    <a class="nav-item" href="fleet.html" data-screen="DUTs &amp; Mesh"><span class="nav-icon">🛰</span>DUTs &amp; Mesh</a>
+    <a class="nav-item" href="hosts.html" data-screen="Hosts"><span class="nav-icon">🗄</span>Hosts</a>
+    <a class="nav-item" href="profiles.html" data-screen="Profiles"><span class="nav-icon">▥</span>Profiles</a>
     <div class="nav-group">Workspace</div>
     <a class="nav-item" href="files.html" data-screen="Files"><span class="nav-icon">🗂</span>Files</a>
     <a class="nav-item" href="bulletin.html" data-screen="Bulletin"><span class="nav-icon">📌</span>Bulletin</a>
@@ -468,10 +471,12 @@ document.querySelectorAll("[data-screen]:not([href])").forEach(el => {
     const name = el.dataset.screen;
     /* Every screen in the kit, in sidebar order. This map used to be frozen at
        whatever had shipped when the page was written, so a complete kit still
-       told the viewer that the screen next to it did not exist. The two entries
-       without a file — Logs / Crash Events and Settings — are the only ones
-       that take the other branch. */
-    const map = { "Overview": "overview.html", "Fleet": "fleet.html",
+       told the viewer that the screen next to it did not exist. Whatever is
+       absent from this map takes the other branch, rather than a second list
+       here naming those screens — that list was already wrong by one when
+       Offline Analyzer joined them. */
+    const map = { "Overview": "overview.html", "DUTs & Mesh": "fleet.html",
+                  "Hosts": "hosts.html", "Profiles": "profiles.html",
                   "Site Survey": "site-survey.html",
                   "Wi-Fi Clients": "wifi-clients.html", "CPU / Memory": "cpu-memory.html",
                   "SSID Capability": "ssid-capability.html", "Downloads": "downloads.html",
@@ -480,7 +485,7 @@ document.querySelectorAll("[data-screen]:not([href])").forEach(el => {
     $("navNote").innerHTML = map[name]
       ? `<b>${name}</b> is in this kit — open <b>${map[name]}</b> beside this file.`
       : `<b>${name}</b> is a screen in the product with no file in this kit; `
-        + `open <b>index.html</b> for the eleven that ship.`;
+        + `open <b>index.html</b> for the thirteen that ship.`;
     $("navNote").scrollIntoView({ behavior: "smooth", block: "nearest" });
   });
 });

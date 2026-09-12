@@ -38,6 +38,7 @@
   --shadow: 0 1px 2px rgba(20, 30, 55, 0.04), 0 6px 20px rgba(20, 30, 55, 0.06);
   --radius: 14px;
   --sidebar-w: 232px;
+  --sidebar-rail-w: 64px;
 }
 
 * {
@@ -65,6 +66,13 @@ body {
   display: grid;
   grid-template-columns: var(--sidebar-w) 1fr;
   min-height: 100vh;
+  transition: grid-template-columns 0.18s ease;
+}
+
+/* Collapsed rail: the sidebar keeps its group icons and gives the width back
+   to the content. Set on .app because the column lives here, not on .sidebar. */
+.app.nav-collapsed {
+  grid-template-columns: var(--sidebar-rail-w) 1fr;
 }
 
 .sidebar {
@@ -78,6 +86,10 @@ body {
   top: 0;
   height: 100vh;
   overflow-y: auto;
+  /* Labels are clipped, never reflowed, while the width animates: a nav that
+     rewraps into two lines on the way out and back is the whole sidebar
+     jumping for 0.18s. Paired with the nowrap rules below. */
+  overflow-x: hidden;
 }
 
 .brand {
@@ -98,6 +110,12 @@ body {
   font-weight: 700;
   font-size: 15px;
   flex: none;
+}
+
+.brand-name,
+.brand-sub,
+.nav-item {
+  white-space: nowrap;
 }
 
 .brand-name {
@@ -166,6 +184,114 @@ body {
   font-size: 11px;
   font-weight: 700;
   padding: 1px var(--space-2);
+}
+
+/* ---------- Collapsed rail ---------- */
+
+/* The rail toggle sits in the brand row: right of the wordmark when expanded,
+   under the mark when the row has stacked. Hidden below the drawer breakpoint,
+   where the hamburger is the only nav control (see the media query). */
+.nav-collapse {
+  margin-left: auto;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--faint);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.nav-collapse:hover {
+  background: var(--bg);
+  border-color: var(--border);
+  color: var(--ink);
+}
+
+.sidebar.rail {
+  padding: var(--space-5) var(--space-2);
+  align-items: center;
+  /* The flyout is absolutely positioned outside the 64px column, so the rail
+     must not be a clipping box. Three group buttons never need to scroll. */
+  overflow: visible;
+}
+
+.sidebar.rail .brand {
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: 0 0 var(--space-4);
+}
+
+.sidebar.rail .nav-collapse {
+  margin-left: 0;
+}
+
+.rail-group {
+  position: relative;
+}
+
+.rail-item {
+  justify-content: center;
+  padding: var(--space-2);
+}
+
+/* Screen-reader-only: the rail button's visible content is its icon, but the
+   group name still has to reach assistive tech and the a11y tree. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* The group's sections, beside the rail. Flush against the rail on purpose —
+   a gap here is a strip of dead pixels that closes the menu mid-travel. */
+.rail-flyout {
+  position: absolute;
+  top: calc(var(--space-2) * -1);
+  left: 100%;
+  z-index: 50;
+  min-width: 210px;
+  padding: var(--space-2);
+  padding-left: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.rail-flyout::before {
+  /* The panel itself, inset by the padding-left bridge above. */
+  content: "";
+  position: absolute;
+  inset: 0 0 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  z-index: -1;
+}
+
+/* `display: flex` above outranks the browser's own `[hidden] { display: none }`,
+   so the closed panel would keep painting while React says it is hidden. Seen
+   in the browser, not in the tests: jsdom applies the UA rule against a page
+   that never loads this stylesheet, so the disclosure looked correct there. */
+.rail-flyout[hidden] {
+  display: none;
+}
+
+.rail-flyout .nav-section {
+  padding-top: var(--space-1);
 }
 
 /* ---------- Toolbar ---------- */
@@ -1327,8 +1453,15 @@ body {
 }
 
 @media (max-width: 720px) {
-  .app {
+  .app,
+  .app.nav-collapsed {
+    /* The drawer replaces the sidebar entirely down here; a remembered rail
+       state must not leave a 64px column beside it. Sidebar drops the .rail
+       class at the same breakpoint, so the drawer opens full-width. */
     grid-template-columns: 1fr;
+  }
+  .nav-collapse {
+    display: none;
   }
   /* Sidebar becomes an off-canvas drawer: hidden to the left, slid in when
      .open, layered above the sticky toolbar (z-index 20) and its backdrop. */
@@ -2003,6 +2136,187 @@ body {
 
 .invite-table {
   min-width: 420px;
+}
+
+/* ---------- Fleet > Hosts ------------------------------------------------
+
+   One card per box, laid out as the form it is: identity across the top, the
+   five fields that reach it in a row, and what can be done about them along
+   the bottom. The fields wrap rather than shrink -- an address and a login
+   name are exactly what somebody is reading when a session will not come up,
+   and half of either is worse than a second line. */
+
+.hosts-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.hosts-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.hosts-head .setting-hint {
+  flex: 1 1 320px;
+  max-width: 62ch;
+}
+
+.hosts-head-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* Tabular figures so the count does not jitter as hosts come and go. */
+.hosts-count {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: var(--muted);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: var(--space-1) var(--space-3);
+  white-space: nowrap;
+}
+
+.host-card {
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.host-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* The name is an input that reads as a heading: it is the first thing on the
+   card and the thing most often wrong on a bench where four boxes look alike. */
+.host-name {
+  flex: 0 1 260px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.host-card-head .icon-btn {
+  margin-left: auto;
+}
+
+.host-fields {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+/* Capped as well as floored. Without a ceiling the last field to wrap grows to
+   the width of the card, which reads as a different kind of field rather than
+   as the same row on a narrower screen. */
+.host-fields .modal-label {
+  flex: 1 1 150px;
+  min-width: 130px;
+  max-width: 260px;
+}
+
+.host-fields .host-port {
+  flex: 0 1 92px;
+  min-width: 78px;
+}
+
+.host-field-actions {
+  display: flex;
+  gap: var(--space-2);
+  padding-bottom: 1px;
+}
+
+/* Dashed rather than solid: this panel is a question being asked, not another
+   part of the record above it. */
+.host-save-profile {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: var(--space-3);
+}
+
+.host-save-profile .modal-label {
+  flex: 1 1 180px;
+}
+
+.host-save-profile .setting-hint,
+.host-advanced .setting-hint {
+  flex-basis: 100%;
+}
+
+.host-advanced-toggle {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  box-shadow: none;
+  color: var(--accent);
+  font-size: 12px;
+  padding: 0;
+}
+
+.host-advanced {
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-3);
+}
+
+.host-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-3);
+}
+
+.host-status {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* ---------- Fleet > Profiles --------------------------------------------
+
+   Nine columns do not fit a laptop half-screen, let alone a phone. Scroll the
+   table inside its own box rather than letting it clip (unreachable Delete
+   buttons) or push the page sideways. */
+
+.profiles-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.profiles-table {
+  min-width: 820px;
+}
+
+.profiles-actions {
+  display: flex;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+/* An editing row's inputs fill the cell they are in rather than carrying their
+   own intrinsic width -- which pushed the table past its container and left
+   Save scrolled off the right edge of the very row being edited. */
+.profiles-editing .input {
+  width: 100%;
+  min-width: 60px;
+  box-sizing: border-box;
+}
+
+.profiles-editing .profiles-actions {
+  gap: var(--space-1);
 }
 
 /* --- Audit (P71d): unverified author marker + role history ----------------- */

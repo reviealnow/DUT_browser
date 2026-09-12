@@ -57,11 +57,14 @@ _ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 # DUT registry's tokens are: a value starting with "-" reaching a command line
 # is an option, not a name.
 _HOSTNAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$")
-_USER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.@%+-]*$")
+# Public, unlike the two above: `services/fleet_profile_service.py` validates a
+# saved host setting against these same expressions, because a profile that
+# cannot be applied to a collector is a trap that only springs at Verify time.
+USER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.@%+-]*$")
 #: What ssh may be asked to dial. Deliberately the same expression the DUT
 #: registry has always accepted for a remote node's host -- see `_clean` for why
 #: this is looser than it first was.
-_ADDRESS_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@%+-]*$")
+ADDRESS_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@%+-]*$")
 AUTH_KEY = "key"
 AUTH_PASSWORD = "password"
 MAX_LABEL_LEN = 48
@@ -119,7 +122,7 @@ def _clean(payload: dict) -> Collector:
     # `raspberrypi.local`. A merged model that could not express what the old
     # one did would strand exactly those configurations.
     ip = text("ip")
-    if not _ADDRESS_RE.fullmatch(ip):
+    if not ADDRESS_RE.fullmatch(ip):
         raise CollectorError("ip must be an address or a host name")
 
     # Optional, and absent is a real state rather than a gap to fill in. It is
@@ -133,7 +136,7 @@ def _clean(payload: dict) -> Collector:
         raise CollectorError("hostname must be a host name")
 
     user = text("user")
-    if not _USER_RE.fullmatch(user):
+    if not USER_RE.fullmatch(user):
         raise CollectorError("user must be an SSH login name")
 
     port = payload.get("port", 22)

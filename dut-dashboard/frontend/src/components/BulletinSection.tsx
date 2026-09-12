@@ -13,16 +13,13 @@ import {
 } from "../api/rest";
 import { useIdentity } from "../monitoring/useSettings";
 import { copyToClipboard } from "../utils/clipboard";
+import { formatTimestamp } from "../utils/datetime";
 import AuthorTag from "./AuthorTag";
 import { TagList } from "./TagChip";
 import TagInput, { parseTags } from "./TagInput";
 import { Card, EmptyState } from "./shell/Card";
 
 type Identity = ReturnType<typeof useIdentity>;
-
-function formatTime(iso: string): string {
-  return iso.replace("T", " ");
-}
 
 function countReplies(comments: BulletinComment[]): number {
   return comments.reduce((total, c) => total + 1 + countReplies(c.replies), 0);
@@ -31,7 +28,7 @@ function countReplies(comments: BulletinComment[]): number {
 /** "· edited" marker with the edit time in a hover tooltip. */
 function EditedMark({ editedAt }: { editedAt: string | null }) {
   if (!editedAt) return null;
-  return <span title={`Edited ${formatTime(editedAt)}`}> · edited</span>;
+  return <span title={`Edited ${formatTimestamp(editedAt)}`}> · edited</span>;
 }
 
 /** Shared, editable "Posting as <name>" identity field (IP-default, persisted). */
@@ -231,7 +228,7 @@ function ReplyNote({ reply, onChanged }: { reply: BulletinComment; onChanged: ()
         <p>{reply.body}</p>
       )}
       <div className="meta">
-        <AuthorTag name={reply.author} verified={reply.author_verified} /> · {formatTime(reply.created_at)}
+        <AuthorTag name={reply.author} verified={reply.author_verified} /> · {formatTimestamp(reply.created_at)}
         <EditedMark editedAt={reply.edited_at} /> ·{" "}
         <button type="button" className="linklike" onClick={() => setEditing((v) => !v)}>
           Edit
@@ -269,7 +266,7 @@ function CommentThread({
         <p>{comment.body}</p>
       )}
       <div className="meta">
-        <AuthorTag name={comment.author} verified={comment.author_verified} /> · {formatTime(comment.created_at)}
+        <AuthorTag name={comment.author} verified={comment.author_verified} /> · {formatTimestamp(comment.created_at)}
         <EditedMark editedAt={comment.edited_at} /> ·{" "}
         <button type="button" className="linklike" onClick={() => setReplying((v) => !v)}>
           Reply
@@ -379,7 +376,7 @@ function PostCard({
       title={post.title}
       subtitle={
         <>
-          <AuthorTag name={post.author} verified={post.author_verified} /> · {formatTime(post.created_at)}
+          <AuthorTag name={post.author} verified={post.author_verified} /> · {formatTimestamp(post.created_at)}
           <EditedMark editedAt={post.edited_at} /> · {replies}{" "}
           {replies === 1 ? "reply" : "replies"}
           <TagList tags={post.tags} onTagClick={onTagClick} />

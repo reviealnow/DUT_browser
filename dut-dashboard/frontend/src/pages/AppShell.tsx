@@ -5,7 +5,7 @@ import ChartData from "../components/charts/ChartData";
 import Sparkline from "../components/charts/Sparkline";
 import DutSwitcher from "../components/DutSwitcher";
 import { DEFAULT_DUT_ID } from "../api/dut";
-import { applyAccent, loadSettings } from "../monitoring/useSettings";
+import { applyAccent, loadNavCollapsed, loadSettings, saveNavCollapsed } from "../monitoring/useSettings";
 import { Card, EmptyState, KpiCard } from "../components/shell/Card";
 import FirmwareSection from "../components/FirmwareSection";
 import InviteRedeemDialog from "../components/InviteRedeemDialog";
@@ -31,6 +31,8 @@ const BulletinSection = lazy(() => import("../components/BulletinSection"));
 const WorkspaceSearchResults = lazy(() => import("../components/WorkspaceSearchResults"));
 const FleetStrip = lazy(() => import("../components/FleetStrip"));
 const FleetSection = lazy(() => import("../components/FleetSection"));
+const FleetHostsSection = lazy(() => import("../components/FleetHostsSection"));
+const FleetProfilesSection = lazy(() => import("../components/FleetProfilesSection"));
 const DownloadsSection = lazy(() => import("../components/DownloadsSection"));
 const OfflineAnalyzerSection = lazy(() => import("../components/OfflineAnalyzerSection"));
 const FilesSection = lazy(() => import("../components/FilesSection"));
@@ -72,6 +74,9 @@ function AppShellInner() {
   // Mobile nav drawer (off-canvas). Inert on desktop — the sidebar is always
   // visible there and the hamburger that toggles this is hidden via CSS.
   const [navOpen, setNavOpen] = useState(false);
+  // Desktop rail. Lives here, not in the Sidebar, because the grid column it
+  // changes is on .app; persisted so a chosen width survives a reload.
+  const [navCollapsed, setNavCollapsed] = useState(loadNavCollapsed);
   const [search, setSearch] = useState("");
   // Workspace tag search (P70): non-null while the combined Files+Bulletin
   // results panel is open. Set by submitting the search box on Files/Bulletin
@@ -144,7 +149,7 @@ function AppShellInner() {
           mounted together, so a capture started in one must survive the switch
           to the other. */}
       <RemoteRssiProvider>
-      <div className="app">
+      <div className={`app${navCollapsed ? " nav-collapsed" : ""}`}>
         <Sidebar
           active={active}
           onSelect={(id) => {
@@ -154,6 +159,13 @@ function AppShellInner() {
           }}
           open={navOpen}
           onClose={() => setNavOpen(false)}
+          collapsed={navCollapsed}
+          onToggleCollapsed={() =>
+            setNavCollapsed((prev) => {
+              saveNavCollapsed(!prev);
+              return !prev;
+            })
+          }
         />
         <div className="main">
           <Topbar
@@ -322,6 +334,12 @@ function renderSection(
       );
     case "fleet":
       return <FleetSection onSelectDut={onSelectDut} onOpenConsole={onOpenConsole} />;
+    case "fleethosts":
+      // The 🗂 button on a host card goes to the page that owns saved settings,
+      // rather than growing a second editor for them here.
+      return <FleetHostsSection onManageProfiles={() => onNavigate("fleetprofiles")} />;
+    case "fleetprofiles":
+      return <FleetProfilesSection />;
     case "console":
       // Rendered separately (always mounted) so its session/state persists.
       return null;

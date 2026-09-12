@@ -15,6 +15,8 @@ double-click, works offline, and survives being forwarded.
 |---|---|
 | `overview.html` | Fleet strip, KPI row, 40-hour CPU and client trends, the cached channel recommendation, crash feed |
 | `fleet.html` | Every registered DUT at full width: the mesh backhaul in both directions, per-child, with Capture all |
+| `hosts.html` | One card per box reached over SSH: the five fields that reach it, Verify, and the DUT consoles behind it |
+| `profiles.html` | Saved host settings with a scope and an owner — and never a password |
 | `site-survey.html` | Per-band channel charts over a real 2,438-observation scan, band filter, SSID/BSSID search, the full neighbour table |
 | `wifi-clients.html` | The per-client table with row-expand deep stats, grouped by band, with Kick |
 | `files.html` | The workspace file table with drag-and-drop upload, sortable columns, tags, inline preview |
@@ -78,9 +80,11 @@ Pages whose content is synthetic in full take no bundle at all:
 python3 build_demo_data.py --page files.html
 python3 build_demo_data.py --page bulletin.html
 python3 build_demo_data.py --page fleet.html
+python3 build_demo_data.py --page hosts.html
+python3 build_demo_data.py --page profiles.html
 ```
 
-**Eleven of the twelve pages are generated. `index.html` is not** — it is the
+**Thirteen of the fourteen pages are generated. `index.html` is not** — it is the
 front door, linking the screens and saying which are measured, with no capture
 behind it and no `demo-data` block to fill. Edit it by hand; the generator
 refuses it by name rather than failing on the missing block.
@@ -252,11 +256,26 @@ creates work for whoever has to make it true later.
   the fleet list (a one-DUT bench cannot produce a fleet, and a mesh backhaul
   needs at least two), the crash lines (the reference capture contained none),
   the DUT-status tile (connection state is live UI no capture records), and
-  **all** of `fleet.html`, `files.html` and `bulletin.html`.
+  **all** of `fleet.html`, `hosts.html`, `profiles.html`, `files.html` and
+  `bulletin.html`.
   A file list and a note board are *content*, not measurement, so there is no
   measured claim to keep faithful; and the real ones on this bench are test
   scaffolding carrying colleagues' names, which is not something to publish.
   Each page says so in its own provenance line.
+
+  `hosts.html` and `profiles.html` are invented for a third reason: no box is
+  reachable from a file somebody opened by double-click, so the addresses, the
+  logins and the serial devices behind them are made up — addresses in the RFC
+  5737 documentation range, people from the kit's invented cast. Their *shapes*
+  are `FleetHostsSection.tsx`, `collectors_api.py` and
+  `fleet_profile_service.py`: the four states a port can be in, what each
+  refusal says, the derived id, and the rule that only a profile's owner may
+  change it, shared or not. **Neither page holds a password**, which is not a
+  simplification but the product's own promise — a typed password lives in the
+  backend's memory for the life of its process and reaches no file, and a
+  profile has no field for one. The two differences a viewer must not read as
+  product behaviour are in each page's provenance line: this file has no backend
+  at all, and a profile saved here lasts until the tab is closed.
 
   `fleet.html` is invented for the other reason — there is no capture of a mesh
   to be faithful to — but its *shape* is not: the fields, both capture

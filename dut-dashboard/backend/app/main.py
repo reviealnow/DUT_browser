@@ -18,6 +18,7 @@ from app.api.duts_api import router as duts_router
 from app.api.firmware_api import router as firmware_router
 from app.api.files_api import router as files_router
 from app.api.fleet_api import router as fleet_router
+from app.api.fleet_profiles_api import router as fleet_profiles_router
 from app.api.serial_api import router as serial_router
 from app.api.settings_api import router as settings_router
 from app.api.workspace_api import router as workspace_router
@@ -58,6 +59,10 @@ app.include_router(duts_router)
 # which the DUT's cookieless curl authorises with a single-use token.
 app.include_router(firmware_router)
 app.include_router(fleet_router)
+# Saved host settings for the Fleet pages. Admin inside the router for the
+# same reason its two neighbours are: the rows name addresses and logins on
+# this bench. No password is ever stored in them.
+app.include_router(fleet_profiles_router)
 # Gated inside the router, like fleet_api: every route reaches a machine with
 # an operator's credentials, which is admin.
 app.include_router(collectors_router)

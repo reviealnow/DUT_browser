@@ -4,6 +4,8 @@ import { ROLE_RANK } from "../../monitoring/AuthContext";
 export type SectionId =
   | "overview"
   | "fleet"
+  | "fleethosts"
+  | "fleetprofiles"
   | "cpu"
   | "wifi"
   | "ssid"
@@ -17,7 +19,7 @@ export type SectionId =
   | "settings"
   | "firmware";
 
-export type NavGroup = "Monitoring" | "Workspace" | "System";
+export type NavGroup = "Monitoring" | "Fleet" | "Workspace" | "System";
 
 export type NavItem = {
   id: SectionId;
@@ -31,19 +33,16 @@ export type NavItem = {
 };
 
 // Sidebar order mirrors the Luna "Spacing - Dashboards" reference shell, grouped
-// into Monitoring / Workspace / System (see mockup_lanfs_integration.html).
+// into Monitoring / Fleet / Workspace / System (see mockup_lanfs_integration.html).
+//
+// This array is in the order the sidebar DRAWS, not merely a set: groups render
+// in NAV_GROUPS order, so every item of a group has to sit together here and in
+// that group's position. The demo kit's navigation verifier reads this file as
+// the sidebar's order and compares it entry by entry against each demo page.
 // Role split (P71b): read-only monitoring (incl. the crash feed) is guest;
 // anything that drives the DUT, downloads logs or posts content is engineer.
 export const NAV_ITEMS: NavItem[] = [
   { id: "overview", label: "Overview", icon: "▣", title: "Overview", subtitle: "Live DUT monitoring summary", group: "Monitoring", minRole: "guest" },
-  // P69 folded the fleet into an Overview strip and dropped this entry, because
-  // the cards then held three numbers and a nav slot was too much for them.
-  // What a card holds now is a mesh backhaul measured in both directions, per
-  // child — see FleetSection for why that needs the width back. The strip stays.
-  // No subtitle: the page now leads with the mesh table and a toolbar that says
-  // how many DUTs are registered, so a header line restating "every registered
-  // DUT and its mesh backhaul" was the third heading in a row saying the same.
-  { id: "fleet", label: "Fleet", icon: "🛰", title: "Fleet", subtitle: "", group: "Monitoring", minRole: "guest" },
   { id: "cpu", label: "CPU / Memory", icon: "📈", title: "CPU / Memory", subtitle: "Per-core CPU and memory trends", group: "Monitoring", minRole: "guest" },
   { id: "wifi", label: "Wi-Fi Clients", icon: "📶", title: "Wi-Fi Clients", subtitle: "Associated clients by radio", group: "Monitoring", minRole: "guest" },
   { id: "ssid", label: "SSID Capability", icon: "🔍", title: "SSID Capability", subtitle: "DUT config vs host-side scan reconciliation", group: "Monitoring", minRole: "guest" },
@@ -52,6 +51,21 @@ export const NAV_ITEMS: NavItem[] = [
   { id: "console", label: "Serial Console", icon: "⌨", title: "Serial Console", subtitle: "DUT serial / replay console", group: "Monitoring", minRole: "engineer" },
   { id: "downloads", label: "Downloads", icon: "⬇", title: "Downloads", subtitle: "Log bundles and analyzer artifacts", group: "Monitoring", minRole: "engineer" },
   { id: "offline", label: "Offline Analyzer", icon: "⌁", title: "Offline Analyzer", subtitle: "Local log comparison and charts", group: "Monitoring", minRole: "guest" },
+  // P69 folded the fleet into an Overview strip and dropped this entry, because
+  // the cards then held three numbers and a nav slot was too much for them.
+  // What a card holds now is a mesh backhaul measured in both directions, per
+  // child — see FleetSection for why that needs the width back. The strip stays.
+  // No subtitle: the page now leads with the mesh table and a toolbar that says
+  // how many DUTs are registered, so a header line restating "every registered
+  // DUT and its mesh backhaul" was the third heading in a row saying the same.
+  // Its own group rather than one Monitoring row, because the fleet is now
+  // three separate questions: what the registered DUTs are doing, which boxes
+  // this dashboard can reach, and what host settings are saved. They share a
+  // subject and nothing else -- the first is read-only and open to a guest, the
+  // other two register machines and are admin.
+  { id: "fleet", label: "DUTs & Mesh", icon: "🛰", title: "Fleet", subtitle: "", group: "Fleet", minRole: "guest" },
+  { id: "fleethosts", label: "Hosts", icon: "🗄", title: "Fleet hosts", subtitle: "Boxes reached over SSH, and their DUT consoles", group: "Fleet", minRole: "admin" },
+  { id: "fleetprofiles", label: "Profiles", icon: "▥", title: "Profiles", subtitle: "Saved host settings, never passwords", group: "Fleet", minRole: "admin" },
   { id: "files", label: "Files", icon: "🗂", title: "Files", subtitle: "Shared file workspace", group: "Workspace", minRole: "engineer" },
   { id: "bulletin", label: "Bulletin", icon: "📌", title: "Bulletin", subtitle: "Team notes and replies", group: "Workspace", minRole: "engineer" },
   { id: "settings", label: "Settings", icon: "⚙", title: "Settings", subtitle: "Dashboard configuration", group: "System", minRole: "engineer" },
@@ -64,4 +78,34 @@ export function canAccess(item: NavItem, role: Role): boolean {
 
 export function visibleNavItems(role: Role): NavItem[] {
   return NAV_ITEMS.filter((item) => canAccess(item, role));
+}
+
+// The collapsed rail has room for one row per group, not one per section, so a
+// group has to carry an icon of its own. Geometric glyphs on purpose: they read
+// as a different tier from the item icons above, which are pictographic.
+export type NavGroupMeta = { id: NavGroup; icon: string };
+
+export const NAV_GROUPS: NavGroupMeta[] = [
+  { id: "Monitoring", icon: "◉" },
+  { id: "Fleet", icon: "⬡" },
+  { id: "Workspace", icon: "▤" },
+  { id: "System", icon: "◆" },
+];
+
+export type NavGroupItems = { group: NavGroup; icon: string; items: NavItem[] };
+
+/**
+ * Role-filtered nav, grouped for both sidebar modes.
+ *
+ * Groups keep the order of NAV_GROUPS and drop out entirely once the role hides
+ * every item in them, so neither the expanded list nor the rail can render a
+ * header (or a rail button) with nothing behind it.
+ */
+export function groupedNavItems(role: Role): NavGroupItems[] {
+  const visible = visibleNavItems(role);
+  return NAV_GROUPS.map(({ id, icon }) => ({
+    group: id,
+    icon,
+    items: visible.filter((item) => item.group === id),
+  })).filter((entry) => entry.items.length > 0);
 }

@@ -5,6 +5,7 @@ import {
   searchWorkspace,
   WorkspaceSearchResult,
 } from "../api/rest";
+import { formatTimestamp } from "../utils/datetime";
 import AuthorTag from "./AuthorTag";
 import { TagList } from "./TagChip";
 import { Card, EmptyState } from "./shell/Card";
@@ -140,7 +141,7 @@ export default function WorkspaceSearchResults({
                   </h4>
                   <p>{post.body}</p>
                   <div className="meta">
-                    <AuthorTag name={post.author} verified={post.author_verified} /> · {post.created_at.replace("T", " ")}
+                    <AuthorTag name={post.author} verified={post.author_verified} /> · {formatTimestamp(post.created_at)}
                   </div>
                 </div>
               ))}

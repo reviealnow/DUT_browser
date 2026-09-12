@@ -18,7 +18,6 @@ import { useAuth } from "../monitoring/AuthContext";
 import { useCrashKeywords } from "../monitoring/useCrashKeywords";
 import { ACCENT_PRESETS, useSettings } from "../monitoring/useSettings";
 import { copyToClipboard } from "../utils/clipboard";
-import EdgeCollectorsCard from "./EdgeCollectorsCard";
 import { Card } from "./shell/Card";
 
 
@@ -168,7 +167,6 @@ export default function SettingsSection({
           </div>
         </div>
       </Card>
-      <EdgeCollectorsCard />
       <InvitesCard />
       <UsersCard />
     </>
