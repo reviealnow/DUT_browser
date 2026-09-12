@@ -63,6 +63,29 @@ export function saveCrashKeywords(keywords: string[]): void {
   }
 }
 
+const NAV_KEY = "dut.nav.collapsed.v1";
+
+/**
+ * Sidebar rail state. Its own key rather than a Settings field: Settings is the
+ * form the user edits on the Settings page, and a nav width toggled a dozen
+ * times a session does not belong in it.
+ */
+export function loadNavCollapsed(): boolean {
+  try {
+    return localStorage.getItem(NAV_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function saveNavCollapsed(collapsed: boolean): void {
+  try {
+    localStorage.setItem(NAV_KEY, collapsed ? "1" : "0");
+  } catch {
+    // ignore (private mode / quota)
+  }
+}
+
 export function useSettings() {
   const [settings, setSettings] = useState<Settings>(loadSettings);
 

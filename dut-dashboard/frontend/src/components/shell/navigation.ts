@@ -65,3 +65,32 @@ export function canAccess(item: NavItem, role: Role): boolean {
 export function visibleNavItems(role: Role): NavItem[] {
   return NAV_ITEMS.filter((item) => canAccess(item, role));
 }
+
+// The collapsed rail has room for one row per group, not one per section, so a
+// group has to carry an icon of its own. Geometric glyphs on purpose: they read
+// as a different tier from the item icons above, which are pictographic.
+export type NavGroupMeta = { id: NavGroup; icon: string };
+
+export const NAV_GROUPS: NavGroupMeta[] = [
+  { id: "Monitoring", icon: "◉" },
+  { id: "Workspace", icon: "▤" },
+  { id: "System", icon: "◆" },
+];
+
+export type NavGroupItems = { group: NavGroup; icon: string; items: NavItem[] };
+
+/**
+ * Role-filtered nav, grouped for both sidebar modes.
+ *
+ * Groups keep the order of NAV_GROUPS and drop out entirely once the role hides
+ * every item in them, so neither the expanded list nor the rail can render a
+ * header (or a rail button) with nothing behind it.
+ */
+export function groupedNavItems(role: Role): NavGroupItems[] {
+  const visible = visibleNavItems(role);
+  return NAV_GROUPS.map(({ id, icon }) => ({
+    group: id,
+    icon,
+    items: visible.filter((item) => item.group === id),
+  })).filter((entry) => entry.items.length > 0);
+}
