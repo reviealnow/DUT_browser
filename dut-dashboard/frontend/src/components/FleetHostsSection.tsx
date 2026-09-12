@@ -285,6 +285,18 @@ function statusOf(collector: CollectorStatus | null): string {
     // is to type it again rather than to check the network.
     return "Needs its password again";
   }
+  if (collector.detail) {
+    // How the last attempt ended, as the backend's own sentence -- "The host
+    // key is not known to this machine…", "The SSH session ended."
+    //
+    // It BECOMES the status rather than being appended to it. A failed login
+    // leaves `ready` true, because the password is still held, so this line
+    // used to read "Ready · The host key is not known to this machine", which
+    // is two claims that contradict each other: the first says press the
+    // button, the second says pressing it changes nothing until somebody
+    // accepts a host key by hand. Reported from the bench.
+    return collector.detail;
+  }
   return "Ready";
 }
 
@@ -333,6 +345,7 @@ function HostCard({
   const needsPassword =
     form.auth === "password" && !form.password && !(collector?.has_password ?? false);
   const incomplete = !form.host.trim() || !form.username.trim();
+  const status = statusOf(collector);
 
   const applyProfile = (value: string) => {
     setSource(value);
@@ -620,8 +633,14 @@ function HostCard({
 
       <div className="host-card-foot">
         <span className="host-status">
-          {statusOf(collector)}
-          {collector?.detail ? <span className="card-sub"> · {collector.detail}</span> : null}
+          {status}
+          {/* Only when it is not already the status above -- which it is for a
+              host with no session. A connected host's detail is the other kind:
+              the login worked and the box answered to a name nobody registered,
+              and that belongs beside "Since 11:02:33" rather than instead of it. */}
+          {collector?.detail && collector.detail !== status ? (
+            <span className="card-sub"> · {collector.detail}</span>
+          ) : null}
         </span>
         {connected ? (
           <button type="button" className="btn" disabled={busy} onClick={() => void disconnect()}>
