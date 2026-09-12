@@ -74,12 +74,6 @@ h1{font-size:23px; margin:0; letter-spacing:-.02em}
       <span class="tile-sub">Fleet strip, KPIs, 40-hour CPU and client trends, the cached channel recommendation, crash feed.</span>
       <span class="tile-tag tag-measured">measured · partly synthetic</span>
     </a>
-    <a class="tile" href="fleet.html">
-      <span class="tile-icon">🛰</span>
-      <span class="tile-name">Fleet</span>
-      <span class="tile-sub">Every registered DUT at full width: the mesh backhaul in both directions, with a row per child.</span>
-      <span class="tile-tag tag-synthetic">synthetic content · real capture shape</span>
-    </a>
     <a class="tile" href="cpu-memory.html">
       <span class="tile-icon">📈</span>
       <span class="tile-name">CPU / Memory</span>
@@ -115,6 +109,28 @@ h1{font-size:23px; margin:0; letter-spacing:-.02em}
       <span class="tile-name">Downloads</span>
       <span class="tile-sub">A real bundle's four cards — what Download DUT Log actually produces, listed as it came off disk.</span>
       <span class="tile-tag tag-measured">measured</span>
+    </a>
+  </div>
+
+  <div class="group">Fleet</div>
+  <div class="grid">
+    <a class="tile" href="fleet.html">
+      <span class="tile-icon">🛰</span>
+      <span class="tile-name">DUTs &amp; Mesh</span>
+      <span class="tile-sub">Every registered DUT at full width: the mesh backhaul in both directions, with a row per child.</span>
+      <span class="tile-tag tag-synthetic">synthetic content · real capture shape</span>
+    </a>
+    <a class="tile" href="hosts.html">
+      <span class="tile-icon">🗄</span>
+      <span class="tile-name">Hosts</span>
+      <span class="tile-sub">One card per box reached over SSH: the five fields that reach it, Verify, and the DUT consoles behind it.</span>
+      <span class="tile-tag tag-synthetic">synthetic content · real states</span>
+    </a>
+    <a class="tile" href="profiles.html">
+      <span class="tile-icon">▥</span>
+      <span class="tile-name">Profiles</span>
+      <span class="tile-sub">Saved host settings with a scope and an owner — and never a password.</span>
+      <span class="tile-tag tag-synthetic">synthetic content · real ownership rule</span>
     </a>
   </div>
 
@@ -160,10 +176,15 @@ h1{font-size:23px; margin:0; letter-spacing:-.02em}
       ones on this bench are test scaffolding carrying colleagues' names.
     </p>
     <p>
-      <b>Fleet</b> is invented too, for a different reason: a bench with one DUT attached cannot
-      produce a fleet, and a mesh backhaul needs at least two, so there is no reading to be
+      <b>DUTs &amp; Mesh</b> is invented too, for a different reason: a bench with one DUT attached
+      cannot produce a fleet, and a mesh backhaul needs at least two, so there is no reading to be
       faithful to. Its <i>shape</i> is the product's — both capture directions, every field the
-      DUT reports about the link, and which control each card offers.
+      DUT reports about the link, and which control each card offers. <b>Hosts</b> and
+      <b>Profiles</b> are the same kind of invention: no box is reachable from a file you opened by
+      double-click, so the addresses, the logins and the serial devices are made up — while the
+      states a card can be in, what each refusal says, and the rule that only a profile's owner may
+      change it are the product's. Neither page stores a password, because neither the product nor
+      a profile ever holds one on disk.
     </p>
     <p>
       <b>Upgrade Firmware</b> is labelled apart from those two, because only its content is

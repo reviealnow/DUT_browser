@@ -1318,6 +1318,7 @@ def inject(page: Path, payload: dict, kept_label: str = "hand-maintained") -> No
 #: Which builder fills each page. Module level so the set of generated pages can
 #: be asserted against HAND_MAINTAINED rather than discovered by running it.
 PAGE_BUILDERS = {"overview.html": build, "fleet.html": build_static,
+                 "hosts.html": build_static, "profiles.html": build_static,
                  "site-survey.html": build_survey,
                  "wifi-clients.html": build_clients,
                  "files.html": build_static, "bulletin.html": build_static,

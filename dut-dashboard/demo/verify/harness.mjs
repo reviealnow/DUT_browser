@@ -23,6 +23,7 @@ export const SCREENS = PAGES.filter(p => p !== "index.html");
 /** Screen name in the sidebar -> the file it must open. */
 export const SCREEN_FILES = {
   "Overview": "overview.html", "DUTs & Mesh": "fleet.html",
+  "Hosts": "hosts.html", "Profiles": "profiles.html",
   "Site Survey": "site-survey.html",
   "Wi-Fi Clients": "wifi-clients.html", "CPU / Memory": "cpu-memory.html",
   "SSID Capability": "ssid-capability.html", "Downloads": "downloads.html",
@@ -30,9 +31,7 @@ export const SCREEN_FILES = {
   "Bulletin": "bulletin.html", "Upgrade Firmware": "firmware.html",
 };
 /** Real product screens the kit has no file for; they explain themselves. */
-export const NO_FILE = new Set([
-  "Logs / Crash Events", "Settings", "Offline Analyzer", "Hosts", "Profiles",
-]);
+export const NO_FILE = new Set(["Logs / Crash Events", "Settings", "Offline Analyzer"]);
 
 /**
  * Load a page and record anything it throws.

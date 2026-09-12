@@ -433,6 +433,130 @@
       ]
     }
   },
+  "hosts.html": {
+    "limit": 8,
+    "hosts": [
+      {
+        "id": "bench-pi",
+        "label": "Edge collector (bench)",
+        "host": "198.51.100.41",
+        "port": 22,
+        "user": "pi",
+        "auth": "password",
+        "keyPath": "",
+        "hostname": "bench-collector",
+        "connected": true,
+        "hasPassword": true,
+        "since": "09:10:30",
+        "reported": "bench-collector",
+        "detail": null,
+        "devices": [
+          {
+            "device": "/dev/ttyUSB0",
+            "busy": false,
+            "heldBy": null,
+            "attached": null
+          },
+          {
+            "device": "/dev/ttyUSB1",
+            "busy": true,
+            "heldBy": "2043",
+            "attached": null
+          },
+          {
+            "device": "/dev/ttyACM0",
+            "busy": null,
+            "heldBy": null,
+            "attached": null
+          }
+        ]
+      },
+      {
+        "id": "rack-pi",
+        "label": "Edge collector (rack)",
+        "host": "198.51.100.42",
+        "port": 22,
+        "user": "dut",
+        "auth": "password",
+        "keyPath": "",
+        "hostname": "rack-collector",
+        "connected": false,
+        "hasPassword": false,
+        "since": null,
+        "reported": "bench-collector",
+        "detail": "Password forgotten on restart.",
+        "devices": [
+          {
+            "device": "/dev/ttyUSB0",
+            "busy": false,
+            "heldBy": null,
+            "attached": null
+          }
+        ]
+      }
+    ],
+    "profiles": [
+      {
+        "id": 1,
+        "name": "bench-pi",
+        "device": "Edge collector (bench)",
+        "host": "198.51.100.41",
+        "port": 22,
+        "user": "pi",
+        "scope": "shared"
+      },
+      {
+        "id": 2,
+        "name": "rack-pi",
+        "device": "Edge collector (rack)",
+        "host": "198.51.100.42",
+        "port": 22,
+        "user": "dut",
+        "scope": "private"
+      }
+    ]
+  },
+  "profiles.html": {
+    "viewer": "Alex Doe",
+    "profiles": [
+      {
+        "id": 1,
+        "name": "bench-pi",
+        "device": "Edge collector (bench)",
+        "host": "198.51.100.41",
+        "port": 22,
+        "user": "pi",
+        "scope": "shared",
+        "owner": "Alex Doe",
+        "canEdit": true,
+        "updated": "2026-08-04 15:41"
+      },
+      {
+        "id": 2,
+        "name": "rack-pi",
+        "device": "Edge collector (rack)",
+        "host": "198.51.100.42",
+        "port": 22,
+        "user": "dut",
+        "scope": "private",
+        "owner": "Alex Doe",
+        "canEdit": true,
+        "updated": "2026-08-02 19:56"
+      },
+      {
+        "id": 3,
+        "name": "jo-lab-pi",
+        "device": "Lab collector",
+        "host": "198.51.100.58",
+        "port": 2222,
+        "user": "pi",
+        "scope": "shared",
+        "owner": "Jo Coe",
+        "canEdit": false,
+        "updated": "2026-07-29 11:02"
+      }
+    ]
+  },
   "site-survey.html": {},
   "files.html": {
     "uploader": "alex.doe",

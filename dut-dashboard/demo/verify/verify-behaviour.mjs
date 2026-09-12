@@ -626,4 +626,183 @@ const report = reporter();
     pageErrors(window).length === 0, pageErrors(window).join(" | "));
 }
 
+// ------------------------------------------------------------ hosts section
+{
+  report.section("hosts.html — the login, and what the card refuses to imply");
+  const window = await load("hosts.html");
+  const document = window.document;
+  const cards = () => [...document.querySelectorAll(".host-card")];
+  const card = (n) => cards()[n];
+  const verifyOf = (el) => el.querySelector("[data-act=verify]");
+  const type = (el, value) => {
+    el.value = value;
+    el.dispatchEvent(new window.Event("input", { bubbles: true }));
+  };
+  const pick = (el, value) => {
+    el.value = value;
+    el.dispatchEvent(new window.Event("change", { bubbles: true }));
+  };
+
+  // The whole reason `ready` exists beside `has_password` in the product: a
+  // backend restart forgets every password, and a Verify that can only answer
+  // 400 teaches people the feature is broken.
+  report.ok("a host whose password the backend forgot cannot be verified",
+    verifyOf(card(1)).disabled === true);
+  report.ok("and the footer says which of the two things is missing",
+    /Needs its password again/.test(card(1).querySelector(".host-status").textContent),
+    card(1).querySelector(".host-status").textContent);
+
+  const password = card(1).querySelector('[data-field="password"]');
+  report.ok("the password field is never readable text",
+    password.getAttribute("type") === "password" && password.getAttribute("autocomplete") === "off");
+  report.ok("and is never filled in from anywhere", password.value === "");
+
+  type(password, "hunter2");
+  report.ok("typing one opens Verify, with no save in between",
+    verifyOf(card(1)).disabled === false);
+
+  // A profile carries no password, so applying one must not appear to supply
+  // the one thing it does not hold -- nor clear one already typed.
+  pick(card(1).querySelector('[data-field="source"]'), "1");
+  report.ok("a profile fills the address, port and login it holds",
+    card(1).querySelector('[data-field="host"]').value === "198.51.100.41"
+    && card(1).querySelector('[data-field="user"]').value === "pi");
+  report.ok("and leaves the password exactly as it was",
+    card(1).querySelector('[data-field="password"]').value === "hunter2");
+
+  // The same rule from the other side, and the one a page could fail silently:
+  // on a card with nothing typed, a profile must not appear to supply the one
+  // thing it does not hold. A filled field here would be a password the viewer
+  // never entered and the product never stored.
+  pick(card(0).querySelector('[data-field="source"]'), "2");
+  report.ok("and never puts one into a card that had none",
+    card(0).querySelector('[data-field="password"]').value === "",
+    card(0).querySelector('[data-field="password"]').value);
+
+  click(window, verifyOf(card(1)));
+  report.ok("verifying holds a session rather than testing one",
+    !!card(1).querySelector("[data-act=disconnect]") && !card(1).querySelector("[data-act=verify]"));
+  report.ok("the light breathes only for the host whose session is held",
+    cards().filter(c => c.querySelector(".dot.live")).length === 2);
+
+  // The one place a credential could reach a saved row.
+  click(window, card(0).querySelector("[data-act=save]"));
+  const saved = [];
+  const name = card(0).querySelector('[data-field="profileName"]');
+  report.ok("saving a profile asks only for a name and a scope",
+    !!name && !!card(0).querySelector('[data-field="profileScope"]')
+    && !card(0).querySelector(".host-save [type=password]"));
+  type(name, "bench-copy");
+  click(window, card(0).querySelector("[data-act=saveProfile]"));
+  report.ok("and says out loud that no password went into it",
+    /No password was stored/.test(document.getElementById("toast").textContent),
+    document.getElementById("toast").textContent);
+  // Named with its scope, as the product names them: a private one is marked,
+  // because picking somebody's private setting off a shared list is a surprise.
+  report.ok("the new profile joins every Source list, scope and all",
+    [...card(0).querySelectorAll('[data-field="source"] option')]
+      .some(o => o.textContent === "bench-copy (private)"),
+    [...card(0).querySelectorAll('[data-field="source"] option')].map(o => o.textContent).join(" | "));
+  void saved;
+
+  // Four states, and the third is the one that matters: an unchecked port
+  // reported as free is how a bench loses an afternoon to yesterday's minicom.
+  const devices = [...card(0).querySelectorAll(".device")].map(d => d.querySelector(".sub").textContent);
+  report.ok("free, in use, and nobody looked are told apart",
+    devices.includes("Free") && devices.some(d => /In use on the collector by pid 2043/.test(d))
+    && devices.includes("In use? Not checked"), devices.join(" | "));
+
+  const busyRow = [...card(0).querySelectorAll(".device")]
+    .find(d => /In use on the collector/.test(d.querySelector(".sub").textContent));
+  click(window, busyRow.querySelector("[data-act=attach]"));
+  report.ok("a port the box itself is holding is not this dashboard's to take",
+    !busyRow.querySelector("[data-act=detach]"));
+
+  const freeRow = [...card(0).querySelectorAll(".device")]
+    .find(d => d.querySelector(".sub").textContent === "Free");
+  const mesh = freeRow.querySelector("[data-act=mesh]");
+  mesh.checked = true;
+  mesh.dispatchEvent(new window.Event("change", { bubbles: true }));
+  click(window, [...card(0).querySelectorAll(".device")]
+    .find(d => d.querySelector("[data-act=mesh]")?.checked)
+    .querySelector("[data-act=attach]"));
+  report.ok("a mesh node with no fallback VAP is refused, as the product refuses it",
+    /needs its backhaul interface/.test(document.getElementById("toast").textContent),
+    document.getElementById("toast").textContent);
+
+  // A confirm in front of dropping a registration, and the stub is a spy
+  // because a demo that quietly skipped the question would be teaching the
+  // wrong thing about an outward state change.
+  const asked = [];
+  window.confirm = (message) => { asked.push(message); return false; };
+  const before = cards().length;
+  click(window, card(1).querySelector("[data-act=remove]"));
+  report.ok("declining the confirm keeps the host", cards().length === before);
+  report.ok("and the question says the box itself is not touched",
+    /Nothing on the host itself is touched/.test(asked[0] || ""), asked[0]);
+  window.confirm = () => true;
+  click(window, card(1).querySelector("[data-act=remove]"));
+  report.ok("accepting it drops the registration", cards().length === before - 1);
+  report.ok("the count follows what is registered",
+    document.getElementById("count").textContent === `${cards().length} / 8`,
+    document.getElementById("count").textContent);
+
+  report.ok("hosts.html threw nothing while all that ran",
+    pageErrors(window).length === 0, pageErrors(window).join(" | "));
+}
+
+// --------------------------------------------------------- profiles section
+{
+  report.section("profiles.html — whose saved setting it is");
+  const window = await load("profiles.html");
+  const document = window.document;
+  const rows = () => [...document.querySelectorAll("tbody tr")];
+  const cellsOf = (row) => [...row.querySelectorAll("td")].map(td => td.textContent.trim());
+  const theirs = () => rows().find(r => cellsOf(r)[6] === "Jo Coe");
+  const mine = () => rows().find(r => cellsOf(r)[0] === "bench-pi");
+
+  // A shared profile is an offer, not a wiki. A greyed pencil would invite a
+  // click that can only be refused, so there is none at all.
+  report.ok("somebody else's row offers neither edit nor delete",
+    !theirs().querySelector("[data-act=edit]") && !theirs().querySelector("[data-act=delete]"));
+  report.ok("and says whose it is instead",
+    /Jo Coe/.test(theirs().querySelector(".owned-by").textContent));
+  report.ok("the viewer's own row offers both",
+    !!mine().querySelector("[data-act=edit]") && !!mine().querySelector("[data-act=delete]"));
+  report.ok("shared and private are told apart on the row itself",
+    rows().filter(r => r.querySelector(".scope.shared")).length === 2
+    && rows().filter(r => r.querySelector(".scope.private")).length === 1);
+
+  click(window, mine().querySelector("[data-act=edit]"));
+  const editing = document.querySelector("tr.editing");
+  report.ok("editing opens in the row, with no password field anywhere",
+    !!editing && !editing.querySelector("[type=password]")
+    && ![...editing.querySelectorAll("input,select")].some(el => /pass/i.test(el.getAttribute("aria-label") || "")));
+
+  const host = editing.querySelector('[data-field="host"]');
+  host.value = "198.51.100.99";
+  host.dispatchEvent(new window.Event("input", { bubbles: true }));
+  const scope = editing.querySelector('[data-field="scope"]');
+  scope.value = "private";
+  scope.dispatchEvent(new window.Event("change", { bubbles: true }));
+  click(window, document.querySelector("[data-act=save]"));
+  report.ok("saving keeps the edit, scope included",
+    cellsOf(mine())[2] === "198.51.100.99" && !!mine().querySelector(".scope.private"),
+    cellsOf(mine()).join(" | "));
+
+  const asked = [];
+  window.confirm = (message) => { asked.push(message); return false; };
+  const before = rows().length;
+  click(window, mine().querySelector("[data-act=delete]"));
+  report.ok("deleting asks first", rows().length === before && asked.length === 1);
+  report.ok("and promises the hosts registered from it stay",
+    /not touched/.test(asked[0] || ""), asked[0]);
+  window.confirm = () => true;
+  click(window, mine().querySelector("[data-act=delete]"));
+  report.ok("accepting it removes only that row", rows().length === before - 1);
+
+  report.ok("profiles.html threw nothing while all that ran",
+    pageErrors(window).length === 0, pageErrors(window).join(" | "));
+}
+
 report.finish();
