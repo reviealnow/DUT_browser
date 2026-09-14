@@ -146,6 +146,28 @@ def answer_password_prompt(
     )
 
 
+def denial_line(seen: str, secret: str) -> str | None:
+    """ssh's own last word about a refusal, safe to show to an operator.
+
+    The three refusals ssh writes here mean three different next moves --
+    "Permission denied, please try again." is a password to re-type,
+    "Permission denied (publickey)." is a server that does not offer password
+    logins at all, and "Too many authentication failures" is a key agent
+    spending the attempts before the password is ever tried. Collapsing them
+    into one sentence of our own, which is what this module used to do, leaves
+    the operator with nothing to act on; the bench lost an afternoon to exactly
+    that on 2026-09-12.
+
+    Scrubbed before it is returned, because the buffer it comes from is the
+    terminal the password was typed on: a remote that echoes puts the password
+    one line above the refusal.
+    """
+    for line in reversed(scrub(seen, secret).splitlines()):
+        if DENIED_RE.search(line):
+            return line.strip()
+    return None
+
+
 def password_auth_options() -> list[str]:
     """The options that make a password login mean what it says.
 
