@@ -5,6 +5,9 @@ Three behaviours are modelled, and each one is load-bearing:
 
 * the password is read from the **controlling terminal**, not from stdin, so a
   transport that writes to the child's stdin hangs here instead of passing;
+* every inherited descriptor is closed first, as `closefrom()` does in ssh, so
+  a transport that does not hold the pty slave open loses the terminal here
+  exactly as it does with the real thing;
 * on success it `exec`s the remote command it was given, so the command string
   the caller actually builds is the one under test -- including which of its
   parts go to stdout and which to stderr;
@@ -53,7 +56,21 @@ def main() -> int:
         time.sleep(30)
         return 255
 
-    tty = open("/dev/tty", "r+b", buffering=0)
+    # Real ssh runs `closefrom()` before it asks for anything, dropping every
+    # descriptor it did not open itself -- including the pty slave it inherited.
+    # Modelling that is what lets this fixture FAIL: without it the fake held
+    # the last reference to its own controlling terminal, so every test passed
+    # while no real login could be made (2026-09-14).
+    os.closerange(3, 256)
+    try:
+        tty = open("/dev/tty", "r+b", buffering=0)
+    except OSError as exc:
+        # What ssh does when it cannot ask: no authentication request is sent
+        # at all, and the server logs only a connection closed at preauth.
+        sys.stderr.write(f"read_passphrase: can't open /dev/tty: {exc.strerror}\n")
+        sys.stderr.write("dut@10.0.0.9: Permission denied (publickey,password).\n")
+        sys.stderr.flush()
+        return 255
 
     if MODE == "hostkey":
         tty.write(

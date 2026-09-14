@@ -64,12 +64,28 @@ def scrub(text: str, secret: str) -> str:
     return text.replace(secret, "***") if secret else text
 
 
-def spawn_with_tty(argv: list[str]) -> tuple[subprocess.Popen[bytes], int]:
+def spawn_with_tty(argv: list[str]) -> tuple[subprocess.Popen[bytes], int, int]:
     """Start `argv` with a pty as its controlling terminal and pipes elsewhere.
 
-    Returns the child and the pty **master** fd, which is where the prompt
-    appears and where the answer is written. The caller owns both and must close
-    the master fd when it is done with the child.
+    Returns the child, the pty **master** fd -- where the prompt appears and
+    where the answer is written -- and the **slave** fd, which the caller must
+    hold open for as long as the child may still want its controlling terminal.
+    The caller owns all three and closes both descriptors when it is done.
+
+    Holding the slave is not tidiness, it is the whole login. A pty's terminal
+    is torn down the moment its last slave descriptor goes, and the child's own
+    copy does not survive: real ssh runs `closefrom()` before it asks for a
+    password, which drops everything it did not open. With nobody else holding
+    one, `open("/dev/tty")` inside ssh then fails with ENXIO -- "Device not
+    configured" -- and ssh gives up **without sending an authentication request
+    at all**. Measured on this machine on 2026-09-14: sshd logged only
+    "Connection closed by authenticating user [preauth]", never a failed
+    password, and the dashboard reported a refused credential for a password
+    that was correct.
+
+    `ssh-keygen` and this project's own fake ssh both opened `/dev/tty` before
+    closing anything, which is why every test passed while no real login could
+    be made.
     """
     master, slave = pty.openpty()
 
@@ -97,14 +113,18 @@ def spawn_with_tty(argv: list[str]) -> tuple[subprocess.Popen[bytes], int]:
         os.close(master)
         os.close(slave)
         raise PtySshError(f"Could not start ssh: {exc}") from exc
-    finally:
-        # The parent's copy. The child keeps its own, and holding a second one
-        # here would keep the pty alive after the child has gone.
+    return process, master, slave
+
+
+def close_tty(master_fd: int | None, slave_fd: int | None) -> None:
+    """Drop both ends of a login terminal. Safe on None and on a closed fd."""
+    for fd in (master_fd, slave_fd):
+        if fd is None:
+            continue
         try:
-            os.close(slave)
+            os.close(fd)
         except OSError:
             pass
-    return process, master
 
 
 def answer_password_prompt(
