@@ -53,9 +53,16 @@ class CollectorSession:
     remote shell has not returned.
     """
 
-    def __init__(self, process, master_fd: int | None, reported_hostname: str, drain) -> None:
+    def __init__(
+        self, process, master_fd: int | None, reported_hostname: str, drain,
+        slave_fd: int | None = None,
+    ) -> None:
         self._process = process
         self._master_fd = master_fd
+        #: Held for the child's sake, not ours: the terminal goes away with the
+        #: last slave descriptor, and ssh closes its own before it asks for a
+        #: password. See pty_ssh.spawn_with_tty.
+        self._slave_fd = slave_fd
         #: What the box answered when asked its own name, at login.
         self.reported_hostname = reported_hostname
         self.opened_at = time.time()
@@ -149,11 +156,7 @@ class CollectorSession:
                     pipe.close()
                 except OSError:
                     pass
-        if self._master_fd is not None:
-            try:
-                os.close(self._master_fd)
-            except OSError:
-                pass
+        pty_ssh.close_tty(self._master_fd, self._slave_fd)
 
 
 def _remote_command() -> str:
@@ -211,10 +214,10 @@ def open_session(
             )
         except (OSError, ValueError) as exc:
             raise CollectorSshError(f"Could not start ssh: {exc}") from exc
-        master_fd = None
+        master_fd = slave_fd = None
     else:
         argv = [ssh_binary, *pty_ssh.password_auth_options(), *common]
-        process, master_fd = pty_ssh.spawn_with_tty(argv)
+        process, master_fd, slave_fd = pty_ssh.spawn_with_tty(argv)
 
     def fail(message: str) -> CollectorSshError:
         """Reap the half-open child, then hand back the error to raise.
@@ -226,6 +229,7 @@ def open_session(
         CollectorSession(
             process, master_fd, "",
             drain or (pty_ssh.TtyDrain(master_fd) if master_fd is not None else None),
+            slave_fd,
         ).close()
         return CollectorSshError(message)
 
@@ -244,7 +248,7 @@ def open_session(
         raise fail(str(exc)) from exc
     except Exception as exc:  # noqa: BLE001 - never leak the child
         raise fail(f"SSH session failed to start: {exc}") from exc
-    return CollectorSession(process, master_fd, hostname, drain)
+    return CollectorSession(process, master_fd, hostname, drain, slave_fd)
 
 
 def _await_ready(process, password: str, deadline: float) -> str:

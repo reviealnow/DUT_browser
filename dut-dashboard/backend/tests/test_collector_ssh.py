@@ -16,10 +16,12 @@ from __future__ import annotations
 import os
 import tempfile
 import time
+import sys
 import unittest
 from pathlib import Path
 
 from app.collector.ssh_session import CollectorSshError, open_session
+from app.serial import pty_ssh
 
 FAKE_SSH = str(Path(__file__).parent / "fixtures" / "fake_ssh.py")
 PASSWORD = "s3cr3t-on-the-bench"
@@ -274,6 +276,48 @@ class TheCommandChannelTest(unittest.TestCase):
         with self.assertRaises(CollectorSshError):
             self.session.run("echo nope")
 
+
+class ControllingTerminalTest(unittest.TestCase):
+    """The invariant the whole password transport rests on.
+
+    A pty's terminal is torn down with its last slave descriptor, and the child
+    does not keep one: real ssh runs `closefrom()` before it asks for anything.
+    So the parent has to hold the slave, or `open("/dev/tty")` inside the child
+    fails with ENXIO and ssh gives up **without sending an authentication
+    request at all** -- which is what the bench saw on 2026-09-14: sshd logged
+    "Connection closed by authenticating user [preauth]" and never a failed
+    password, while the card reported a refused credential for a password that
+    was correct.
+
+    Asserted here at the level it belongs to, as well as through the fake ssh,
+    because the fake could be changed back to opening /dev/tty first and this
+    would go quiet again.
+    """
+
+    CHILD = (
+        "import os, sys;"
+        # Exactly what ssh does before it prompts.
+        "os.closerange(3, 256);"
+        "fd = None;"
+        "\ntry:\n    fd = os.open('/dev/tty', os.O_RDWR); os.close(fd); print('OK')\n"
+        "except OSError as exc:\n    print(f'errno={exc.errno}')\n"
+    )
+
+    def test_a_child_that_closes_its_fds_still_has_a_terminal(self) -> None:
+        process, master, slave = pty_ssh.spawn_with_tty([sys.executable, "-c", self.CHILD])
+        try:
+            answer = (process.stdout.read() or b"").decode().strip()
+            process.wait(timeout=5)
+        finally:
+            pty_ssh.close_tty(master, slave)
+        self.assertEqual(answer, "OK", f"the child lost its controlling terminal: {answer}")
+
+    def test_close_tty_is_safe_on_none_and_on_an_already_closed_fd(self) -> None:
+        process, master, slave = pty_ssh.spawn_with_tty(["/bin/sh", "-c", "exit 0"])
+        process.wait(timeout=5)
+        pty_ssh.close_tty(master, slave)
+        pty_ssh.close_tty(master, slave)  # twice: a close path may run twice
+        pty_ssh.close_tty(None, None)
 
 if __name__ == "__main__":
     unittest.main()

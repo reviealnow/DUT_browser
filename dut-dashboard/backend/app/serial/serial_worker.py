@@ -89,6 +89,9 @@ class SerialWorker:
         # the thread that keeps it read. Both are None for a key, which is the
         # transport this worker has always used.
         self._ssh_tty: int | None = None
+        # The slave end of that login terminal, held only so the child keeps a
+        # controlling terminal to ask for a password on -- see pty_ssh.
+        self._ssh_tty_slave: int | None = None
         self._ssh_drain = None
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
@@ -283,11 +286,12 @@ class SerialWorker:
             ]
         if password:
             try:
-                process, master_fd = pty_ssh.spawn_with_tty(command)
+                process, master_fd, slave_fd = pty_ssh.spawn_with_tty(command)
             except pty_ssh.PtySshError as exc:
                 raise RuntimeError(str(exc)) from exc
             self._ssh = process
             self._ssh_tty = master_fd
+            self._ssh_tty_slave = slave_fd
             self._ssh_stderr = []
             try:
                 pty_ssh.answer_password_prompt(
@@ -363,11 +367,8 @@ class SerialWorker:
         if drain is not None:
             drain.stop()
         tty_fd, self._ssh_tty = self._ssh_tty, None
-        if tty_fd is not None:
-            try:
-                os.close(tty_fd)
-            except OSError:
-                pass
+        slave_fd, self._ssh_tty_slave = self._ssh_tty_slave, None
+        pty_ssh.close_tty(tty_fd, slave_fd)
 
     @staticmethod
     def _terminate_ssh(process: subprocess.Popen[bytes]) -> None:
