@@ -1,6 +1,6 @@
 # Bench tools
 
-Three diagnostics for driving a real DUT from a script. They are **not tests**:
+Four diagnostics for driving a real bench from a script. They are **not tests**:
 nothing here runs in CI, none of it asserts, and every one of them needs the
 hardware. What they replace is the throwaway script each bench session was
 writing from scratch.
@@ -10,6 +10,7 @@ writing from scratch.
 | `bench_console.py` | What is on this port — which unit, which model, and what does it say about its mesh? |
 | `bench_fleet_e2e.py` | Does the whole Fleet flow hold up across a real mesh, through the shipped endpoints? |
 | `bench_identify_load.py` | Does `identify` still work when the console is busy? |
+| `bench_ssh_login.py` | Why will this box not accept a password login from the dashboard? |
 
 ## Why they exist rather than a `curl`
 
@@ -40,6 +41,18 @@ ever prove itself.
 **A console that answers nothing is usually waiting for a login.** The DUT wants
 one after every reboot and only a person can give it. `bench_console.py` says so
 and exits 2 rather than reporting an empty result as a finding.
+
+**A refused login may never have sent a password.** ssh asks for one on
+`/dev/tty`, and a pty's terminal is torn down with its last slave descriptor --
+which the child does not keep, because ssh runs `closefrom()` before it asks. On
+2026-09-14 that left the dashboard reporting refused credentials for a password
+that was correct, while the server logged `Connection closed by authenticating
+user [preauth]` and no failed password at all. `bench_ssh_login.py` shows the
+terminal conversation, so "the password was written" and "there was nothing to
+write it on" stop looking alike; it exits **3** for the second. The fix that
+came out of it is in `serial/pty_ssh.py`, and the bug lived as long as it did
+because the fake ssh in the test suite opened `/dev/tty` before closing
+anything.
 
 **A load test that never loaded the line reports beautiful numbers.** The
 throwaway ancestor of `bench_identify_load.py` reported 8/8 successes against a
@@ -74,7 +87,16 @@ python3 tools/bench_identify_load.py --port /dev/cu.… \
 
 # the whole mesh, through the shipped endpoints
 python3 tools/bench_fleet_e2e.py --bench bench.json
+
+# why a password login will not go through
+python3 tools/bench_ssh_login.py 192.168.30.124 nelson
+python3 tools/bench_ssh_login.py 192.168.30.124 nelson --quiet   # without ssh -v
 ```
+
+`bench_ssh_login.py` asks for the password at a prompt and **never takes it as
+an argument** -- an argument is visible in `ps` to every account on the machine.
+It scrubs the password out of everything it prints, including what a remote that
+echoes may send back.
 
 `bench.json` describes the DUTs, and **its order is the capture order — list
 nodes before roots**. A root cannot name its own backhaul VAP from its own
