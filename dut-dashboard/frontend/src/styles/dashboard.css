@@ -1312,6 +1312,19 @@ body {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+/* What a remote DUT's connection card says instead of a port picker: where its
+   console actually comes from. Same box as the form it replaces, so the card
+   does not change shape between the two kinds of DUT. */
+.conn-remote {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.conn-remote code {
+  color: var(--ink);
+}
+
 .conn-error {
   color: var(--danger);
   font-size: 12px;
