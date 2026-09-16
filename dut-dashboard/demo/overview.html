@@ -367,12 +367,13 @@ function renderFleet(){
     // FleetStrip.tsx's STATUS_META, verbatim: the state is internal, the label
     // is what the product prints. The demo used to print "idle", which the
     // product never shows.
-    const STATUS = {
-      streaming: { label: "Streaming", pill: "pill-ok" },
-      idle:      { label: "No DUT",    pill: "pill-muted" },
-      offline:   { label: "Offline",   pill: "pill-danger" },
-    };
-    const meta = STATUS[d.status] || STATUS.idle;
+    // `idle` alone cannot tell a quiet DUT from an absent one, so the
+    // registry's console flag decides between them -- dutPresence(), verbatim.
+    const meta =
+      d.status === "offline" ? { label: "Offline", pill: "pill-danger" }
+      : d.status === "streaming" ? { label: "Streaming", pill: "pill-ok" }
+      : d.open ? { label: "Connected", pill: "pill-ok" }
+      : { label: "No DUT", pill: "pill-muted" };
     const statusPill = meta.pill;
     el.innerHTML = `
       <div class="fleet-grip" data-grip title="concept: reorder">⠿</div>
