@@ -3,8 +3,10 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { DEFAULT_DUT_ID } from "../api/dut";
 import {
   closeSerial,
+  DutInfo,
   enterTerminal,
   exitTerminal,
+  getDuts,
   getSerialLogDownloadUrl,
   humanizeApiError,
   listSerialPorts,
@@ -56,6 +58,10 @@ export default function Dashboard({
   const [currentLogFileName, setCurrentLogFileName] = useState("");
   const [consoleView, setConsoleView] = useState<"monitor" | "terminal">("monitor");
   const [isOpen, setIsOpen] = useState(false);
+  /** What the REGISTRY says about this DUT: whether a console is open on it and,
+   *  when it is not this machine's cable, where that console comes from. Both
+   *  are facts this page used to have no way of learning -- see the effect. */
+  const [registered, setRegistered] = useState<DutInfo | null>(null);
   const [actionError, setActionError] = useState("");
   const [lastSeenCriticalCrashCount, setLastSeenCriticalCrashCount] = useState(0);
   const [criticalCrashKeywordInput, setCriticalCrashKeywordInput] = useState("");
@@ -98,6 +104,40 @@ export default function Dashboard({
       }
     });
   }
+
+  // `isOpen` used to mean "this page opened a session", not "a session is open".
+  // Nothing else could set it, so a console opened anywhere else -- Attach on
+  // Fleet > Hosts, another tab, or this same page before a reload -- left the
+  // card saying "Step 1, select a serial port" over a DUT that was streaming,
+  // and every Send answered "Not connected". Reported from the bench with a Pi
+  // console attached and running.
+  //
+  // Asked once per DUT and once per entry to this section, not polled: the
+  // registry is the authority, `serialDisconnect` already pushes a drop, and
+  // the serial line is too expensive a thing to interrogate on a timer.
+  useEffect(() => {
+    if (!active) {
+      return;
+    }
+    let cancelled = false;
+    void getDuts()
+      .then((list) => {
+        if (cancelled) {
+          return;
+        }
+        const entry = list.find((dut) => dut.id === dutId) ?? null;
+        setRegistered(entry);
+        setIsOpen(entry?.serial_open ?? false);
+        setCurrentLogFileName((entry?.log_path || "").split(/[\\/]/).pop() || "");
+      })
+      .catch(() => {
+        // A registry read that fails says nothing about the console; leave the
+        // card exactly as it was rather than claiming it closed.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [active, dutId]);
 
   async function handleClose() {
     await runAction(async () => {
@@ -287,7 +327,11 @@ export default function Dashboard({
         <div className="card-titles">
           <div className="card-title">Connection</div>
           <div className="card-sub">
-            {isOpen ? "Connected — manage the session below" : "Step 1 — select a serial port, then Open"}
+            {isOpen
+              ? "Connected — manage the session below"
+              : registered?.remote
+                ? "This DUT's console is opened on Fleet ▸ Hosts, not here"
+                : "Step 1 — select a serial port, then Open"}
           </div>
         </div>
         {isOpen ? (
@@ -314,6 +358,22 @@ export default function Dashboard({
             {mode === "serial" ? port || "serial" : `replay · ${replayPath}`}
             {mode === "serial" && baudrate ? ` · ${baudrate} baud` : ""}
           </span>
+        </div>
+      ) : registered?.remote ? (
+        /* No port to choose. This DUT's console is a `socat` on a box reached
+           over SSH, and it is attached and detached on Fleet > Hosts -- the
+           picker below would open a DIFFERENT transport for the same DUT, on a
+           cable that is not there. Saying where the console comes from is worth
+           more here than a control that would be wrong to press. */
+        <div className="conn-form">
+          <div className="conn-remote">
+            Its console is <code>{registered.remote.device}</code> on{" "}
+            <code>
+              {registered.remote.host}:{registered.remote.port}
+            </code>
+            , reached over SSH. There is no local serial port to select for it —
+            attach and detach it on <strong>Fleet ▸ Hosts</strong>.
+          </div>
         </div>
       ) : (
         <div className="conn-form">
