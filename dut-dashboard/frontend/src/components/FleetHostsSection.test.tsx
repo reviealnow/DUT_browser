@@ -104,7 +104,10 @@ function consoles(over: Partial<CollectorConsoles> = {}): CollectorConsoles {
 }
 
 function device(over: Partial<CollectorConsoles["devices"][number]> = {}) {
-  return { device: "/dev/ttyUSB0", busy: false, held_by: null, attached_dut: null, ...over };
+  return {
+    device: "/dev/ttyUSB0", busy: false, held_by: null,
+    attached_dut: null, registered_dut: null, ...over,
+  };
 }
 
 const manageProfiles = vi.fn();
@@ -376,6 +379,24 @@ describe("the DUT consoles behind a collector", () => {
     await showConnected(consoles({ devices: [device()] }));
     expect(button("Attach")).toBeTruthy();
     expect(button("Detach")).toBeUndefined();
+  });
+
+  it("offers Attach again on a port whose console has closed", async () => {
+    /**
+     * The state the bench got stuck in: `attached` used to be computed from the
+     * registration alone, and Detach leaves that standing on purpose — the DUT
+     * keeps its history, its label and its settings. So the row claimed a
+     * session that had ended, the button stayed Detach, and pressing it changed
+     * nothing anyone could see. There was no way back to Attach at all.
+     */
+    await showConnected(
+      consoles({ devices: [device({ attached_dut: null, registered_dut: "edge1-ttyusb0" })] }),
+    );
+    expect(button("Attach")).toBeTruthy();
+    expect(button("Detach")).toBeUndefined();
+    // And it says which DUT that attach will land on, rather than reading as a
+    // port nobody has touched.
+    expect(screen.getByText(/Registered as edge1-ttyusb0 · console closed/)).toBeTruthy();
   });
 
   it("attaches at the baud rate that is selected", async () => {

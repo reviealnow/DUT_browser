@@ -629,10 +629,15 @@ export type CollectorDevice = {
   busy: boolean | null;
   /** The pids holding it, when that could be read. */
   held_by: string | null;
-  /** The DUT **this dashboard** has attached here, if any. Not the same fact as
-   *  `busy`, and the difference decides the next move: press Detach, or go and
-   *  look at the box. */
+  /** The DUT **this dashboard** has attached here, if any — and only while its
+   *  console is actually open. Not the same fact as `busy`, and the difference
+   *  decides the next move: press Detach, or go and look at the box. */
   attached_dut: string | null;
+  /** A DUT registered against this device whose console is **not** open. Detach
+   *  leaves the registration standing on purpose — the DUT keeps its history,
+   *  its label and its settings — so this is the state a port returns to, and
+   *  attaching again lands on that same DUT rather than inventing another. */
+  registered_dut: string | null;
 };
 
 /** What is behind one collector, and what stands between it and a console. */
