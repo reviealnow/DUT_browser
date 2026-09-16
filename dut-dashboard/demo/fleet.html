@@ -278,13 +278,17 @@ function toast(msg){
 const CAN_CAPTURE = true;
 let fleet = DATA.nodes.map(d => JSON.parse(JSON.stringify(d)));
 
-/* FleetCard's STATUS_META, verbatim: the state is internal, the label is what
-   the product prints. */
-const STATUS = {
-  streaming: { label: "Streaming", pill: "pill-ok" },
-  idle:      { label: "No DUT",    pill: "pill-muted" },
-  offline:   { label: "Offline",   pill: "pill-danger" },
-};
+/* dutPresence(), verbatim: the state is internal, the label is what the product
+   prints — and `idle` alone cannot tell a quiet DUT from an absent one, so the
+   registry's console flag decides between them. Only Streaming carries the
+   dot; a resting one beside "Connected" is what made a held console look dead
+   on the bench. */
+function statusOf(d){
+  if (d.status === "offline") return { label: "Offline", pill: "pill-danger", live: false };
+  if (d.status === "streaming") return { label: "Streaming", pill: "pill-ok", live: true };
+  if (d.open) return { label: "Connected", pill: "pill-ok", live: false };
+  return { label: "No DUT", pill: "pill-muted", live: false };
+}
 
 /* ---------------- the two compressed rows ----------------
    FleetCard renders these on the card in BOTH variants, so they are derived
@@ -401,7 +405,7 @@ function renderFleet(){
     // distinction the colour makes. It is NOT the mesh role: a root can hang off
     // a Pi and a node can be cabled to this machine.
     el.style.borderTopColor = r ? "var(--ok)" : "var(--accent)";
-    const meta = STATUS[d.status] || STATUS.idle;
+    const meta = statusOf(d);
     el.innerHTML = `
       <div class="fleet-card-head">
         <div>

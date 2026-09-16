@@ -11,20 +11,13 @@ import {
 } from "../api/rest";
 import { ROLE_RANK, useAuth } from "../monitoring/AuthContext";
 import { runConnectCaptures } from "../monitoring/siteSurveyStore";
-import { DutStatus } from "../monitoring/useDutMonitor";
+import { dutPresence } from "../monitoring/dutPresence";
 import { useMeshTopology } from "../monitoring/MeshTopologyContext";
 import { FleetEntry } from "../monitoring/useFleetMonitor";
 import { RemoteRssiState } from "../monitoring/RemoteRssiContext";
 import { FleetBandBadge } from "./BandRecoSummary";
 import LiveDot from "./shell/LiveDot";
 
-type StatusMeta = { label: string; pill: "ok" | "idle" | "danger" };
-
-const STATUS_META: Record<DutStatus, StatusMeta> = {
-  streaming: { label: "Streaming", pill: "ok" },
-  idle: { label: "No DUT", pill: "idle" },
-  offline: { label: "Offline", pill: "danger" },
-};
 
 function formatEventAge(seconds: number | null): string {
   if (seconds === null) {
@@ -146,7 +139,7 @@ export default function FleetCard({
 
   const uplinkMuted = !rssi.applicable || rssi.role === "root" || (rssi.captured && rssi.role === null);
   const childrenMuted = !rssi.applicable || (rssi.captured && !rssi.downlink);
-  const meta = STATUS_META[entry.status];
+  const meta = dutPresence(entry.status, entry.serialOpen);
   // The live mesh table where one was read — Fleet page, admin — and this DUT's
   // own stored probe everywhere else, which is what lets the same card name a
   // role on Overview without that page ever addressing a DUT. Still null when
@@ -304,9 +297,9 @@ export default function FleetCard({
             </div>
           </div>
           <span className={`pill ${meta.pill}`}>
-            {/* Same dot as the console row below, same rule: it moves while
-                data is arriving from this DUT and rests otherwise. */}
-            <LiveDot live={entry.status === "streaming"} />
+            {/* The dot is drawn only where it moves. A resting one beside
+                "Connected" is what made a held console look dead. */}
+            {meta.live ? <LiveDot live /> : null}
             {meta.label}
           </span>
         </div>

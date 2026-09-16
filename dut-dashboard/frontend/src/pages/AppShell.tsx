@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 
-import { getMemory, MemorySeries, WifiClientsResult } from "../api/rest";
+import { getDuts, getMemory, MemorySeries, WifiClientsResult } from "../api/rest";
 import ChartData from "../components/charts/ChartData";
 import Sparkline from "../components/charts/Sparkline";
 import DutSwitcher from "../components/DutSwitcher";
@@ -11,6 +11,7 @@ import FirmwareSection from "../components/FirmwareSection";
 import InviteRedeemDialog from "../components/InviteRedeemDialog";
 import LoginDialog from "../components/LoginDialog";
 import Sidebar from "../components/shell/Sidebar";
+import { dutPresence } from "../monitoring/dutPresence";
 import LiveDot from "../components/shell/LiveDot";
 import Topbar from "../components/shell/Topbar";
 import { canAccess, NAV_ITEMS, SectionId } from "../components/shell/navigation";
@@ -91,6 +92,30 @@ function AppShellInner() {
   // One monitor for the selected DUT drives everything: the sections, the topbar
   // status, and the Serial Console (via context) — all follow the switcher.
   const monitor = useDutMonitor(selectedDut);
+  // Whether a console is being held on the selected DUT. The monitor cannot say
+  // — it only sees events arriving — and without it "nothing for ten seconds"
+  // was labelled "No DUT" over a console that was open and merely quiet.
+  //
+  // Read once per DUT and once per registry change, never polled: the registry
+  // is the authority, and `registryVersion` is already bumped by everything
+  // that opens or closes one.
+  const [consoleOpen, setConsoleOpen] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void getDuts()
+      .then((list) => {
+        if (!cancelled) {
+          setConsoleOpen(list.find((dut) => dut.id === selectedDut)?.serial_open ?? false);
+        }
+      })
+      .catch(() => {
+        // A registry read that failed says nothing either way; leave it as it
+        // was rather than claiming the console closed.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDut, registryVersion]);
   const current = NAV_ITEMS.find((item) => item.id === active) ?? NAV_ITEMS[0];
   // The Serial Console (Dashboard) is lazy-loaded, but must stay mounted once
   // opened so its serial session, port, and terminal state persist across nav.
@@ -200,6 +225,7 @@ function AppShellInner() {
               />
               <ToolbarActions
                 status={monitor.status}
+                consoleOpen={consoleOpen}
                 lastEventAgeSec={monitor.lastEventAgeSec}
                 onConnect={() => setActive("console")}
               />
@@ -262,6 +288,7 @@ function AppShellInner() {
                   renderSection(
                     active,
                     monitor,
+                    consoleOpen,
                     search,
                     selectedDut,
                     setSelectedDut,
@@ -314,6 +341,7 @@ function UpdateBanner({ onReload, onDismiss }: { onReload: () => void; onDismiss
 function renderSection(
   active: SectionId,
   monitor: DutMonitorState,
+  consoleOpen: boolean,
   search: string,
   selectedDut: string,
   onSelectDut: (dutId: string) => void,
@@ -327,6 +355,7 @@ function renderSection(
       return (
         <OverviewSection
           monitor={monitor}
+          consoleOpen={consoleOpen}
           selectedDut={selectedDut}
           onSelectDut={onSelectDut}
           onOpenConsole={onOpenConsole}
@@ -398,18 +427,20 @@ function renderSection(
 
 function OverviewSection({
   monitor,
+  consoleOpen,
   selectedDut,
   onSelectDut,
   onOpenConsole,
   onOpenSiteSurvey,
 }: {
   monitor: DutMonitorState;
+  consoleOpen: boolean;
   selectedDut: string;
   onSelectDut: (dutId: string) => void;
   onOpenConsole: (dutId: string) => void;
   onOpenSiteSurvey: () => void;
 }) {
-  const statusMeta = STATUS_META[monitor.status];
+  const statusMeta = dutPresence(monitor.status, consoleOpen);
   const cpuValue = monitor.cpuBusyPct === null ? undefined : `${monitor.cpuBusyPct}%`;
   const cpuSub =
     monitor.cpuBusyPct === null
@@ -481,7 +512,7 @@ function OverviewSection({
           <CrashEventsBody monitor={monitor} />
         </Card>
         <Card title="Serial console status" subtitle="Connection + parser state">
-          <ConsoleStatusBody monitor={monitor} />
+          <ConsoleStatusBody monitor={monitor} consoleOpen={consoleOpen} />
         </Card>
         <Card title="Recent logs / downloads" subtitle="Latest artifacts">
           <EmptyState icon="🗂" message="No recent activity" hint={PHASE3_HINT} />
@@ -491,12 +522,18 @@ function OverviewSection({
   );
 }
 
-function ConsoleStatusBody({ monitor }: { monitor: DutMonitorState }) {
-  const statusMeta = STATUS_META[monitor.status];
+function ConsoleStatusBody({
+  monitor,
+  consoleOpen,
+}: {
+  monitor: DutMonitorState;
+  consoleOpen: boolean;
+}) {
+  const statusMeta = dutPresence(monitor.status, consoleOpen);
   return (
     <div style={{ display: "grid", gap: "var(--space-3)" }}>
       <span className={`pill ${statusMeta.pill}`} style={{ alignSelf: "flex-start" }}>
-        <LiveDot live={monitor.status === "streaming"} />
+        {statusMeta.live ? <LiveDot live /> : null}
         {statusMeta.label}
       </span>
       <dl className="stat-list">
@@ -910,14 +947,16 @@ function SearchBox({
 
 function ToolbarActions({
   status,
+  consoleOpen,
   lastEventAgeSec,
   onConnect,
 }: {
   status: DutStatus;
+  consoleOpen: boolean;
   lastEventAgeSec: number | null;
   onConnect: () => void;
 }) {
-  const statusMeta = STATUS_META[status];
+  const statusMeta = dutPresence(status, consoleOpen);
   const age = formatEventAge(lastEventAgeSec);
   return (
     <>
@@ -926,12 +965,12 @@ function ToolbarActions({
       <div className="toolbar-status">
         {age && status !== "offline" ? <span className="toolbar-sub">{age}</span> : null}
         <span className={`pill ${statusMeta.pill}`} title="Backend link + DUT stream status">
-          {/* Breathes only while data is actually arriving. The word beside it
-              is what a screen reader gets and what survives
+          {/* Drawn only while data is actually arriving. The word beside it is
+              what a screen reader gets and what survives
               prefers-reduced-motion; the motion is what an eye catches from
-              across the bench, and it is the only part that stops when the
-              stream does. */}
-          <LiveDot live={status === "streaming"} />
+              across the bench, and a resting dot beside "Connected" is what
+              made a held console look dead. */}
+          {statusMeta.live ? <LiveDot live /> : null}
           {statusMeta.label}
         </span>
       </div>
@@ -954,8 +993,3 @@ function formatEventAge(seconds: number | null): string | null {
 
 type StatusMeta = { label: string; sub: string; pill: "ok" | "idle" | "danger" };
 
-const STATUS_META: Record<DutStatus, StatusMeta> = {
-  streaming: { label: "Streaming", sub: "Receiving DUT data", pill: "ok" },
-  idle: { label: "No DUT", sub: "Backend up, no stream", pill: "idle" },
-  offline: { label: "Offline", sub: "Backend not reachable", pill: "danger" },
-};

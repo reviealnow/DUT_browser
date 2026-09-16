@@ -607,3 +607,41 @@ describe("the unfolded capture, in the Fleet section", () => {
     expect(within(detail).getByText(/standalone/)).toBeTruthy();
   });
 });
+
+describe("what the pill says about a quiet DUT", () => {
+  /**
+   * Raised from the bench: two cards, both with a console open, both reading
+   * "No DUT" with a dark dot beside it. `status` alone cannot tell quiet from
+   * absent -- `idle` means only that nothing arrived in the last ten seconds --
+   * and the registry can.
+   */
+  const pill = () => document.querySelector(".pill")?.textContent?.trim();
+  const pillDot = () => document.querySelector(".pill .live-dot");
+
+  it("says Connected over a console that is held and quiet", () => {
+    show(entry({ status: "idle", serialOpen: true }));
+    expect(pill()).toBe("Connected");
+  });
+
+  it("still says No DUT when nothing is open", () => {
+    show(entry({ status: "idle", serialOpen: false }));
+    expect(pill()).toBe("No DUT");
+  });
+
+  it("draws no dot on either, because neither is moving", () => {
+    // The dark dot beside "Connected" is what raised the question. A light that
+    // only ever means "arriving now" has no business resting beside a word that
+    // says the opposite.
+    show(entry({ status: "idle", serialOpen: true }));
+    expect(pillDot()).toBeNull();
+    cleanup();
+    show(entry({ status: "idle", serialOpen: false }));
+    expect(pillDot()).toBeNull();
+  });
+
+  it("keeps both the word and the dot while data is arriving", () => {
+    show(entry({ status: "streaming", serialOpen: true }));
+    expect(pill()).toBe("Streaming");
+    expect(pillDot()?.classList.contains("is-live")).toBe(true);
+  });
+});
