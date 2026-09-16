@@ -191,6 +191,21 @@ class AttachingAConsoleTest(unittest.TestCase):
     def body(self, **over):
         return collectors_api.AttachBody(device="/dev/ttyUSB0", baudrate=115200, **over)
 
+    @staticmethod
+    def console_open(is_open: bool = True):
+        """A worker whose `open` does nothing and whose `is_open` answers this.
+
+        Both halves are needed now that "attached" means a console is OPEN
+        rather than a DUT being registered against the device: patching `open`
+        alone leaves a registration whose worker truthfully reports closed,
+        which is exactly the state the bench got stuck in.
+        """
+        return mock.patch.multiple(
+            "app.serial.serial_worker.SerialWorker",
+            open=mock.DEFAULT,
+            is_open=mock.PropertyMock(return_value=is_open),
+        )
+
     def test_the_password_is_handed_to_the_transport_and_never_persisted(self) -> None:
         """The load-bearing claim of the whole feature.
 
@@ -263,16 +278,47 @@ class AttachingAConsoleTest(unittest.TestCase):
 
     def test_the_console_list_says_which_device_this_dashboard_holds(self) -> None:
         # Distinct from `busy`, which is whatever the box reports has the port.
-        with self.app() as request, mock.patch("app.serial.serial_worker.SerialWorker.open"):
+        with self.app() as request, self.console_open():
             collectors_api.attach_console("edge1", self.body(), request)
             listed = collectors_api.list_consoles("edge1", request)
         by_name = {device["device"]: device for device in listed["devices"]}
         self.assertEqual(by_name["/dev/ttyUSB0"]["attached_dut"], "edge1-ttyusb0")
+        self.assertIsNone(by_name["/dev/ttyUSB0"]["registered_dut"])
         self.assertIsNone(by_name["/dev/ttyUSB1"]["attached_dut"])
 
+    def test_a_console_that_has_been_closed_stops_reading_as_attached(self) -> None:
+        """The state the bench got stuck in on 2026-09-16.
+
+        `attached` was computed from the registration alone, and Detach leaves
+        the registration standing on purpose -- so the row claimed a session
+        that had ended, the button stayed Detach, and pressing it changed
+        nothing anyone could see. There was no way back to Attach at all.
+        """
+        with self.app() as request:
+            with self.console_open():
+                collectors_api.attach_console("edge1", self.body(), request)
+            # Same registry, same registration; only the console has ended.
+            with self.console_open(False):
+                listed = collectors_api.list_consoles("edge1", request)
+        row = {device["device"]: device for device in listed["devices"]}["/dev/ttyUSB0"]
+        self.assertIsNone(row["attached_dut"])
+        # Said, not hidden: attaching again lands on that same DUT, with the
+        # history and the label it already has.
+        self.assertEqual(row["registered_dut"], "edge1-ttyusb0")
+
+    def test_detaching_a_console_that_is_not_open_is_a_404(self) -> None:
+        """Rather than closing a worker that is already closed and answering ok,
+        which is what made the button look broken instead of unnecessary."""
+        with self.app() as request:
+            with self.console_open():
+                collectors_api.attach_console("edge1", self.body(), request)
+            with self.console_open(False):
+                with self.assertRaises(HTTPException) as caught:
+                    collectors_api.detach_console("edge1", self.body(), request)
+        self.assertEqual(caught.exception.status_code, 404)
+
     def test_detaching_closes_the_console_that_is_actually_attached(self) -> None:
-        with self.app() as request, \
-                mock.patch("app.serial.serial_worker.SerialWorker.open"), \
+        with self.app() as request, self.console_open(), \
                 mock.patch("app.serial.serial_worker.SerialWorker.close") as closed:
             collectors_api.attach_console("edge1", self.body(), request)
             result = collectors_api.detach_console("edge1", self.body(), request)

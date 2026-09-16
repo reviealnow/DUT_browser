@@ -97,14 +97,26 @@ def _console_dut_id(collector_id: str, device: str) -> str:
     return f"{collector_id}-{tail}"[:32]
 
 
-def _attached_duts(dut_registry, collector_id: str) -> dict[str, str]:
-    """Which DUT, if any, holds each device on this collector."""
-    attached: dict[str, str] = {}
+def _duts_on(dut_registry, collector_id: str) -> dict[str, tuple[str, bool]]:
+    """Which DUT is registered against each device here, and whether it is open.
+
+    The second half used to be missing, and the card believed the first half on
+    its own: a DUT registered against a device made that row read "Attached here
+    as …" for the life of the registration, console or no console. Detach could
+    not clear it either -- it closes the worker and leaves the registration
+    standing, which is correct (the DUT keeps its history and its settings) and
+    left the row claiming a session that had ended, with no way back to Attach.
+
+    Reported from the bench on 2026-09-16: a console that had been closed for an
+    hour still read as attached, and pressing Detach changed nothing visible.
+    """
+    found: dict[str, tuple[str, bool]] = {}
     for dut_id in dut_registry.ids():
-        remote = dut_registry.get(dut_id).remote
+        context = dut_registry.get(dut_id)
+        remote = context.remote
         if remote and remote.get("collector_id") == collector_id:
-            attached[remote["device"]] = dut_id
-    return attached
+            found[remote["device"]] = (dut_id, context.serial_worker.is_open)
+    return found
 
 
 def _registry(request: Request):
@@ -184,13 +196,19 @@ def list_consoles(collector_id: str, request: Request, _admin: dict = _ADMIN) ->
         found = collector_probe.probe(session)
     except CollectorSshError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    attached = _attached_duts(request.app.state.dut_registry, collector_id)
+    known = _duts_on(request.app.state.dut_registry, collector_id)
     for device in found["devices"]:
         # Which of these this dashboard is already holding. Distinct from
         # `busy`, which is whatever the box says has the port -- that includes a
         # minicom somebody left running, and knowing which of the two it is
         # decides whether the answer is "press Detach" or "go and look".
-        device["attached_dut"] = attached.get(device["device"])
+        dut_id, is_open = known.get(device["device"], (None, False))
+        device["attached_dut"] = dut_id if is_open else None
+        # Registered here, console closed. Worth saying rather than showing the
+        # row as untouched: attaching lands on that same DUT, with the history
+        # and the label it already has, because the id is derived from the
+        # device rather than invented per attach.
+        device["registered_dut"] = dut_id if not is_open else None
     return {
         "collector": collector_id,
         **found,
@@ -293,8 +311,8 @@ def detach_console(
     """Close the console on one device, releasing the port on the collector."""
     _known(request, collector_id)
     dut_registry = request.app.state.dut_registry
-    dut_id = _attached_duts(dut_registry, collector_id).get(body.device)
-    if dut_id is None:
+    dut_id, is_open = _duts_on(dut_registry, collector_id).get(body.device, (None, False))
+    if dut_id is None or not is_open:
         raise HTTPException(status_code=404, detail=f"No console attached on {body.device}")
     dut_registry.get(dut_id).serial_worker.close()
     return {"ok": True, "dut": dut_id, "device": body.device}

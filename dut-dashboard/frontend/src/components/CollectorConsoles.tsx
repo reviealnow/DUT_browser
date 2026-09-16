@@ -215,6 +215,12 @@ function describeDevice(device: CollectorDevice): string {
   if (device.attached_dut) {
     return `Attached here as ${device.attached_dut}`;
   }
+  if (device.registered_dut) {
+    // Registered here, console closed. Worth saying rather than reading as an
+    // untouched port: attaching again lands on that same DUT, with the history
+    // and the label it already has.
+    return `Registered as ${device.registered_dut} · console closed`;
+  }
   if (device.busy === null) {
     // Never "free": nobody looked. See CollectorDevice in rest.ts.
     return "In use? Not checked";
