@@ -11,6 +11,7 @@ import FirmwareSection from "../components/FirmwareSection";
 import InviteRedeemDialog from "../components/InviteRedeemDialog";
 import LoginDialog from "../components/LoginDialog";
 import Sidebar from "../components/shell/Sidebar";
+import LiveDot from "../components/shell/LiveDot";
 import Topbar from "../components/shell/Topbar";
 import { canAccess, NAV_ITEMS, SectionId } from "../components/shell/navigation";
 import { AuthProvider, useAuth } from "../monitoring/AuthContext";
@@ -495,7 +496,7 @@ function ConsoleStatusBody({ monitor }: { monitor: DutMonitorState }) {
   return (
     <div style={{ display: "grid", gap: "var(--space-3)" }}>
       <span className={`pill ${statusMeta.pill}`} style={{ alignSelf: "flex-start" }}>
-        <span className="dot" />
+        <LiveDot live={monitor.status === "streaming"} />
         {statusMeta.label}
       </span>
       <dl className="stat-list">
@@ -925,7 +926,12 @@ function ToolbarActions({
       <div className="toolbar-status">
         {age && status !== "offline" ? <span className="toolbar-sub">{age}</span> : null}
         <span className={`pill ${statusMeta.pill}`} title="Backend link + DUT stream status">
-          <span className="dot" />
+          {/* Breathes only while data is actually arriving. The word beside it
+              is what a screen reader gets and what survives
+              prefers-reduced-motion; the motion is what an eye catches from
+              across the bench, and it is the only part that stops when the
+              stream does. */}
+          <LiveDot live={status === "streaming"} />
           {statusMeta.label}
         </span>
       </div>

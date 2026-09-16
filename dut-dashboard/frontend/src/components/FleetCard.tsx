@@ -304,7 +304,9 @@ export default function FleetCard({
             </div>
           </div>
           <span className={`pill ${meta.pill}`}>
-            <span className="dot" />
+            {/* Same dot as the console row below, same rule: it moves while
+                data is arriving from this DUT and rests otherwise. */}
+            <LiveDot live={entry.status === "streaming"} />
             {meta.label}
           </span>
         </div>

@@ -112,3 +112,28 @@ describe("a DUT whose console is somebody else's serial port", () => {
     expect(document.querySelector(".conn-remote")).toBeNull();
   });
 });
+
+describe("the one dot that means live", () => {
+  /**
+   * The rule the fleet already followed, now everywhere a live connection is
+   * reported: the dot moves while data is actually arriving and rests
+   * otherwise. Pills that classify something — a match, a recommendation, a
+   * local-only analysis — keep their static dot, because a dot that breathes
+   * for a category would take the meaning out of the one that breathes for a
+   * session.
+   */
+  const dot = () => document.querySelector(".conn-status .live-dot");
+
+  it("breathes over a console that is open", async () => {
+    await show(dut({ serial_open: true }));
+    await waitFor(() => expect(dot()).toBeTruthy());
+    expect(dot()?.classList.contains("is-live")).toBe(true);
+  });
+
+  it("keeps the word beside it, for anyone the motion never reaches", async () => {
+    await show(dut({ serial_open: true }));
+    await waitFor(() => expect(dot()).toBeTruthy());
+    expect(dot()?.getAttribute("aria-hidden")).toBe("true");
+    expect(document.querySelector(".conn-status")?.textContent).toContain("Connected");
+  });
+});

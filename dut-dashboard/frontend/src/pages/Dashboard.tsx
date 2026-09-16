@@ -15,6 +15,7 @@ import {
   SerialPortInfo,
 } from "../api/rest";
 import ConsolePanel from "../components/ConsolePanel";
+import LiveDot from "../components/shell/LiveDot";
 // Lazy-loaded so the xterm.js bundle only loads when the terminal is opened.
 const TerminalView = lazy(() => import("../components/TerminalView"));
 import { useDutMonitorContext } from "../monitoring/DutMonitorContext";
@@ -351,7 +352,9 @@ export default function Dashboard({
       {isOpen ? (
         <div className="conn-status">
           <span className="pill ok">
-            <span className="dot" />
+            {/* Open is open: this card is only drawn over a session the
+                registry confirms, so the dot breathes for the whole of it. */}
+            <LiveDot live />
             Connected
           </span>
           <span className="conn-meta">

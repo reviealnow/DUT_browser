@@ -1847,6 +1847,14 @@ body {
   background: var(--muted);
 }
 
+/* Inside a status pill the colour is already the pill's: a red Offline dot has
+   to stay red, and only the live state has anything to add. So a resting dot in
+   a pill looks exactly as it did before this component reached it, and the
+   motion is the only thing that is new. */
+.pill .live-dot:not(.is-live) {
+  background: currentColor;
+}
+
 .live-dot.is-live {
   background: var(--ok);
   animation: live-breathe 2.4s ease-in-out infinite;
