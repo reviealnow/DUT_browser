@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render } from "@testing-library/react";
+import { fireEvent, render, RenderResult } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import ConsolePanel from "./ConsolePanel";
@@ -96,5 +96,63 @@ describe("the console's line rendering", () => {
        from one text node to many is exactly the change that could drop it. */
     const { container } = render(panel(["    indented"], 0));
     expect(consoleBox(container).children[0].textContent).toBe("    indented\n");
+  });
+});
+
+describe("waking a console that has said nothing", () => {
+  /**
+   * A bare newline is the first thing anyone sends to a silent serial console:
+   * a DUT at a shell prompt answers with its prompt, one waiting for a login
+   * shows the login again, and one that is simply not connected stays silent --
+   * which is the answer too.
+   *
+   * The command box will not send it. `sendCommand` drops an empty value on
+   * purpose, so Send with nothing typed does nothing at all, and on the bench
+   * the only ways left were to switch the whole console into terminal mode or
+   * to invent a command to run.
+   */
+  function withSend() {
+    const sent: string[] = [];
+    const view = render(
+      <ConsolePanel
+        lines={[]}
+        linesStartSeq={0}
+        onSend={async (text) => {
+          sent.push(text);
+        }}
+        onDownloadLog={() => {}}
+        canDownloadLog={false}
+      />,
+    );
+    return { sent, view };
+  }
+
+  const button = (view: RenderResult, label: string) =>
+    [...view.container.querySelectorAll("button")].find((b) => b.textContent === label)!;
+
+  it("sends exactly one newline, and nothing else", () => {
+    const { sent, view } = withSend();
+    fireEvent.click(button(view, "Send Enter"));
+    expect(sent).toEqual(["\n"]);
+  });
+
+  it("leaves a half-typed command alone", () => {
+    // The reason this is its own button rather than a meaning for an empty
+    // Send: somebody mid-command still wants to see whether the far end is
+    // awake, and losing what they typed to find out would be a poor trade.
+    const { sent, view } = withSend();
+    const input = view.container.querySelector("input")!;
+    fireEvent.change(input, { target: { value: "cat /proc/cpuinfo" } });
+    fireEvent.click(button(view, "Send Enter"));
+    expect(sent).toEqual(["\n"]);
+    expect(input.value).toBe("cat /proc/cpuinfo");
+  });
+
+  it("still refuses to send an empty command from the box itself", () => {
+    // The guard that made the button necessary stays: Send on an empty box is
+    // a misclick, not a request to poke the DUT.
+    const { sent, view } = withSend();
+    fireEvent.click(button(view, "Send"));
+    expect(sent).toEqual([]);
   });
 });

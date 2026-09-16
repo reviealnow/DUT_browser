@@ -291,6 +291,20 @@ export default function ConsolePanel({
         <button type="button" onClick={openEditor}>
           Edit in Popup
         </button>
+        {/* The one thing the box above refuses to send. `sendCommand` drops an
+            empty value on purpose -- Send with nothing typed should not put a
+            stray newline on somebody's console -- but a bare newline is exactly
+            what wakes a console that has said nothing: a DUT at a shell prompt
+            answers with it, and one waiting for a login shows the login again.
+            Found on the bench, where the only way to ask was to switch to
+            terminal mode or invent a command to run. */}
+        <button
+          type="button"
+          onClick={() => void onSend("\n")}
+          title="Send a bare newline — what wakes a console that has said nothing"
+        >
+          Send Enter
+        </button>
         <button type="submit">Send</button>
       </form>
       <div style={{ marginTop: 6, fontSize: 12, color: shouldSuggestPopup ? "#8a4b00" : "#666" }}>

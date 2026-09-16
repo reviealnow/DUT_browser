@@ -161,6 +161,8 @@ dialog::backdrop{background:rgba(20,30,55,.35)}
           <input id="command" placeholder="Type command" aria-label="Command">
           <span class="concept" title="Every line in the box above came off a real DUT; nothing typed here is added to it">◇ no DUT: nothing is sent</span>
           <button type="button" class="btn" id="btnPopup">Edit in Popup</button>
+          <button type="button" class="btn" id="btnEnter"
+                  title="Send a bare newline — what wakes a console that has said nothing">Send Enter</button>
           <button type="submit" class="btn btn-primary">Send</button>
         </form>
         <div class="hint" id="sendHint">Use the popup editor for scripts, multiline commands, or large pasted content.</div>
@@ -272,6 +274,16 @@ function send(text){
   toast(`Sent nowhere — this demo has no DUT. The product writes “${trimmed}” to the serial `
       + "port, and what appears above is the device's own echo coming back on the stream.");
 }
+
+/* The one thing the box refuses: `send` drops an empty value, and a bare
+   newline is what wakes a console that has said nothing. Same refusal to
+   invent an echo -- a device at a prompt answers a newline with its prompt,
+   and there is no device here to answer. */
+$("btnEnter").addEventListener("click", () => {
+  toast("Sent nowhere — this demo has no DUT. The product writes a bare newline to the serial "
+      + "port: a device at a shell prompt answers with its prompt, one waiting for a login shows "
+      + "the login again, and what appears above is the device's own output coming back.");
+});
 
 $("sendForm").addEventListener("submit", (ev) => {
   ev.preventDefault();
