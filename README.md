@@ -4,7 +4,9 @@ Browser-based DUT monitoring dashboard for AP / network-device QA.
 FastAPI backend + React/Vite frontend, served over your LAN and opened in any
 modern browser. Monitors **multiple DUTs** (dynamic registry, per-DUT serial
 sessions) with a fleet overview, per-DUT drill-down, Wi-Fi site survey, and a
-shared lab workspace (files + bulletin).
+shared lab workspace (files + bulletin). A DUT's console can be the serial port
+on this machine **or one on a Raspberry Pi across the lab**, reached over SSH —
+same parser, same snapshot history, same log.
 
 > **Not a desktop app.** This build is intentionally browser-only — no Tauri,
 > no Electron, no Rust, no desktop packaging. It runs as a local web service so
@@ -16,7 +18,7 @@ shared lab workspace (files + bulletin).
 
 Running the real thing needs an access point on a bench, a free serial port,
 both servers and `sysMon` alive on the device. So the repository also ships a
-**demo kit**: eleven self-contained HTML files in
+**demo kit**: thirteen self-contained HTML files in
 [`dut-dashboard/demo/`](dut-dashboard/demo/) — one per screen, markup, styles,
 script and data inlined.
 
@@ -128,6 +130,7 @@ of sharing the primary checkout's.
 flowchart TD
     subgraph SRC["DUT sources (one per registered DUT)"]
       SER["Serial port (pyserial)"]
+      SSH["Console on a remote host<br/>ssh + socat on a Raspberry Pi"]
       REP["Replay log file"]
     end
 
@@ -147,10 +150,11 @@ flowchart TD
     subgraph FE["Frontend — Vite/React (:5173 dev, served by :8000 in prod)"]
       MON["useDutMonitor (per-DUT)<br/>useFleetMonitor (all DUTs, demuxed)"]
       CTX["DutMonitorContext (shared)"]
-      UI["App shell: Overview · Fleet · charts ·<br/>Site Survey · Serial Console · Workspace"]
+      UI["App shell: Overview · Fleet (DUTs · Hosts · Profiles) ·<br/>charts · Site Survey · Serial Console · Workspace"]
     end
 
     SER --> SW
+    SSH --> SW
     REP --> SW
     REG --> SW
     SW --> LOGF
@@ -180,18 +184,31 @@ flowchart TD
 
 ## Features
 
-- **App shell** — 12-section sidebar in three groups (Monitoring / Workspace /
-  System), sticky top toolbar with a DUT switcher, KPI row, and a uniform card
-  grid, built on the Luna "Spacing – Dashboards" design system (single accent
-  colour + one spacing scale via CSS tokens). Responsive mobile layout with a
-  nav drawer.
+- **App shell** — 16-section sidebar in four groups (Monitoring / Fleet /
+  Workspace / System) that collapses to a 64px rail with per-group flyouts,
+  sticky top toolbar with a DUT switcher, KPI row, and a uniform card grid,
+  built on the Luna "Spacing – Dashboards" design system (single accent colour +
+  one spacing scale via CSS tokens). Responsive mobile layout with a nav drawer.
+  Anything reporting a **live** connection carries one breathing dot; a static
+  screenshot cannot fake motion, which is the point of it.
 - **Overview** — live KPIs + connection-status pill (`Streaming` / `No DUT` /
   `Offline`), CPU trend, memory trend (live from streamed `/proc/meminfo`, with
   a post-analysis fallback), Wi-Fi client summary, per-band channel
   recommendation, and a critical-crash feed for the selected DUT.
-- **Fleet** — at-a-glance card per registered DUT (status / CPU busy% / crash
-  count / last activity / band recommendation), all updated live from a single
-  demuxed `/ws` connection.
+- **Fleet** — three pages sharing one subject:
+  - *DUTs & Mesh* — a card per registered DUT (status / CPU busy% / crash count /
+    last activity / band recommendation), updated live from a single demuxed
+    `/ws` connection, plus the mesh backhaul captured in both directions.
+  - *Hosts* — the boxes this dashboard can reach over SSH, one card each, and the
+    **DUT consoles behind them**: a scan reports which serial devices the box has,
+    which are busy and what is holding them, and attaching one opens an ordinary
+    DUT whose transport happens to be `socat` on the far end. A typed password is
+    held in the backend's memory for the life of the process and written to no
+    file, so a restart keeps the host and asks for the login again.
+  - *Profiles* — saved host settings (address, port, login name, device name)
+    with a scope and an owner: *shared* is the bench, *private* is its author
+    alone, and only the owner may change either. They carry **no password**,
+    because the one above is never on disk to copy.
 - **Multi-DUT registry** — add/remove DUTs at runtime (`/api/duts`); every DUT
   gets its own serial session, snapshot history, and console buffer.
 - **Wi-Fi tooling** — associated-client tables per VAP (`wlanconfig`), SSID
@@ -202,7 +219,8 @@ flowchart TD
   (bar rows), channel-occupancy bars. Each emits its source data as
   `<script type="application/json">` so a future Chart.js migration needs zero
   backend change.
-- **Serial console** with realtime line streaming, a Critical Crash panel
+- **Serial console** — over a local serial port, a replay file, or a console on
+  a remote host, with realtime line streaming, a Critical Crash panel
   (server-persisted editable keywords, see Settings), DUT log download, a
   **replay mode** for offline logs, and an **interactive terminal** mode
   (bundled xterm.js over `/ws/term`) for `vi` / `nano` on the DUT.
@@ -238,7 +256,9 @@ flowchart TD
     ├── demo/               the demo kit — one self-contained HTML file per screen,
     │                       build_demo_data.py to regenerate them from a real
     │                       bundle, verify/ to drive them in a real DOM
-    ├── tools/              analyzer3.py · log_event_detector.py
+    ├── tools/              analyzer3.py · log_event_detector.py · wifi_timeseries.py ·
+    │                       context_render.py · bench_*.py (diagnostics that need the
+    │                       hardware — see README_bench_tools.md)
     ├── scripts/            sysMon.sh (DUT-side telemetry script)
     ├── data/               workspace.db + uploads/ (runtime, gitignored)
     └── logs/               session logs + snapshots-*.jsonl + analyzer_output (gitignored)
@@ -333,6 +353,10 @@ Per-DUT endpoints accept `?dut=<id>` (defaults to the `default` DUT).
 | CRUD | `/api/files` · `/api/bulletin/posts` (+comments) | workspace file sharing · bulletin board |
 | `POST/GET` | `/api/auth/register` · `/me` · `/logout` · `/redeem` · `/invites` · `/users` · `/role-changes` | role sessions · QR invite tokens · roster + audit trail (admin) |
 | `GET/POST` | `/api/firmware/config` · `/upgrade` | admin firmware upgrade: transports, DUT access, dry run + real flash |
+| `GET/POST/DELETE` | `/api/collectors` · `/{id}/connect` · `/disconnect` · `/password` | admin: register a host reached over SSH, log in, hand back a password a restart forgot |
+| `GET/POST` | `/api/collectors/{id}/consoles` · `/attach` · `/detach` | what serial devices that host has and what is in the way; open or close a DUT console on one |
+| `GET/POST/PUT/DELETE` | `/api/fleet/profiles` | admin: saved host settings, scoped shared or private, owner-only to change, never a password |
+| `POST/GET` | `/api/fleet/nodes/{dut}/connect` · `/rssi` · `/mesh` | admin: remote-node lifecycle, backhaul capture, mesh read over the DUT's management API |
 
 ## Known limitations
 
@@ -345,6 +369,11 @@ Per-DUT endpoints accept `?dut=<id>` (defaults to the `default` DUT).
   parsing; they are unavailable in replay mode.
 - **Interactive terminal assumes a single controller** per DUT and pauses
   monitoring while active.
+- **A remote host's password is held in memory only** — nothing writes it to
+  disk, so a backend restart keeps the host registered and asks for the login
+  again. Key authentication is the alternative, and the key file stays on the
+  dashboard's machine. An unknown SSH host key is reported, never accepted for
+  you: SSH to a new host by hand once first.
 - **Auth is role-based, not per-user access control** — browsing is open as
   `guest`; `engineer` and `admin` are unlocked by a shared passcode (or a QR
   invite token), so a role proves someone held the passcode, not who they are.

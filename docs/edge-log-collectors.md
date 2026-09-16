@@ -147,7 +147,7 @@ it is what a screen reader gets, and `prefers-reduced-motion` stops the motion
 — so colour and text have to carry the state on their own.
 
 `connected` is asked of the process table on every read, never cached. The
-Settings card re-reads it every 5s.
+Hosts page re-reads it every 5s.
 
 ## Hostname vs IP
 
@@ -219,7 +219,8 @@ before they are shown or used, because each one ends up interpolated into a
 ### Attaching one
 
 **This is the only place consoles are registered now.** The *Fleet remote nodes*
-card in Settings was retired with the merge; the two declarations it carried
+card that used to live in Settings was retired with the merge; the two
+declarations it carried
 that nothing can measure — whether the DUT is in a mesh, and the fallback
 backhaul VAP — are asked for **per port**, on the row you are attaching. Per
 port and not per panel on purpose: one toggle governing whichever device you

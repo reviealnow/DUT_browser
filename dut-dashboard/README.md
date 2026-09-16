@@ -45,12 +45,21 @@ Vite proxy target updated).
 ### DUTs on a remote Raspberry Pi
 
 A DUT that is not cabled to this machine can be reached over SSH to a Pi that
-pipes its serial port through `socat`. Register one under **Settings → Fleet
-remote nodes** as an admin. Setup, that form and the API behind it, how to read
-the Fleet strip's rows and what the failure modes mean are in
-[`docs/fleet-remote-nodes.md`](../docs/fleet-remote-nodes.md) — start there, in
-particular for the two prerequisites that are easy to get wrong: the SSH key must
-have **no passphrase**, and the Pi must already be a known host.
+pipes its serial port through `socat`. It is two steps under **Fleet ▸ Hosts**,
+as an admin: register the Pi as a host and press **Verify** to log in, then
+**Attach** the serial device the DUT is on. The card lists what the box has and
+what stands in the way — `socat` missing, the login not in `dialout`, a port
+something else is already holding.
+
+Two prerequisites are easy to get wrong, and both are reported rather than
+worked around: an **unknown SSH host key** is never accepted for you (SSH to the
+box by hand once, check the fingerprint), and a **key must have no passphrase** —
+or use a password, which is held in the backend's memory for the life of the
+process and written to no file, so a restart asks for it again.
+
+The mechanics, the failure modes and how to read the Fleet rows are in
+[`docs/edge-log-collectors.md`](../docs/edge-log-collectors.md) and
+[`docs/fleet-remote-nodes.md`](../docs/fleet-remote-nodes.md).
 
 ## Upgrading from a previous version
 
@@ -92,6 +101,8 @@ frontend/src/
 │   ├── charts/                   Sparkline (inline SVG) · ChartData (JSON blob)
 │   ├── FleetCard.tsx             one DUT's card, shared by both fleet views
 │   ├── FleetStrip.tsx · FleetSection.tsx   Overview strip (glance + switch) · Fleet section (whole backhaul capture)
+│   ├── FleetHostsSection.tsx · CollectorConsoles.tsx   hosts reached over SSH, one card each · the DUT consoles behind one
+│   ├── FleetProfilesSection.tsx  saved host settings (scope + owner, never a password)
 │   ├── WifiClientsCard.tsx · SsidCapabilityCard.tsx · SiteSurveyCard.tsx
 │   │                             on-demand Wi-Fi captures: client tables · capability report · site survey
 │   ├── RecommendationPill.tsx · BandRecoSummary.tsx   per-band channel recommendation UI

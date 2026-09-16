@@ -89,7 +89,7 @@ environment variable; with neither, the role stays locked. Log in, choose
 
 ## 4. Register each node
 
-**Settings → Edge log collectors**, logged in as admin. There is one card now:
+**Fleet ▸ Hosts**, logged in as admin. There is one card per box now:
 the *Fleet remote nodes* card was retired when the two models were merged, and
 everything it did is done here in two steps that match what is actually on the
 bench.
