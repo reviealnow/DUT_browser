@@ -34,6 +34,8 @@ const setCollectorPassword = vi.fn();
 const configureCollector = vi.fn();
 const removeCollector = vi.fn();
 const getCollectorConsoles = vi.fn();
+const getCollectorHostKey = vi.fn();
+const trustCollectorHostKey = vi.fn();
 const getFleetProfiles = vi.fn();
 const createFleetProfile = vi.fn();
 const attachCollectorConsole = vi.fn();
@@ -48,6 +50,8 @@ vi.mock("../api/rest", async (importOriginal) => ({
   configureCollector: (...args: unknown[]) => configureCollector(...args),
   removeCollector: (...args: unknown[]) => removeCollector(...args),
   getCollectorConsoles: (...args: unknown[]) => getCollectorConsoles(...args),
+  getCollectorHostKey: (...args: unknown[]) => getCollectorHostKey(...args),
+  trustCollectorHostKey: (...args: unknown[]) => trustCollectorHostKey(...args),
   getFleetProfiles: () => getFleetProfiles(),
   createFleetProfile: (...args: unknown[]) => createFleetProfile(...args),
   attachCollectorConsole: (...args: unknown[]) => attachCollectorConsole(...args),
@@ -116,6 +120,10 @@ beforeEach(() => {
   role = "admin";
   vi.clearAllMocks();
   getCollectorConsoles.mockResolvedValue(consoles());
+  getCollectorHostKey.mockResolvedValue({
+    host: "10.0.0.9", port: 22, known: true, known_keys: [], presented_keys: [],
+    matches: true, scan_error: null,
+  });
   getFleetProfiles.mockResolvedValue([]);
   configureCollector.mockResolvedValue(undefined);
   connectCollector.mockResolvedValue({ ok: true, hostname_matches: true });
@@ -599,5 +607,91 @@ describe("who sees this at all", () => {
     const { container } = render(<FleetHostsSection onManageProfiles={manageProfiles} />);
     expect(container.firstChild).toBeNull();
     expect(getCollectors).not.toHaveBeenCalled();
+  });
+});
+
+describe("the host key, where the operator already is", () => {
+  /**
+   * An unknown host key is reported and never accepted for the operator, and
+   * the way out used to be a terminal trip. This panel makes the same decision
+   * available where the work is — and keeps it a decision: what is trusted is
+   * the fingerprint on screen, not whatever answers next.
+   */
+  function keyStatus(over: Partial<import("../api/rest").HostKeyStatus> = {}) {
+    return {
+      host: "10.0.0.9",
+      port: 22,
+      known: false,
+      known_keys: [],
+      presented_keys: [{ type: "ssh-ed25519", bits: "256", fingerprint: "SHA256:LIVEkey" }],
+      matches: null,
+      scan_error: null,
+      ...over,
+    };
+  }
+
+  async function openDetails(status: ReturnType<typeof keyStatus>) {
+    getCollectorHostKey.mockResolvedValue(status);
+    await show([collector()]);
+    button("Details")!.click();
+    await screen.findByText("Host key");
+  }
+
+  it("offers to trust a key this machine has never seen, and says what that is worth", async () => {
+    await openDetails(keyStatus());
+    expect(screen.getByText("not known to this machine")).toBeTruthy();
+    expect(screen.getByText("SHA256:LIVEkey")).toBeTruthy();
+    expect(button("Trust this key")).toBeTruthy();
+    // Said plainly rather than implied: this is trust on first use, and the
+    // only real check is reading the fingerprint off the box itself.
+    expect(screen.getByText(/same trust-on-first-use/)).toBeTruthy();
+    expect(screen.getByText(/ssh_host_ed25519_key.pub/)).toBeTruthy();
+  });
+
+  it("trusts the fingerprint that was shown, not the host in general", async () => {
+    // The whole difference from StrictHostKeyChecking=accept-new: the answer
+    // names a key, and the backend re-reads before it writes.
+    trustCollectorHostKey.mockResolvedValue({ ok: true, trusted: "SHA256:LIVEkey", type: "ssh-ed25519" });
+    await openDetails(keyStatus());
+    button("Trust this key")!.click();
+    await waitFor(() =>
+      expect(trustCollectorHostKey).toHaveBeenCalledWith("edge1", "SHA256:LIVEkey"),
+    );
+  });
+
+  it("offers nothing to press when a key is already on record", async () => {
+    await openDetails(keyStatus({
+      known: true,
+      known_keys: [{ type: "ssh-ed25519", bits: "256", fingerprint: "SHA256:LIVEkey" }],
+      matches: true,
+    }));
+    expect(screen.getByText("on record, and it matches")).toBeTruthy();
+    expect(button("Trust this key")).toBeUndefined();
+  });
+
+  it("says stop when the host presents something else", async () => {
+    await openDetails(keyStatus({
+      known: true,
+      known_keys: [{ type: "ssh-ed25519", bits: "256", fingerprint: "SHA256:OLDkey" }],
+      matches: false,
+    }));
+    expect(screen.getByText(/presenting a different one/)).toBeTruthy();
+    // Nothing on this page overwrites it: a reimaged box and a replaced one
+    // look the same from here.
+    expect(button("Trust this key")).toBeUndefined();
+    expect(screen.getByText(/ssh-keygen -R/)).toBeTruthy();
+  });
+
+  it("does not read an unreachable box as a changed key", async () => {
+    await openDetails(keyStatus({
+      known: true,
+      known_keys: [{ type: "ssh-ed25519", bits: "256", fingerprint: "SHA256:LIVEkey" }],
+      presented_keys: [],
+      matches: null,
+      scan_error: "No SSH key came back from 10.0.0.9:22 — ssh-keyscan said: No route to host",
+    }));
+    expect(screen.getByText(/nothing answered just now/)).toBeTruthy();
+    expect(screen.queryByText(/presenting a different one/)).toBeNull();
+    expect(screen.getByText(/No route to host/)).toBeTruthy();
   });
 });

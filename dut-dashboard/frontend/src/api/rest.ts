@@ -652,6 +652,45 @@ export type CollectorConsoles = {
   blockers: string[];
 };
 
+/** One SSH host key, as OpenSSH's own tools describe it. */
+export type HostKey = { type: string; bits: string; fingerprint: string };
+
+/** What this machine knows about a host's key, and what the host says now. */
+export type HostKeyStatus = {
+  host: string;
+  port: number;
+  /** Whether `known_hosts` already has an entry for this address. */
+  known: boolean;
+  known_keys: HostKey[];
+  presented_keys: HostKey[];
+  /** Whether a key on record is one the host presents now. **Null means nobody
+   *  could look** — the scan failed — and that is kept apart from false: a
+   *  host that is known but presents something else is the case worth stopping
+   *  for, and an unreachable box must not raise that alarm. */
+  matches: boolean | null;
+  /** ssh-keyscan's own words when the scan failed, or null. */
+  scan_error: string | null;
+};
+
+export async function getCollectorHostKey(id: string): Promise<HostKeyStatus> {
+  return get<HostKeyStatus>(`/api/collectors/${encodeURIComponent(id)}/hostkey`);
+}
+
+/**
+ * Record the key with this fingerprint, so a login can be attempted.
+ *
+ * The fingerprint is not decoration: the backend re-reads the host and writes
+ * only if it still matches, so this is an answer about the key that was on
+ * screen rather than about whatever answers next. It refuses outright when the
+ * address already has a key on record.
+ */
+export async function trustCollectorHostKey(
+  id: string,
+  fingerprint: string,
+): Promise<{ ok: boolean; trusted: string; type: string }> {
+  return post(`/api/collectors/${encodeURIComponent(id)}/hostkey/trust`, { fingerprint });
+}
+
 export async function getCollectorConsoles(id: string): Promise<CollectorConsoles> {
   return get<CollectorConsoles>(`/api/collectors/${encodeURIComponent(id)}/consoles`);
 }

@@ -2,6 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   CollectorStatus,
+  getCollectorHostKey,
+  HostKeyStatus,
+  trustCollectorHostKey,
   configureCollector,
   connectCollector,
   disconnectCollector,
@@ -626,6 +629,15 @@ function HostCard({
               </>
             ) : null}
           </div>
+          {/* Only for a host that exists: there is nothing to read a key from
+              until an address has been registered. */}
+          {collector ? (
+            <HostKeyPanel
+              collector={collector}
+              onTrusted={onSaved}
+              onError={onError}
+            />
+          ) : null}
         </div>
       ) : null}
 
@@ -747,6 +759,130 @@ function SaveAsProfile({
       <div className="setting-hint">
         A profile holds the address, port, user and name — never the password.
       </div>
+    </div>
+  );
+}
+
+/**
+ * The host key, where the operator already is.
+ *
+ * An unknown key is reported by this dashboard and never accepted for it, and
+ * the way out used to be a terminal: SSH to the box by hand, read a fingerprint
+ * nobody compares, type `yes`. That is the same decision this makes — it is
+ * simply made here, with the fingerprint on screen and a line saying how to
+ * check it for real.
+ *
+ * Trusting names a fingerprint. The backend re-reads the host and writes only
+ * if it still matches, which is what separates this from
+ * `StrictHostKeyChecking=accept-new`: the answer is about the key that was
+ * shown, not about whatever answers next. A host that already has a key on
+ * record is refused outright — a reimaged box and a replaced one look the same
+ * from here.
+ */
+function HostKeyPanel({
+  collector,
+  onTrusted,
+  onError,
+}: {
+  collector: CollectorStatus;
+  onTrusted: (message: string) => Promise<void>;
+  onError: (message: string) => void;
+}) {
+  const [state, setState] = useState<HostKeyStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const read = useCallback(async () => {
+    setBusy(true);
+    try {
+      setState(await getCollectorHostKey(collector.id));
+    } catch (err) {
+      onError(humanizeApiError(err));
+    } finally {
+      setBusy(false);
+    }
+  }, [collector.id, onError]);
+
+  useEffect(() => {
+    void read();
+  }, [read]);
+
+  if (!state) {
+    return <div className="setting-hint">{busy ? "Reading the host key…" : ""}</div>;
+  }
+
+  const presented = state.presented_keys[0] ?? null;
+  return (
+    <div className="hostkey">
+      <div className="hostkey-line">
+        <strong>Host key</strong>
+        {state.known ? (
+          state.matches === false ? (
+            // The one state that means stop. Said as loudly as the layout allows.
+            <span className="fleet-fact-danger">on record, and the host is presenting a different one</span>
+          ) : state.matches === null ? (
+            <span className="fleet-fact-idle">on record · nothing answered just now</span>
+          ) : (
+            <span className="fleet-fact-ok">on record, and it matches</span>
+          )
+        ) : (
+          <span className="fleet-fact-idle">not known to this machine</span>
+        )}
+        <button type="button" className="btn" disabled={busy} onClick={() => void read()}>
+          {busy ? "Reading…" : "Re-read"}
+        </button>
+      </div>
+
+      {state.known_keys.map((key) => (
+        <div key={`known-${key.fingerprint}`} className="hostkey-key">
+          <span className="hostkey-what">on record</span>
+          <code>{key.type}</code>
+          <code className="hostkey-print">{key.fingerprint}</code>
+        </div>
+      ))}
+      {state.presented_keys.map((key) => (
+        <div key={`live-${key.fingerprint}`} className="hostkey-key">
+          <span className="hostkey-what">presented</span>
+          <code>{key.type}</code>
+          <code className="hostkey-print">{key.fingerprint}</code>
+        </div>
+      ))}
+      {state.scan_error ? <div className="setting-hint">{state.scan_error}</div> : null}
+
+      {!state.known && presented ? (
+        <>
+          <div className="setting-hint">
+            Nobody has verified this key. Trusting it here is the same answer as typing{" "}
+            <code>yes</code> at an SSH prompt — and the same trust-on-first-use. To check it
+            for real, read the fingerprint off the box itself:{" "}
+            <code>ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub</code>, and compare.
+          </div>
+          <button
+            type="button"
+            className="btn primary"
+            disabled={busy}
+            onClick={() => {
+              setBusy(true);
+              void trustCollectorHostKey(collector.id, presented.fingerprint)
+                .then(async (answer) => {
+                  await onTrusted(
+                    `Trusted ${answer.type} ${answer.trusted} for ${state.host}. Press Verify.`,
+                  );
+                  await read();
+                })
+                .catch((err) => onError(humanizeApiError(err)))
+                .finally(() => setBusy(false));
+            }}
+          >
+            Trust this key
+          </button>
+        </>
+      ) : null}
+      {state.known && state.matches === false ? (
+        <div className="setting-hint">
+          Nothing here will overwrite it. If the box really was reimaged, remove the old entry
+          by hand — <code>ssh-keygen -R {state.host}</code> — and read this panel again.
+        </div>
+      ) : null}
     </div>
   );
 }

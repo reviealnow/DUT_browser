@@ -138,6 +138,11 @@ ROLE_MAP: dict[tuple[str, str], str | None] = {
     ("DELETE", "/api/collectors/{collector_id}"): "admin",
     # The consoles behind a collector: reading the list runs commands on it, and
     # attaching opens a DUT console over its serial port.
+    # Reaching a box to read the key it presents, and writing one into this
+    # machine's known_hosts, are both admin -- the second decides what this
+    # dashboard will later be willing to log in to.
+    ("GET", "/api/collectors/{collector_id}/hostkey"): "admin",
+    ("POST", "/api/collectors/{collector_id}/hostkey/trust"): "admin",
     ("GET", "/api/collectors/{collector_id}/consoles"): "admin",
     ("POST", "/api/collectors/{collector_id}/consoles/attach"): "admin",
     ("POST", "/api/collectors/{collector_id}/consoles/detach"): "admin",

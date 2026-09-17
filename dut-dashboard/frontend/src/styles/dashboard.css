@@ -2306,6 +2306,52 @@ body {
   font-size: 13px;
 }
 
+/* The host key, inside a card's Details. Fingerprints are long and the whole
+   point is that they can be read and compared character by character, so they
+   get their own line and a monospace face rather than being squeezed beside a
+   label. */
+.hostkey {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  border-top: 1px dashed var(--border);
+  padding-top: var(--space-3);
+}
+
+.hostkey-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+
+.hostkey-line .btn {
+  margin-left: auto;
+}
+
+.hostkey-key {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.hostkey-what {
+  color: var(--muted);
+  min-width: 68px;
+}
+
+.hostkey-print {
+  word-break: break-all;
+}
+
+.fleet-fact-danger {
+  color: var(--danger);
+}
+
 /* ---------- Fleet > Profiles --------------------------------------------
 
    Nine columns do not fit a laptop half-screen, let alone a phone. Scroll the
