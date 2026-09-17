@@ -97,8 +97,10 @@ function AppShellInner() {
   // was labelled "No DUT" over a console that was open and merely quiet.
   //
   // Read once per DUT and once per registry change, never polled: the registry
-  // is the authority, and `registryVersion` is already bumped by everything
-  // that opens or closes one.
+  // is the authority, and everything that opens or closes a console bumps
+  // `registryVersion`. That was written here before it was true -- only
+  // Settings reported a change, so a console attached on Fleet > Hosts was
+  // invisible to this and to the switcher until something else asked.
   const [consoleOpen, setConsoleOpen] = useState(false);
   useEffect(() => {
     let cancelled = false;
@@ -367,7 +369,12 @@ function renderSection(
     case "fleethosts":
       // The 🗂 button on a host card goes to the page that owns saved settings,
       // rather than growing a second editor for them here.
-      return <FleetHostsSection onManageProfiles={() => onNavigate("fleetprofiles")} />;
+      return (
+        <FleetHostsSection
+          onManageProfiles={() => onNavigate("fleetprofiles")}
+          onRegistryChanged={onRegistryChanged}
+        />
+      );
     case "fleetprofiles":
       return <FleetProfilesSection />;
     case "console":

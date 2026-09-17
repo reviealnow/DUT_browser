@@ -78,7 +78,7 @@ function collector(over: Partial<CollectorStatus> = {}): CollectorStatus {
 
 async function show(rows: CollectorStatus[]) {
   getCollectors.mockResolvedValue(rows);
-  render(<FleetHostsSection onManageProfiles={manageProfiles} />);
+  render(<FleetHostsSection onManageProfiles={manageProfiles} onRegistryChanged={registryChanged} />);
   if (rows.length) {
     await screen.findByLabelText(`Name for ${rows[0].id}`);
   } else {
@@ -111,6 +111,7 @@ function device(over: Partial<CollectorConsoles["devices"][number]> = {}) {
 }
 
 const manageProfiles = vi.fn();
+const registryChanged = vi.fn();
 
 beforeEach(() => {
   role = "admin";
@@ -442,6 +443,28 @@ describe("the DUT consoles behind a collector", () => {
     );
   });
 
+  it("says the DUT registry changed, so the rest of the app can catch up", async () => {
+    /**
+     * Attaching REGISTERS a DUT. The topbar switcher reads the registry once
+     * and then only when a version counter moves, and nothing here moved it --
+     * so the bench saw three cards in the fleet grid, two entries in the
+     * switcher, and a console that worked perfectly.
+     */
+    attachCollectorConsole.mockResolvedValue({ dut: "edge1-ttyusb0", device: "/dev/ttyUSB0" });
+    await showConnected(consoles({ devices: [device()] }));
+    button("Attach")!.click();
+    await waitFor(() => expect(registryChanged).toHaveBeenCalled());
+  });
+
+  it("says it on detach too, because a session ended", async () => {
+    detachCollectorConsole.mockResolvedValue({ dut: "edge1-ttyusb0", device: "/dev/ttyUSB0" });
+    await showConnected(
+      consoles({ devices: [device({ attached_dut: "edge1-ttyusb0", busy: true })] }),
+    );
+    button("Detach")!.click();
+    await waitFor(() => expect(registryChanged).toHaveBeenCalled());
+  });
+
   it("says what stands between the collector and a console", async () => {
     await showConnected(
       consoles({
@@ -596,7 +619,7 @@ describe("who sees this at all", () => {
   it("draws nothing for an engineer", async () => {
     // Every /api/collectors route is admin, so a form here could only 403.
     role = "engineer";
-    const { container } = render(<FleetHostsSection onManageProfiles={manageProfiles} />);
+    const { container } = render(<FleetHostsSection onManageProfiles={manageProfiles} onRegistryChanged={registryChanged} />);
     expect(container.firstChild).toBeNull();
     expect(getCollectors).not.toHaveBeenCalled();
   });
