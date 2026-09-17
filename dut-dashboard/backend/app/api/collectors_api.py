@@ -15,6 +15,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
+from app.collector import hostkey as host_keys
 from app.collector import probe as collector_probe
 from app.collector.registry import MAX_COLLECTORS, PORT_MAX, PORT_MIN, CollectorError
 from app.collector.ssh_session import CollectorSshError
@@ -51,6 +52,18 @@ class CollectorBody(BaseModel):
 
 class PasswordBody(BaseModel):
     password: str
+
+
+class TrustKeyBody(BaseModel):
+    """The fingerprint the operator confirmed, and nothing else.
+
+    Naming it is what separates this from `StrictHostKeyChecking=accept-new`:
+    the server re-reads the host and writes only if the key still matches what
+    was on screen. A body that said "trust whatever is there" would be the
+    option this one was chosen over.
+    """
+
+    fingerprint: str
 
 
 class AttachBody(BaseModel):
@@ -176,6 +189,43 @@ def connect_collector(collector_id: str, request: Request, _admin: dict = _ADMIN
         # the machine upstream refused, was unreachable, or is unidentified.
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {"ok": True, **registry.status(collector_id), **result}
+
+
+@router.get("/{collector_id}/hostkey")
+def read_hostkey(collector_id: str, request: Request, _admin: dict = _ADMIN) -> dict:
+    """What key this host presents, and what this machine already has on record.
+
+    Reads only. The scan reaches the box; the record is local. A scan that
+    fails is reported in `scan_error` with ssh-keyscan's own words rather than
+    failing the request -- the record is still worth showing, and an
+    unreachable box is a different problem from a changed key.
+    """
+    registry = _known(request, collector_id)
+    collector = registry.get(collector_id)
+    try:
+        return host_keys.status(collector.ip, collector.port)
+    except host_keys.HostKeyError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@router.post("/{collector_id}/hostkey/trust")
+def trust_hostkey(
+    collector_id: str, body: TrustKeyBody, request: Request, _admin: dict = _ADMIN
+) -> dict:
+    """Record the key with this fingerprint, so a login can be attempted.
+
+    This is the decision an operator used to make by SSHing to the box by hand
+    and answering `yes`. It is the same decision, made where the fingerprint is
+    on screen -- and it is still theirs: nothing here accepts a key nobody named.
+    """
+    registry = _known(request, collector_id)
+    collector = registry.get(collector_id)
+    try:
+        return {"ok": True, **host_keys.trust(collector.ip, collector.port, body.fingerprint)}
+    except host_keys.HostKeyError as exc:
+        # 409: the host, or this machine's record of it, is not in the state the
+        # operator was looking at. Nothing was written.
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get("/{collector_id}/consoles")

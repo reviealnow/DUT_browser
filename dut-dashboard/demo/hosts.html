@@ -146,6 +146,13 @@ input[type=password]{border:1px solid var(--border); border-radius:9px; padding:
 .device label{flex-direction:row; align-items:center; gap:6px; flex:none}
 .device input[type=text]{width:110px}
 .empty{color:var(--muted); font-size:13px; text-align:center; padding:var(--space-5)}
+/* The host key, inside Details. A fingerprint exists to be compared character
+   by character, so it gets its own line and a monospace face. */
+.hostkey{flex-basis:100%; display:flex; flex-direction:column; gap:var(--space-2); border-top:1px dashed var(--border); padding-top:var(--space-3)}
+.hostkey-line{display:flex; align-items:center; gap:var(--space-3); flex-wrap:wrap; font-size:13px}
+.hostkey-key{display:flex; align-items:baseline; gap:var(--space-2); flex-wrap:wrap; font-size:12px}
+.hostkey-what{color:var(--muted); min-width:68px}
+.hostkey-print{word-break:break-all; font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 </style>
 </head>
 <body>
@@ -153,7 +160,7 @@ input[type=password]{border:1px solid var(--border); border-radius:9px; padding:
 <!-- Registered hosts and the serial devices behind them, per the repo's
      inline-data convention. Synthetic in full — but the fields, the states and
      every refusal are the product's. See the provenance. -->
-<script id="demo-data" type="application/json">{"limit":8,"hosts":[{"id":"bench-pi","label":"Edge collector (bench)","host":"198.51.100.41","port":22,"user":"pi","auth":"password","keyPath":"","hostname":"bench-collector","connected":true,"hasPassword":true,"since":"09:10:30","reported":"bench-collector","detail":null,"devices":[{"device":"/dev/ttyUSB0","busy":false,"heldBy":null,"attached":null},{"device":"/dev/ttyUSB1","busy":true,"heldBy":"2043","attached":null},{"device":"/dev/ttyACM0","busy":null,"heldBy":null,"attached":null}]},{"id":"rack-pi","label":"Edge collector (rack)","host":"198.51.100.42","port":22,"user":"dut","auth":"password","keyPath":"","hostname":"rack-collector","connected":false,"hasPassword":false,"since":null,"reported":"bench-collector","detail":"Password forgotten on restart.","devices":[{"device":"/dev/ttyUSB0","busy":false,"heldBy":null,"attached":null}]}],"profiles":[{"id":1,"name":"bench-pi","device":"Edge collector (bench)","host":"198.51.100.41","port":22,"user":"pi","scope":"shared"},{"id":2,"name":"rack-pi","device":"Edge collector (rack)","host":"198.51.100.42","port":22,"user":"dut","scope":"private"}]}</script>
+<script id="demo-data" type="application/json">{"limit":8,"hosts":[{"id":"bench-pi","label":"Edge collector (bench)","host":"198.51.100.41","port":22,"user":"pi","auth":"password","keyPath":"","hostname":"bench-collector","connected":true,"hasPassword":true,"since":"09:10:30","reported":"bench-collector","detail":null,"devices":[{"device":"/dev/ttyUSB0","busy":false,"heldBy":null,"attached":null},{"device":"/dev/ttyUSB1","busy":true,"heldBy":"2043","attached":null},{"device":"/dev/ttyACM0","busy":null,"heldBy":null,"attached":null}],"hostKey":{"known":true,"matches":true,"keys":[{"what":"on record","type":"ssh-ed25519","fingerprint":"SHA256:8mK1nQ4wTfJ2oRbZ7yVd0pXcA6sLhEuN3gYtC5iOqPw"},{"what":"presented","type":"ssh-ed25519","fingerprint":"SHA256:8mK1nQ4wTfJ2oRbZ7yVd0pXcA6sLhEuN3gYtC5iOqPw"}]}},{"id":"rack-pi","label":"Edge collector (rack)","host":"198.51.100.42","port":22,"user":"dut","auth":"password","keyPath":"","hostname":"rack-collector","connected":false,"hasPassword":false,"since":null,"reported":"bench-collector","detail":"Password forgotten on restart.","devices":[{"device":"/dev/ttyUSB0","busy":false,"heldBy":null,"attached":null}],"hostKey":{"known":false,"matches":null,"keys":[{"what":"presented","type":"ssh-ed25519","fingerprint":"SHA256:2xR7bN5kVzQ1aWmE9fJpL0cYdT4hUoS6gBnX3iKqZrM"}]}}],"profiles":[{"id":1,"name":"bench-pi","device":"Edge collector (bench)","host":"198.51.100.41","port":22,"user":"pi","scope":"shared"},{"id":2,"name":"rack-pi","device":"Edge collector (rack)","host":"198.51.100.42","port":22,"user":"dut","scope":"private"}]}</script>
 
 
 <div class="layout">
@@ -333,7 +340,36 @@ function advancedOf(h, i, handle){
     + "blank simply means nobody is checking. A <b>key</b> must have no passphrase and its path is on "
     + "<b>this dashboard's machine</b>."
     + (h.id ? " Registered as <span class=\"mono\">" + esc(h.id) + "</span>." : "")
-    + "</div></div>";
+    + "</div>"
+    + hostKeyOf(h, i)
+    + "</div>";
+}
+
+/* An unknown host key is reported by the product and never accepted for the
+   operator. Trusting one here is the same answer as typing `yes` at an SSH
+   prompt, made where the fingerprint is on screen — and the product keeps it an
+   answer about THAT key: it re-reads the box and writes only if the fingerprint
+   still matches, and refuses outright when the address already has one on
+   record. There is no box here to re-read, so the button says so instead of
+   pretending. */
+function hostKeyOf(h, i){
+  const k = h.hostKey;
+  if (!k) return "";
+  const state = !k.known ? '<span class="state-idle">not known to this machine</span>'
+    : k.matches === false ? '<span style="color:var(--danger);font-weight:600">on record, and the host is presenting a different one</span>'
+    : k.matches === null ? '<span class="state-idle">on record · nothing answered just now</span>'
+    : '<span class="state-ok">on record, and it matches</span>';
+  const rows = (k.keys || []).map(key =>
+    '<div class="hostkey-key"><span class="hostkey-what">' + esc(key.what) + "</span>"
+    + "<code>" + esc(key.type) + '</code><code class="hostkey-print">' + esc(key.fingerprint) + "</code></div>").join("");
+  const offer = !k.known && (k.keys || []).length
+    ? '<div class="setting-hint">Nobody has verified this key. Trusting it here is the same answer as typing '
+      + "<code>yes</code> at an SSH prompt — and the same trust-on-first-use. To check it for real, read the "
+      + "fingerprint off the box itself: <code>ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub</code>, and compare.</div>"
+      + '<button class="btn primary" data-act="trust" data-i="' + i + '">Trust this key</button>'
+    : "";
+  return '<div class="hostkey"><div class="hostkey-line"><strong>Host key</strong>' + state + "</div>"
+    + rows + offer + "</div>";
 }
 
 function consolesOf(h, i){
@@ -467,6 +503,13 @@ $("cards").addEventListener("click", (ev) => {
   const act = el.dataset.act;
 
   if (act === "details"){ h.advanced = !h.advanced; render(); return; }
+
+  if (act === "trust"){
+    toast("Nothing was written — this demo has no box to read a key from. The product re-reads the "
+        + "host, writes it into known_hosts only if the fingerprint is still the one shown, and "
+        + "refuses outright when the address already has a key on record.");
+    return;
+  }
 
   if (act === "save"){
     h.saving = !h.saving;
