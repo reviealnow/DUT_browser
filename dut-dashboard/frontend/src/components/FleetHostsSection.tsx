@@ -51,9 +51,14 @@ import LiveDot from "./shell/LiveDot";
  */
 export default function FleetHostsSection({
   onManageProfiles,
+  onRegistryChanged,
 }: {
   /** Takes the reader to Fleet > Profiles, where saved settings are edited. */
   onManageProfiles: () => void;
+  /** Attaching a console registers a DUT; removing a host closes the sessions
+   *  behind it. Both change the registry the topbar switcher lists, and it
+   *  reads that once plus whenever this fires. */
+  onRegistryChanged: () => void;
 }) {
   const { role } = useAuth();
   const isAdmin = role === "admin";
@@ -165,6 +170,7 @@ export default function FleetHostsSection({
             setError(message);
           }}
           onManageProfiles={onManageProfiles}
+          onRegistryChanged={onRegistryChanged}
           onDrop={() => undefined}
         />
       ))}
@@ -192,6 +198,7 @@ export default function FleetHostsSection({
             setError(message);
           }}
           onManageProfiles={onManageProfiles}
+          onRegistryChanged={onRegistryChanged}
           onDrop={() => setDrafts((current) => current.filter((draft) => draft !== key))}
         />
       ))}
@@ -306,6 +313,7 @@ function statusOf(collector: CollectorStatus | null): string {
 function HostCard({
   collector,
   handle,
+  onRegistryChanged,
   profiles,
   takenIds,
   onSaved,
@@ -327,6 +335,7 @@ function HostCard({
   onProfileSaved: (message: string) => Promise<void>;
   onError: (message: string) => void;
   onManageProfiles: () => void;
+  onRegistryChanged: () => void;
   onDrop: () => void;
 }) {
   // Initialised once per card and then owned by the card: the five-second poll
@@ -438,6 +447,9 @@ function HostCard({
     setBusy(true);
     try {
       await removeCollector(collector.id);
+      // Its consoles went with it; the switcher is listing DUTs whose session
+      // this just ended.
+      onRegistryChanged();
       await onSaved(`${collector.label} removed.`);
     } catch (err) {
       onError(humanizeApiError(err));
@@ -641,7 +653,9 @@ function HostCard({
         </div>
       ) : null}
 
-      {connected && collector ? <CollectorConsoles collector={collector} /> : null}
+      {connected && collector ? (
+        <CollectorConsoles collector={collector} onRegistryChanged={onRegistryChanged} />
+      ) : null}
 
       <div className="host-card-foot">
         <span className="host-status">

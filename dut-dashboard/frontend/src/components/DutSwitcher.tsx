@@ -34,6 +34,7 @@ export default function DutSwitcher({
   const [newId, setNewId] = useState("");
   const [newLabel, setNewLabel] = useState("");
   const [error, setError] = useState("");
+  const openCount = duts.filter((dut) => dut.serial_open).length;
 
   const refresh = () => {
     getDuts()
@@ -104,8 +105,17 @@ export default function DutSwitcher({
         ))}
       </select>
       {canManage ? (
-        <button className="btn" onClick={() => setManageOpen((v) => !v)} title="Manage DUTs">
-          DUTs
+        <button
+          className="btn"
+          onClick={() => setManageOpen((v) => !v)}
+          title={`Manage DUTs — ${duts.length} registered, ${openCount} with a console open`}
+        >
+          {/* The count is here because the list is behind a click: a DUT
+              registered by an Attach on Fleet > Hosts used to appear only to
+              somebody who opened this, and the bench spent a while believing
+              the second host had not been created at all. The number moves
+              even when nothing is open. */}
+          DUTs {duts.length}
         </button>
       ) : null}
 

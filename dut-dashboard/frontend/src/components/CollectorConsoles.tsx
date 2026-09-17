@@ -25,7 +25,19 @@ import {
  * stop a console from opening, and `docs/fleet-remote-nodes.md` currently makes
  * somebody SSH in by hand to check each one.
  */
-export default function CollectorConsoles({ collector }: { collector: CollectorStatus }) {
+export default function CollectorConsoles({
+  collector,
+  onRegistryChanged,
+}: {
+  collector: CollectorStatus;
+  /** Attaching a console REGISTERS a DUT and detaching closes its session, so
+   *  both change what the rest of the app should be showing. Nothing here knew
+   *  to say so, and the topbar switcher — which reads the registry once and
+   *  then on a version counter — kept a list without the DUT that had just been
+   *  created. Reported from the bench: three cards in the fleet grid, two
+   *  entries in the switcher, and a console that worked perfectly. */
+  onRegistryChanged: () => void;
+}) {
   const [consoles, setConsoles] = useState<CollectorConsolesListing | null>(null);
   const [baudrate, setBaudrate] = useState(115200);
   // Per device, not per panel: whether a DUT is in a mesh is a fact about that
@@ -62,6 +74,9 @@ export default function CollectorConsoles({ collector }: { collector: CollectorS
     setError(null);
     try {
       await run();
+      // Before the rescan, not after: the registry changed the moment the call
+      // returned, and the scan is four commands on somebody's Pi.
+      onRegistryChanged();
       await scan();
     } catch (err) {
       setError(humanizeApiError(err));
