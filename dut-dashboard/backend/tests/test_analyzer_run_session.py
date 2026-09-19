@@ -10,7 +10,8 @@ from fastapi import HTTPException
 
 from app.api import analyzer_api
 from app.api.analyzer_api import AnalyzerRunSessionRequest, run_analyzer_for_session_log
-from app.services.analyzer_service import _concise_error
+from app.services import analyzer_service
+from app.services.analyzer_service import NoSysMonSnapshotsError, _concise_error
 
 
 class FakeAnalyzer:
@@ -57,6 +58,50 @@ class RunSessionEndpointTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertIn("memory.csv", result["files"])
         self.assertEqual(service.calls, [str(log)])  # resolved under LOG_DIR
+
+
+class NoSnapshotsTests(unittest.TestCase):
+    """A host console that never had sysMon run on it.
+
+    The common shape on the bench: a Pi is attached, the DUT console streams
+    megabytes, and nobody started sysMon001.sh. Analyze used to hand the
+    operator whatever analyzer3.py printed on its way out.
+    """
+
+    def test_service_refuses_a_log_with_no_sysmon_cycles(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            log = base / "dut-session-20260918-120000.log"
+            log.write_text(
+                "AP6_840E# iwconfig\nath8      no frequency information.\n" * 50,
+                encoding="utf-8",
+            )
+            script = base / "analyzer3.py"
+            script.write_text("print('never reached')\n", encoding="utf-8")
+
+            with patch.object(analyzer_service, "ANALYZER_SCRIPT", script):
+                with self.assertRaises(NoSysMonSnapshotsError) as ctx:
+                    analyzer_service.AnalyzerService().run(str(log))
+
+        self.assertEqual(ctx.exception.status_code, 422)
+        self.assertIn("no sysMon snapshots in this log", str(ctx.exception))
+
+    def test_endpoint_reports_it_as_422_not_as_an_analyzer_crash(self) -> None:
+        class RefusingAnalyzer:
+            def run(self, log_path: str) -> dict:
+                raise NoSysMonSnapshotsError("no sysMon snapshots in this log; nothing to analyse")
+
+        with tempfile.TemporaryDirectory() as d:
+            log = Path(d) / "dut-session-20260918-120000.log"
+            log.write_text("console output, no telemetry\n", encoding="utf-8")
+            with patch.object(analyzer_api, "LOG_DIR", Path(d)):
+                with self.assertRaises(HTTPException) as ctx:
+                    run_analyzer_for_session_log(
+                        AnalyzerRunSessionRequest(name=log.name), _request(RefusingAnalyzer())
+                    )
+
+        self.assertEqual(ctx.exception.status_code, 422)
+        self.assertIn("no sysMon snapshots", str(ctx.exception.detail))
 
 
 class ConciseErrorTests(unittest.TestCase):

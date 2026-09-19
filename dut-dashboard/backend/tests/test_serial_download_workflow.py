@@ -109,7 +109,7 @@ class DownloadLogWorkflowTests(unittest.TestCase):
                     serial_api.download_log("dut.log")
 
             self.assertEqual(ctx.exception.status_code, 422)
-            self.assertIn("log too short for analysis", str(ctx.exception.detail))
+            self.assertIn("no sysMon snapshots in this log", str(ctx.exception.detail))
 
     def test_download_log_short_without_top_bypasses_analyzer(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

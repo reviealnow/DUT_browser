@@ -22,6 +22,11 @@ from app.config import ANALYZER_SCRIPT, LOG_DIR, OFFLINE_TOOL_NAMES
 from app.dut.registry import DEFAULT_DUT_ID, DutContext
 from app.serial.serial_worker import PORT_LOST_MESSAGE
 from app.services import context_snapshot
+from app.services.analyzer_service import (
+    MIN_SNAPSHOT_MARKERS,
+    NoSysMonSnapshotsError,
+    ensure_log_has_snapshots,
+)
 
 router = APIRouter(prefix="/api/serial", tags=["serial"])
 logger = logging.getLogger(__name__)
@@ -83,7 +88,6 @@ class DownloadWorkflowError(Exception):
         self.status_code = status_code
 
 
-MIN_SNAPSHOT_MARKERS = 2
 DIRECT_DOWNLOAD_MAX_LINES = 100
 TOP_COMMAND_PATTERN = re.compile(r"\btop\b", re.IGNORECASE)
 
@@ -160,21 +164,18 @@ def should_bypass_analyzer(log_path: Path) -> bool:
 
 
 def ensure_log_has_minimum_snapshots(log_path: Path, minimum_markers: int = MIN_SNAPSHOT_MARKERS) -> None:
-    marker = "= Test Time:"
+    """The download flow's spelling of the shared guard.
+
+    One implementation, in analyzer_service, because Download and Analyze were
+    answering the same question differently: this path returned a sentence the
+    app had written, while Analyze let the analyzer's own stdout reach the
+    operator. Only the exception type differs here, so the download workflow
+    keeps raising what the rest of it raises.
+    """
     try:
-        with log_path.open("r", encoding="utf-8", errors="ignore") as fp:
-            count = 0
-            for line in fp:
-                if marker in line:
-                    count += 1
-                    if count >= minimum_markers:
-                        return
-    except Exception as exc:
-        raise DownloadWorkflowError(f"failed to read downloaded DUT log: {exc}", status_code=500) from exc
-    raise DownloadWorkflowError(
-        f"log too short for analysis; need at least {minimum_markers} snapshots ('{marker}')",
-        status_code=422,
-    )
+        ensure_log_has_snapshots(log_path, minimum=minimum_markers)
+    except NoSysMonSnapshotsError as exc:
+        raise DownloadWorkflowError(str(exc), status_code=exc.status_code) from exc
 
 
 def note_offline_tool_failure(session_dir: Path, tool_name: str, detail: str) -> None:

@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from app.config import ANALYZER_OUTPUT_DIR, LOG_DIR
+from app.services.analyzer_service import NoSysMonSnapshotsError
 
 router = APIRouter(prefix="/api/analyzer", tags=["analyzer"])
 
@@ -23,6 +24,8 @@ def run_analyzer(body: AnalyzerRunRequest, request: Request) -> dict:
         return request.app.state.analyzer_service.run(body.log_path)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except NoSysMonSnapshotsError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -43,6 +46,8 @@ def run_analyzer_for_session_log(body: AnalyzerRunSessionRequest, request: Reque
         return request.app.state.analyzer_service.run(str(path))
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except NoSysMonSnapshotsError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
