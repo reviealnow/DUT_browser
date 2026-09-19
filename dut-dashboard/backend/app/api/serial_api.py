@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import zipfile
 from datetime import datetime
@@ -87,15 +88,33 @@ DIRECT_DOWNLOAD_MAX_LINES = 100
 TOP_COMMAND_PATTERN = re.compile(r"\btop\b", re.IGNORECASE)
 
 
-def create_dut_session_dir() -> Path:
+def create_dut_session_dir(root: Path | None = None, zip_dir: Path | None = None) -> Path:
+    """Create the directory a bundle is assembled in.
+
+    ``root`` is where the directory itself goes -- scratch space, by the time
+    this is called from the download flow, so the 40+ MB of copied log and
+    analyzer output never lands in ``LOG_DIR``. Only the zip does.
+
+    ``zip_dir`` is where that zip will end up, and the name is reserved against
+    **it** rather than against ``root``. This used to come for free: the
+    directory was created in ``LOG_DIR`` next to its own zip, so ``mkdir``
+    refusing an existing name also protected the zip. A scratch root is empty on
+    every call, so without this check two Downloads in the same second would
+    both succeed and the second bundle would silently overwrite the first.
+    """
+    parent = root if root is not None else LOG_DIR
+    dest = zip_dir if zip_dir is not None else parent
     try:
-        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        parent.mkdir(parents=True, exist_ok=True)
     except Exception as exc:
         raise DownloadWorkflowError(f"failed to create logs root directory: {exc}", status_code=500) from exc
 
     for _ in range(3):
         session_name = f"dut-session-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-        session_dir = LOG_DIR / session_name
+        session_dir = parent / session_name
+        if (dest / f"{session_name}.zip").exists():
+            time.sleep(1)
+            continue
         try:
             session_dir.mkdir(parents=False, exist_ok=False)
             return session_dir
@@ -253,11 +272,19 @@ def bundle_session_context(session_dir: Path, log_path: Path) -> list[Path]:
     return context_snapshot.bundle_context(session_dir, log_path)
 
 
-def zip_session_dir(session_dir: Path) -> Path:
+def zip_session_dir(session_dir: Path, dest_dir: Path | None = None) -> Path:
+    """Zip the assembled bundle, writing the archive into ``dest_dir``.
+
+    Split from the directory on purpose: the bundle is assembled in scratch
+    space and only the archive is kept, so the two no longer live side by side.
+    ``arcname`` stays relative to the directory's parent, which keeps every
+    entry under the same ``dut-session-<ts>/`` prefix it has always had.
+    """
     if not session_dir.exists() or not session_dir.is_dir():
         raise DownloadWorkflowError("failed to create zip: session directory not found", status_code=500)
 
-    zip_path = session_dir.with_suffix(".zip")
+    target_dir = dest_dir if dest_dir is not None else session_dir.parent
+    zip_path = target_dir / f"{session_dir.name}.zip"
     try:
         with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             for item in sorted(session_dir.rglob("*")):
@@ -406,12 +433,19 @@ def download_log(file_name: str) -> FileResponse:
         if should_bypass_analyzer(source_log_path):
             return FileResponse(path=source_log_path, filename=safe_name, media_type="text/plain")
 
-        session_dir = create_dut_session_dir()
-        log_path = save_downloaded_log_to_session(file_name=safe_name, session_dir=session_dir)
-        ensure_log_has_minimum_snapshots(log_path=log_path)
-        bundle_session_context(session_dir, source_log_path)
-        run_analyzer_for_session(session_dir=session_dir)
-        zip_path = zip_session_dir(session_dir=session_dir)
+        # Assembled in scratch, not in LOG_DIR. The bundle is a copy of the log
+        # plus the analyzer's output -- on a 39 MB session that is another 42 MB
+        # -- and nothing ever reads it back: the Downloads listing globs
+        # "dut-session-*.log", so neither the directory nor its zip appears
+        # there, and no other caller opens either. Only the zip, which is what
+        # the response actually carries, is kept.
+        with tempfile.TemporaryDirectory(prefix="dut-bundle-") as scratch:
+            session_dir = create_dut_session_dir(root=Path(scratch), zip_dir=LOG_DIR)
+            log_path = save_downloaded_log_to_session(file_name=safe_name, session_dir=session_dir)
+            ensure_log_has_minimum_snapshots(log_path=log_path)
+            bundle_session_context(session_dir, source_log_path)
+            run_analyzer_for_session(session_dir=session_dir)
+            zip_path = zip_session_dir(session_dir=session_dir, dest_dir=LOG_DIR)
     except DownloadWorkflowError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except Exception as exc:

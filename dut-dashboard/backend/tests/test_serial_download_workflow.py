@@ -65,17 +65,28 @@ class DownloadLogWorkflowTests(unittest.TestCase):
             zip_path = Path(response.path)
             self.assertTrue(zip_path.exists(), f"zip not found: {zip_path}")
 
+            # The zip is the only thing kept. The bundle it was made from is a
+            # second copy of the log plus the analyzer output -- 42 MB on a
+            # 39 MB session -- and nothing ever reads it back, so it is
+            # assembled in scratch and gone by the time the response exists.
+            self.assertEqual(zip_path.parent, log_dir)
             session_dir = log_dir / zip_path.stem
-            self.assertTrue(session_dir.exists(), f"session dir not found: {session_dir}")
-            self.assertTrue((session_dir / "dut.log").exists())
-            self.assertTrue((session_dir / "cpu_usage.csv").exists())
-            self.assertTrue((session_dir / "memory.csv").exists())
-            self.assertTrue((session_dir / "cpu_spike_report.txt").exists())
+            self.assertFalse(
+                session_dir.exists(), f"bundle directory left behind: {session_dir}"
+            )
+            # Scoped to bundle directories: .mplconfig is the analyzer's own
+            # matplotlib cache, deliberately kept and reused across runs.
+            leftover = sorted(
+                entry.name
+                for entry in log_dir.iterdir()
+                if entry.is_dir() and entry.name.startswith("dut-session-")
+            )
+            self.assertEqual(leftover, [], f"bundle directories left in LOG_DIR: {leftover}")
 
             with zipfile.ZipFile(zip_path, "r") as zf:
                 names = set(zf.namelist())
 
-            expected_prefix = f"{session_dir.name}/"
+            expected_prefix = f"{zip_path.stem}/"
             self.assertIn(expected_prefix + "dut.log", names)
             self.assertIn(expected_prefix + "cpu_usage.csv", names)
             self.assertIn(expected_prefix + "memory.csv", names)
@@ -183,6 +194,31 @@ class DownloadLogWorkflowTests(unittest.TestCase):
 
             self.assertEqual(ctx.exception.status_code, 500)
             self.assertIn("matplotlib font cache", str(ctx.exception.detail))
+
+    def test_session_name_is_reserved_against_the_zip_not_the_scratch_dir(self) -> None:
+        """A name already taken by a zip must not be handed out again.
+
+        The bundle directory used to be created in LOG_DIR beside its own zip,
+        so mkdir refusing an existing name protected the archive too. It is
+        assembled in scratch now -- empty on every call -- so the collision can
+        only be caught by looking at the destination. Without that check a
+        second Download in the same second overwrites the first bundle.
+        """
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            base = Path(tmp_dir)
+            log_dir = base / "logs"
+            scratch = base / "scratch"
+            log_dir.mkdir()
+            scratch.mkdir()
+
+            taken = f"dut-session-{serial_api.datetime.now().strftime('%Y%m%d-%H%M%S')}"
+            reserved_zip = log_dir / f"{taken}.zip"
+            reserved_zip.write_bytes(b"an earlier bundle")
+
+            session_dir = serial_api.create_dut_session_dir(root=scratch, zip_dir=log_dir)
+
+            self.assertNotEqual(session_dir.name, taken)
+            self.assertEqual(reserved_zip.read_bytes(), b"an earlier bundle")
 
 
 if __name__ == "__main__":
