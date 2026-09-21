@@ -214,7 +214,21 @@ export type ContextEntry = LogEntry & { kind: string };
 /** A session log row carries the captures taken inside its own time window,
  * named rather than counted — including the site survey, which is the capture
  * that explains why a channel was chosen. */
-export type SessionLogEntry = LogEntry & { context: ContextEntry[] };
+export type SessionLogEntry = LogEntry & { context: ContextEntry[]; origin: LogOrigin };
+/** Where a session log was recorded from, as the log itself states it (see the
+ * backend's `services/session_meta.py`). Every key is always present; null
+ * means the log never said. `device_id` is set only when the unit answered an
+ * identify during that session -- never from the registry's last-known unit. */
+export type LogOrigin = {
+  mode: string | null;
+  source: string | null;
+  dut_id: string | null;
+  label: string | null;
+  host: string | null;
+  collector_id: string | null;
+  device_id: string | null;
+  model: string | null;
+};
 export type LogList = {
   sessions: SessionLogEntry[];
   artifacts: LogEntry[];
