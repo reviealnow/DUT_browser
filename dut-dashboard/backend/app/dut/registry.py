@@ -320,6 +320,22 @@ def console_token(ctx: DutContext, mode: str | None = None) -> str:
     return _identity_token([ctx.registration, "local", port])
 
 
+def _session_start_record(ctx: DutContext, mode: str) -> dict:
+    """What is certain about a session the moment its console opens.
+
+    Which DUT and which host -- never which unit. `ctx.device_id` at this point
+    is whatever the last identify learned, and on a same-model swap on the same
+    cable it names the device that left; the unit is recorded when it answers.
+    The host only for an SSH open: a DUT registered behind a Pi can be opened on
+    a cable at this desk, and then no Pi was involved.
+    """
+    record = {"kind": "start", "dut_id": ctx.dut_id, "label": ctx.label}
+    if mode == "ssh" and ctx.remote is not None:
+        record["host"] = ctx.remote.get("host")
+        record["collector_id"] = ctx.remote.get("collector_id")
+    return record
+
+
 def _forget_backhaul(ctx: DutContext) -> None:
     """Drop a capture that no longer describes the console behind this DUT.
 
@@ -707,6 +723,11 @@ class DutRegistry:
             if ctx is None:
                 return
             _forget_if_another_console(ctx, console_token(ctx, mode))
+            record = _session_start_record(ctx, mode)
+            worker = ctx.serial_worker
+        # Outside the registry lock, so file I/O never runs under it and the
+        # worker's own lock is never taken inside this one.
+        worker.write_session_meta(record)
 
     def record_mgmt_url(self, dut_id: str, mgmt_url: str) -> None:
         """Set a DUT's management API origin and persist it. Empty clears it."""

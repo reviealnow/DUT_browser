@@ -14,6 +14,7 @@ import serial
 from app.config import LOG_DIR
 from app.parser.sysmon_parser import SysMonParser
 from app.serial import pty_ssh
+from app.services import session_meta
 
 # Allowlist for the TERM value written to the DUT shell (shell-injection guard).
 _TERM_PATTERN = re.compile(r"^[A-Za-z0-9.-]+$")
@@ -221,6 +222,14 @@ class SerialWorker:
     @property
     def current_log_path(self) -> str | None:
         return str(self._log_path) if self._log_path is not None else None
+
+    def write_session_meta(self, record: dict) -> None:
+        """Append one provenance record to the open session log, if any.
+
+        The log only, never the parser: this is a statement about the session,
+        not something the DUT said. See `services/session_meta.py`.
+        """
+        self._write_log_line(session_meta.format_meta_line(record))
 
     @property
     def mode(self) -> str | None:

@@ -31,6 +31,7 @@ class _Worker:
     def __init__(self, answer: "str | Exception") -> None:
         self.answer = answer
         self.commands: list[tuple[str, float]] = []
+        self.meta: list[dict] = []
 
     def capture_command(self, cmd: str, timeout: float = 6.0) -> str:
         self.commands.append((cmd, timeout))
@@ -38,10 +39,15 @@ class _Worker:
             raise self.answer
         return self.answer
 
+    def write_session_meta(self, record: dict) -> None:
+        self.meta.append(record)
+
 
 class _Context:
     def __init__(self, worker) -> None:
         self.serial_worker = worker
+        # What record_device_id leaves behind: the model the hostname implies.
+        self.model = "AP6_420E"
 
 
 class IdentifyEndpointTests(unittest.TestCase):
@@ -106,6 +112,23 @@ class IdentifyEndpointTests(unittest.TestCase):
         result, registry = self._call(_Worker("AP6_420E# "))
         self.assertIsNone(result["device_id"])
         registry.record_device_id.assert_not_called()
+
+    def test_the_unit_is_written_into_the_session_log(self) -> None:
+        """A Download is named from the log, and the log is the only record
+        that outlives the registry's memory of which unit was on this cable."""
+        worker = _Worker(CONSOLE_OUTPUT)
+        self._call(worker)
+        self.assertEqual(
+            worker.meta,
+            [{"kind": "identity", "device_id": "AP6420E-PB1005QPCFVFMA8", "model": "AP6_420E"}],
+        )
+
+    def test_a_read_that_learned_nothing_writes_nothing_into_the_log(self) -> None:
+        """An identity line with no unit in it would be read back as "this
+        session was identified", which it was not."""
+        worker = _Worker("AP6_420E# ")
+        self._call(worker)
+        self.assertEqual(worker.meta, [])
 
     def test_an_unusable_console_is_a_400(self) -> None:
         """Closed or busy is a different problem from the DUT answering

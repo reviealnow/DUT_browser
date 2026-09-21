@@ -63,7 +63,7 @@ Rebuild the baked-in data from a real bundle after a capture worth showing:
 
 ```bash
 cd dut-dashboard/demo
-python3 build_demo_data.py --bundle /path/to/dut-session-<ts>
+python3 build_demo_data.py --bundle /path/to/dut-session-<label>-<ts>_<unit>
 ```
 
 Only the `<script id="demo-data">` block is rewritten, so hand-edits to the
@@ -162,7 +162,7 @@ the DUT — so the demo replays a recorded session instead; and the popup comman
 editor is **CodeMirror with Vim mode**, where the demo has a plain textarea.
 Everything else there is the real interaction.
 
-A bundle is any extracted `dut-session-<ts>` directory from the **Download DUT
+A bundle is any extracted `dut-session-...` directory from the **Download DUT
 Log** flow: `build_demo_data.py` reads `*_cpu_usage.csv` (analyzer3),
 `*_wifi_clients.csv` (`tools/wifi_timeseries.py`) and
 `context/site-survey/*.json`.

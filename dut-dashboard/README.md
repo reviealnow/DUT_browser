@@ -349,10 +349,25 @@ curl -X POST http://127.0.0.1:8000/api/serial/open \
 
 1. **Short log, no `TOP`** (< 100 lines): returns the original `.log`
    (`text/plain`); analyzer skipped. Frontend toast: *"The log file is ready."*
-2. **Otherwise**: creates `logs/dut-session-YYYYMMDD-HHMMSS/`, copies the log in,
-   runs `tools/analyzer3.py` there, zips the directory, and returns the `.zip`
-   (`application/zip`). Frontend toast: *"DUT CPU and Memory usage plots are
-   created."*
+2. **Otherwise**: assembles the bundle in scratch space, copies the log in,
+   runs `tools/analyzer3.py` there, zips the directory into `logs/` and returns
+   the `.zip` (`application/zip`). Frontend toast: *"DUT CPU and Memory usage
+   plots are created."*
+
+   The bundle -- the zip and the folder inside it -- is named for the log and
+   the unit it was recorded on, not for the moment of the Download:
+   `dut-session-<label>-<ts>_<device id>.zip`, or `_<model>` when the unit never
+   answered an identify, or just the log's name when neither is known.
+   Downloading one log twice adds `-2`, `-3`... rather than overwriting. The
+   bundle also carries `origin.json`: DUT, label, host, collector, transport,
+   port, unit and model, `null` where the log never said.
+
+   Those facts come from the log itself (`services/session_meta.py`). Opening a
+   console writes a `# session-meta {"kind":"start",...}` line after the
+   `# mode=` header, and a successful `/api/dut/identify` writes a
+   `{"kind":"identity",...}` line. The unit is never taken from the registry at
+   open time, because on a same-model swap on the same cable that is the unit
+   that left. `/api/logs` returns the same facts per session as `origin`.
 
 Typical artifacts: `*cpu_usage.csv`, `*memory.csv`, `*cpu_usage_plot.png`,
 `*memavailable_plot.png`, `*slab_plot.png`, `*sunreclaim_plot.png`,

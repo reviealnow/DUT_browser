@@ -32,7 +32,7 @@ from app.services.analyzer_service import AnalyzerService
 from app.services.capability_report import build_capability_report
 from app.services.site_survey import channel_recommendation, get_site_survey
 from app.services.survey_cache import last_recommendation, remember_recommendation
-from app.services import context_snapshot, dut_model, mesh_topology, survey_snapshot
+from app.services import context_snapshot, dut_model, mesh_topology, session_meta, survey_snapshot
 from app.services.wifi_clients import discover_vaps, get_ssid_capabilities, parse_apstats, parse_wlanconfig_list
 from app.services.wifi_survey import get_wifi_survey
 from app.websocket.terminal_manager import TerminalManager
@@ -468,6 +468,11 @@ def identify_dut(dut: str = DEFAULT_DUT_ID) -> dict:
     previous = app.state.dut_registry.record_device_id(
         dut, device_id, mode=context.serial_worker.mode
     )
+    # Into the session log as well, which is what a Download is later named
+    # from: the unit that answered on this console, when it answered.
+    context.serial_worker.write_session_meta(
+        {"kind": "identity", "device_id": device_id, "model": context.model}
+    )
     return {"dut": dut, "device_id": device_id, "changed_from": previous}
 
 
@@ -699,6 +704,9 @@ def list_logs() -> dict:
                 by_name[session["name"]], entries=snapshot_index
             )
         )
+        # Which DUT, host and unit the log was recorded from, as the log itself
+        # states it -- the filename carries only a label and a time.
+        session["origin"] = session_meta.read_session_meta(by_name[session["name"]])
 
     return {
         "sessions": sessions,

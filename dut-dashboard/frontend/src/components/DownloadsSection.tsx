@@ -13,9 +13,11 @@ import {
   humanizeApiError,
   LogEntry,
   LogList,
+  LogOrigin,
   SessionLogEntry,
 } from "../api/rest";
 import { formatTimestamp } from "../utils/datetime";
+import { describeLogOrigin } from "../utils/logOrigin";
 import { Card, EmptyState } from "./shell/Card";
 
 const TAIL_LINES = 200;
@@ -146,6 +148,13 @@ function ContextTable({ rows }: { rows: ContextEntry[] }) {
   );
 }
 
+/** Which unit, DUT and host a session log came from -- the filename carries
+ * only a label and a time. Nothing at all when the log states none of it. */
+function OriginNote({ origin }: { origin: LogOrigin }) {
+  const text = describeLogOrigin(origin);
+  return text ? <span className="context-note">{text}</span> : null;
+}
+
 /** Session-log table where each row expands to lazily peek the log's tail. */
 function SessionLogTable({ rows, onAnalyzed }: { rows: SessionLogEntry[]; onAnalyzed: () => void }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -243,6 +252,7 @@ function SessionLogTable({ rows, onAnalyzed }: { rows: SessionLogEntry[]; onAnal
                   {expanded.has(row.name) ? "▾" : "▸"}
                 </button>
                 {row.name}
+                <OriginNote origin={row.origin} />
                 <span className="context-note">
                   {row.context.length > 0
                     ? `${row.context.length} context file(s) from this session — expand to open`

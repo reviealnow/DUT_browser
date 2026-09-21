@@ -323,7 +323,11 @@ def build(bundle: Path, anon: Anonymiser, survey_bundle: Path | None = None) -> 
          "foot": "downsampled from the full session"},
     ]
 
-    sources = bundle.name if survey_bundle is None else f"{bundle.name} + {survey_bundle.name}"
+    # Through demo_name like every other page's provenance: a bundle is named
+    # for the unit it was recorded on, so its name can carry the model.
+    sources = demo_name(bundle.name) if survey_bundle is None else (
+        f"{demo_name(bundle.name)} + {demo_name(survey_bundle.name)}"
+    )
     return {
         "generatedFrom": sources,
         "scannedAt": (survey or {}).get("captured_at", "")[:16].replace("T", " "),

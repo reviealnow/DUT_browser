@@ -592,6 +592,20 @@ def test_a_name_that_only_looks_like_the_model_is_left_alone(
     assert anon_module.demo_name(untouched) == untouched
 
 
+def test_the_overview_provenance_line_carries_no_model(anon_module, tmp_path: Path) -> None:
+    """A Download bundle is named for the unit it was recorded on, so the
+    folder a page is built from can say `AP6_840E` -- and Overview printed that
+    folder's name verbatim while every other page ran it through demo_name."""
+    bundle = tmp_path / "dut-session-bench-20260921-222508_AP6_840E"
+    bundle.mkdir()
+    (bundle / "09212228_notime_cpu_usage.csv").write_text(
+        "Timestamp,CPU0_UsagePct,CPU1_UsagePct\n2026-09-21 22:25:10,13.3,2.0\n",
+        encoding="utf-8",
+    )
+    data = anon_module.build(bundle, anon_module.Anonymiser())
+    assert "ap6" not in data["generatedFrom"].lower(), data["generatedFrom"]
+
+
 def test_renaming_is_idempotent(anon_module) -> None:
     """Applied twice — regenerating a page already built — nothing shifts."""
     once = anon_module.demo_name("dut-session-420E_110341-20260806.log")

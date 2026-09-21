@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -7,7 +8,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import time
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -21,7 +21,7 @@ from app.serial import ports as serial_ports
 from app.config import ANALYZER_SCRIPT, LOG_DIR, OFFLINE_TOOL_NAMES
 from app.dut.registry import DEFAULT_DUT_ID, DutContext
 from app.serial.serial_worker import PORT_LOST_MESSAGE
-from app.services import context_snapshot
+from app.services import context_snapshot, session_meta
 from app.services.analyzer_service import (
     MIN_SNAPSHOT_MARKERS,
     NoSysMonSnapshotsError,
@@ -89,11 +89,22 @@ class DownloadWorkflowError(Exception):
 
 
 DIRECT_DOWNLOAD_MAX_LINES = 100
+# How many bundles of one log can sit in LOG_DIR before a Download is refused.
+MAX_BUNDLE_NAME_ATTEMPTS = 1000
+BUNDLE_ORIGIN_NAME = "origin.json"
 TOP_COMMAND_PATTERN = re.compile(r"\btop\b", re.IGNORECASE)
 
 
-def create_dut_session_dir(root: Path | None = None, zip_dir: Path | None = None) -> Path:
+def create_dut_session_dir(
+    root: Path | None = None, zip_dir: Path | None = None, base_name: str | None = None
+) -> Path:
     """Create the directory a bundle is assembled in.
+
+    ``base_name`` is what the bundle is called -- see
+    ``session_meta.bundle_name``, which derives it from the log being bundled.
+    Without one it is named for the current time, as every bundle once was. A
+    name already taken gets ``-2``, ``-3``..., so downloading one log twice
+    keeps both bundles rather than overwriting the first.
 
     ``root`` is where the directory itself goes -- scratch space, by the time
     this is called from the download flow, so the 40+ MB of copied log and
@@ -113,17 +124,17 @@ def create_dut_session_dir(root: Path | None = None, zip_dir: Path | None = None
     except Exception as exc:
         raise DownloadWorkflowError(f"failed to create logs root directory: {exc}", status_code=500) from exc
 
-    for _ in range(3):
-        session_name = f"dut-session-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    base = base_name or f"dut-session-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    for attempt in range(1, MAX_BUNDLE_NAME_ATTEMPTS + 1):
+        session_name = base if attempt == 1 else f"{base}-{attempt}"
         session_dir = parent / session_name
         if (dest / f"{session_name}.zip").exists():
-            time.sleep(1)
             continue
         try:
             session_dir.mkdir(parents=False, exist_ok=False)
             return session_dir
         except FileExistsError:
-            time.sleep(1)
+            continue
         except Exception as exc:
             raise DownloadWorkflowError(f"failed to create directory: {exc}", status_code=500) from exc
 
@@ -273,13 +284,28 @@ def bundle_session_context(session_dir: Path, log_path: Path) -> list[Path]:
     return context_snapshot.bundle_context(session_dir, log_path)
 
 
+def write_bundle_origin(session_dir: Path, origin: dict) -> None:
+    """Write ``origin.json``: the log's provenance, readable without parsing it.
+
+    The same facts the bundle's name summarises, in full -- host, port, label and
+    unit -- with a null for anything the log never stated. Best-effort, like the
+    context beside it: a bundle without the file is still a valid bundle.
+    """
+    try:
+        (session_dir / BUNDLE_ORIGIN_NAME).write_text(
+            json.dumps(origin, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+    except OSError as exc:
+        logger.warning("could not write %s: %s", BUNDLE_ORIGIN_NAME, exc)
+
+
 def zip_session_dir(session_dir: Path, dest_dir: Path | None = None) -> Path:
     """Zip the assembled bundle, writing the archive into ``dest_dir``.
 
     Split from the directory on purpose: the bundle is assembled in scratch
     space and only the archive is kept, so the two no longer live side by side.
     ``arcname`` stays relative to the directory's parent, which keeps every
-    entry under the same ``dut-session-<ts>/`` prefix it has always had.
+    entry under one folder named like the archive itself.
     """
     if not session_dir.exists() or not session_dir.is_dir():
         raise DownloadWorkflowError("failed to create zip: session directory not found", status_code=500)
@@ -440,8 +466,18 @@ def download_log(file_name: str) -> FileResponse:
         # "dut-session-*.log", so neither the directory nor its zip appears
         # there, and no other caller opens either. Only the zip, which is what
         # the response actually carries, is kept.
+        #
+        # Named for the log and the unit it was recorded on, not for the moment
+        # of the Download: every bundle used to be `dut-session-<now>.zip`, and a
+        # folder of them said nothing about which DUT, host or model was in each.
+        origin = session_meta.read_session_meta(source_log_path)
         with tempfile.TemporaryDirectory(prefix="dut-bundle-") as scratch:
-            session_dir = create_dut_session_dir(root=Path(scratch), zip_dir=LOG_DIR)
+            session_dir = create_dut_session_dir(
+                root=Path(scratch),
+                zip_dir=LOG_DIR,
+                base_name=session_meta.bundle_name(source_log_path, origin),
+            )
+            write_bundle_origin(session_dir, origin)
             log_path = save_downloaded_log_to_session(file_name=safe_name, session_dir=session_dir)
             ensure_log_has_minimum_snapshots(log_path=log_path)
             bundle_session_context(session_dir, source_log_path)
