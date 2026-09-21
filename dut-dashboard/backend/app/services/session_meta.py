@@ -55,6 +55,8 @@ _HEADER_RE = re.compile(r"^# mode=(?P<mode>\S+) source=(?P<source>.*)$")
 # and a log carries other units' hostnames -- a mesh probe lists every member --
 # so only the prompt is evidence of the device the console is on.
 _PROMPT_RE = re.compile(r"(?m)^(AP6_\d{3}[EX]?)#")
+# What a bundle's name may carry beyond the log's own stem.
+_NAME_UNSAFE_RE = re.compile(r"[^A-Za-z0-9_.-]")
 
 
 def format_meta_line(record: dict) -> str:
@@ -115,6 +117,20 @@ def read_session_meta(path: Path, limit: int = HEAD_SCAN_BYTES) -> dict:
         if prompt:
             meta["model"] = dut_model.detect_model(prompt.group(1))
     return meta
+
+
+def bundle_name(log_path: Path, meta: dict) -> str:
+    """The name a Download's bundle -- its zip and the folder inside -- goes by.
+
+    The log's own stem, so the label and the session's start time survive into
+    the file an operator actually receives, followed by the unit it was recorded
+    on. The unit rather than the model when both are known: the device id names
+    the model already (`AP6420E-...`), and the model alone cannot tell two
+    AP6_420Es apart.
+    """
+    unit = meta.get("device_id") or meta.get("model")
+    suffix = _NAME_UNSAFE_RE.sub("", unit) if isinstance(unit, str) else ""
+    return f"{log_path.stem}_{suffix}" if suffix else log_path.stem
 
 
 def _pick(record: dict, fields: tuple[str, ...]) -> dict:

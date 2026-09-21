@@ -10,17 +10,20 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest import mock
 
 import app.dut.registry as registry_mod
 from app import main
+from app.api import serial_api
 from app.dut.registry import DutRegistry
 from app.serial import serial_worker
 from app.services import context_snapshot, session_meta
-from app.services.session_meta import format_meta_line, read_session_meta
+from app.services.session_meta import bundle_name, format_meta_line, read_session_meta
 
 START = {"kind": "start", "dut_id": "pi2-ttyusb0", "label": "pi2 ttyUSB0",
          "host": "192.168.30.124", "collector_id": "pi2"}
@@ -148,6 +151,33 @@ class ReadSessionMetaTests(unittest.TestCase):
         self.assertIsNone(read_session_meta(path, limit=limit)["device_id"])
 
 
+class BundleNameTests(unittest.TestCase):
+    LOG = Path("dut-session-pi2ttyUSB0-20260916-115810.log")
+
+    def test_the_log_and_the_unit(self) -> None:
+        self.assertEqual(
+            bundle_name(self.LOG, {"device_id": "AP6420-PA10054DDHWVF2D", "model": "AP6_420"}),
+            "dut-session-pi2ttyUSB0-20260916-115810_AP6420-PA10054DDHWVF2D",
+        )
+
+    def test_the_model_when_the_unit_never_answered(self) -> None:
+        self.assertEqual(
+            bundle_name(self.LOG, {"device_id": None, "model": "AP6_840E"}),
+            "dut-session-pi2ttyUSB0-20260916-115810_AP6_840E",
+        )
+
+    def test_just_the_log_when_nothing_is_known(self) -> None:
+        self.assertEqual(bundle_name(self.LOG, {}), "dut-session-pi2ttyUSB0-20260916-115810")
+
+    def test_nothing_from_the_log_reaches_the_name_unsanitised(self) -> None:
+        """The records are read back from a file: a hand-edited one must not be
+        able to put a path into a zip name."""
+        self.assertEqual(
+            bundle_name(self.LOG, {"device_id": "../../AP6420-X/Y"}),
+            "dut-session-pi2ttyUSB0-20260916-115810_....AP6420-XY",
+        )
+
+
 class _StubWsManager:
     def emit_from_thread(self, event: dict) -> None:
         pass
@@ -216,6 +246,68 @@ class StartRecordTests(unittest.TestCase):
         self.assertEqual([record["kind"] for record in records], ["start"])
         self.assertNotIn("device_id", records[0])
         self.assertNotIn("model", records[0])
+
+
+class DownloadNamingTests(unittest.TestCase):
+    LOG_BODY = (
+        "= Test Time: 1, 2026-09-16 11:58:12\nCPU0: 1.0% usr\n"
+        "= Test Time: 2, 2026-09-16 11:58:42\nCPU0: 2.0% usr\n"
+        + "".join(f"filler line {i}\n" for i in range(120))
+    )
+    NAME = "dut-session-pi2ttyUSB0-20260916-115810.log"
+
+    def _download(self, tmp: Path, head: str) -> Path:
+        log_dir = tmp / "logs"
+        log_dir.mkdir(exist_ok=True)
+        (log_dir / self.NAME).write_text(head + self.LOG_BODY, encoding="utf-8")
+        analyzer = tmp / "tools" / "analyzer3.py"
+        analyzer.parent.mkdir(exist_ok=True)
+        analyzer.write_text("print('stub')\n", encoding="utf-8")
+
+        def fake_run(*_args, **_kwargs):
+            return subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+
+        with (
+            mock.patch.object(serial_api, "LOG_DIR", log_dir),
+            mock.patch.object(serial_api, "ANALYZER_SCRIPT", analyzer),
+            mock.patch.object(serial_api.subprocess, "run", side_effect=fake_run),
+        ):
+            response = serial_api.download_log(self.NAME)
+        self.assertEqual(response.filename, Path(response.path).name)
+        return Path(response.path)
+
+    def test_the_bundle_is_named_for_the_log_and_the_unit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            head = "# mode=ssh source=/dev/ttyUSB0\n" + format_meta_line(START) + format_meta_line(IDENTITY)
+            zip_path = self._download(Path(tmp), head)
+            expected = "dut-session-pi2ttyUSB0-20260916-115810_AP6420-PA10054DDHWVF2D"
+            self.assertEqual(zip_path.name, f"{expected}.zip")
+            with zipfile.ZipFile(zip_path) as zf:
+                names = set(zf.namelist())
+                origin = json.loads(zf.read(f"{expected}/origin.json"))
+            # The folder inside is named like the archive, so an unzipped bundle
+            # is as identifiable as the zip it came from.
+            self.assertIn(f"{expected}/{self.NAME}", names)
+            self.assertEqual(origin["host"], "192.168.30.124")
+            self.assertEqual(origin["device_id"], "AP6420-PA10054DDHWVF2D")
+            self.assertEqual(origin["mode"], "ssh")
+
+    def test_a_legacy_log_keeps_its_own_name_and_gains_its_model(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            zip_path = self._download(Path(tmp), "# mode=serial source=/dev/cu.x\nAP6_840E# \n")
+            self.assertEqual(zip_path.name, "dut-session-pi2ttyUSB0-20260916-115810_AP6_840E.zip")
+
+    def test_downloading_one_log_twice_keeps_both_bundles(self) -> None:
+        """The name no longer changes with the clock, so it is the name itself
+        that has to make room -- an overwrite would replace a bundle somebody
+        may still be downloading."""
+        with tempfile.TemporaryDirectory() as tmp:
+            first = self._download(Path(tmp), "")
+            first_bytes = first.read_bytes()
+            second = self._download(Path(tmp), "")
+            self.assertEqual(first.name, "dut-session-pi2ttyUSB0-20260916-115810.zip")
+            self.assertEqual(second.name, "dut-session-pi2ttyUSB0-20260916-115810-2.zip")
+            self.assertEqual(first.read_bytes(), first_bytes)
 
 
 class ListLogsOriginTests(unittest.TestCase):
