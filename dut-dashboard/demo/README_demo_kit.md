@@ -247,6 +247,13 @@ creates work for whoever has to make it true later.
   device named like one of the networks it broadcasts is the exact confusion
   these screens exist to avoid.
 
+  The **unit id** is the exception, and that one *is* anonymisation. A DUT's
+  hostname, `AP6420E-PB1005QPCFVFMA8`, carries the serial of one physical
+  device. Captures write it since `hostname` became the identify command, and a
+  Download bundle is named after it. `demo_name()` drops the serial outright
+  (`DemoDUT-5G-unit`) rather than aliasing it, and the free-text guard refuses
+  any log line that carries one, the same way it refuses a MAC.
+
   This is pseudonymisation, not encryption. The page does not contain the
   original-to-alias mapping, but the hash is deterministic and unsalted, so
   anyone already holding the original capture can re-derive it by guessing over

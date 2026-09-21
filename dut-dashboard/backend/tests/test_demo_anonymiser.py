@@ -563,18 +563,58 @@ def test_no_rename_ever_leaves_the_model_half_removed(anon_module) -> None:
     is a different failure from a misleading half-result.
     """
     for captured in ("AP6_840E", "ap6-420e-notes.txt", "dutAP6_840E.log",
-                     "x_AP6_lab2", "AP6_840E# ", "path/to/AP6_420E/file.csv"):
+                     "x_AP6_lab2", "AP6_840E# ", "path/to/AP6_420E/file.csv",
+                     "AP6840E", "AP6420", "x_AP6420E-PB1005QPCFVFMA8.zip"):
         assert "ap6" not in anon_module.demo_name(captured).lower(), captured
 
 
-def test_a_model_name_with_no_separator_is_a_known_miss(anon_module) -> None:
-    """`AP6840E` is not a form any capture writes, and it is not renamed.
+@pytest.mark.parametrize("captured,expected", [
+    # A Download bundle is named for the unit it was recorded on.
+    ("dut-session-bench-20260921-222508_AP6420E-PB1005QPCFVFMA8",
+     "dut-session-bench-20260921-222508_DemoDUT-5G-unit"),
+    # The Pi's node on this bench: a 420 with no suffix letter.
+    ("AP6420-PA10054DDHWVF2D", "DemoDUT-420-unit"),
+    ("ap6840e-pd1005vmg3kjh9c", "DemoDUT-6E-unit"),
+])
+def test_a_unit_id_loses_its_serial(anon_module, captured: str, expected: str) -> None:
+    """The serial names one physical device and is dropped, not aliased: a
+    stable alias of a real serial is still a handle on the real unit."""
+    assert anon_module.demo_name(captured) == expected
 
-    Pinned so the gap is a decision on the record rather than a surprise. It is
-    a clean miss — nothing is half-renamed — and closing it would mean matching
-    `ap6` followed by digits, which starts guessing at names nobody has seen.
+
+def test_a_model_name_with_no_separator_is_renamed(anon_module) -> None:
+    """`AP6840E` is the hostname's own spelling of the model.
+
+    This was pinned as a known miss on the premise that no capture writes it.
+    Since `hostname` became the identify command, captures do -- so it is
+    renamed like the separated forms.
     """
-    assert anon_module.demo_name("AP6840E") == "AP6840E"
+    assert anon_module.demo_name("AP6840E") == "DemoDUT-6E"
+    assert anon_module.demo_name("AP6420") == "DemoDUT-420"
+
+
+def test_a_firmware_name_is_not_a_unit_id(anon_module) -> None:
+    """`-encrypt` is as long as a serial but has no digit in it. Spelled with
+    no separator on purpose: that is the only form the unit rule can reach,
+    so it is the one that shows the digit requirement doing its job."""
+    assert anon_module.demo_name("AP6840E-encrypt_1.10.339.bin") == "DemoDUT-6E-encrypt_1.10.339.bin"
+
+
+@pytest.mark.parametrize("line", [
+    "AP6420E-PB1005QPCFVFMA8",                       # the answer to `hostname`
+    '# session-meta {"device_id":"AP6420-PA10054DDHWVF2D","kind":"identity"}',
+])
+def test_a_log_line_carrying_a_unit_id_is_refused(anon_module, line: str) -> None:
+    """A log line cannot be renamed piece by piece, so the excerpt selector and
+    the tail refuser must both see a unit id as identifying."""
+    assert anon_module.identifier_in(line) == "a unit id"
+
+
+def test_the_unit_in_origin_json_is_learned(anon_module, bundle: Path) -> None:
+    (bundle / "origin.json").write_text(
+        json.dumps({"device_id": "AP6420E-PB1005QPCFVFMA8", "mode": "serial"}), encoding="utf-8"
+    )
+    assert "ap6420e-pb1005qpcfvfma8" in anon_module.captured_identifiers(bundle)
 
 
 @pytest.mark.parametrize("untouched", [

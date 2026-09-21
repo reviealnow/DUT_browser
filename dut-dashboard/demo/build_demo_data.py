@@ -115,15 +115,29 @@ VENDORS = [
 #: produced the worst outcome available: `dutAP6_840E.log` renamed the id and
 #: left the `AP6` behind, which reads as deliberate rather than as a miss.
 #:
-#: Order matters: the compound forms go first, so `AP6_840E` is one rename rather
-#: than a prefix plus a bare id.
+#: **A unit id** -- the DUT's hostname, `AP6420E-PB1005QPCFVFMA8` -- names one
+#: physical device by its serial. Captures write it since `hostname` became the
+#: identify command, and a Download bundle is named after it. The serial is
+#: dropped outright rather than aliased: nothing on a demo page needs to tell
+#: two units apart by name, and a stable alias of a real serial is still a
+#: handle on the real device. The model left in front of it is then renamed by
+#: the rules below it, so the unit becomes `DemoDUT-5G-unit`. The serial must
+#: contain a digit, which is what keeps `AP6_840E-encrypt` a firmware name.
+#:
+#: The model with **no separator** (`AP6840E`, `AP6420`) is the hostname's own
+#: spelling, so it is renamed like the separated forms.
+#:
+#: Order matters: the unit id goes first, then the compound forms, so
+#: `AP6_840E` is one rename rather than a prefix plus a bare id.
 _BARE = r"(?<![0-9A-Za-z]){}(?![0-9A-Za-z])"
+UNIT_ID_RE = re.compile(r"(ap6\d{3}[ex]?)-(?=[0-9a-z]*\d)[0-9a-z]{6,}(?![0-9a-z])", re.I)
 MODEL_RENAMES = (
-    (re.compile(r"ap6[_-]840e(?![0-9A-Za-z])", re.I), "DemoDUT-6E"),
-    (re.compile(r"ap6[_-]420e(?![0-9A-Za-z])", re.I), "DemoDUT-5G"),
+    (UNIT_ID_RE, r"\1-unit"),
+    (re.compile(r"ap6[_-]?840e(?![0-9A-Za-z])", re.I), "DemoDUT-6E"),
+    (re.compile(r"ap6[_-]?420e(?![0-9A-Za-z])", re.I), "DemoDUT-5G"),
     (re.compile(_BARE.format(r"840e"), re.I), "DemoDUT6E"),
     (re.compile(_BARE.format(r"420e"), re.I), "DemoDUT5G"),
-    (re.compile(r"ap6[_-]", re.I), "DemoDUT-"),
+    (re.compile(r"ap6(?:[_-]|(?=\d{3}))", re.I), "DemoDUT-"),
 )
 
 
@@ -766,6 +780,11 @@ IDENTIFIER_PATTERNS = (
     # mixed, and a lowercase-only class let `AA:BB:CC:DD:EE:FF` straight through.
     (r"(?i)\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b", "a MAC address"),
     (r"\b(?:\d{1,3}\.){3}\d{1,3}\b", "an IP address"),
+    # A unit id carries the device's serial. It turns up in log text as the
+    # answer to `hostname` and in the log's own `# session-meta` identity line,
+    # and a log line cannot be renamed piece by piece, so it is refused.
+    # `(?i)` restated: these are matched as strings, so the compiled flag is lost.
+    ("(?i)" + UNIT_ID_RE.pattern, "a unit id"),
 )
 
 
@@ -774,6 +793,8 @@ IDENTIFIER_PATTERNS = (
 IDENTIFIER_KEYS = frozenset({
     "ssid", "ssid_name", "essid", "bssid", "mac", "mac_address", "macaddr",
     "ip", "ip_address", "ipaddr", "hostname",
+    # A bundle's origin.json names the unit this way.
+    "device_id",
 })
 
 
