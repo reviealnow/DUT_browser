@@ -21,6 +21,54 @@ from app.services import context_snapshot
 _ANALYZER_OUTPUT_SUFFIXES = {".csv", ".png", ".txt"}
 logger = logging.getLogger(__name__)
 
+#: The line sysMon prints at the head of every cycle. The analyzer builds its
+#: whole series from these blocks, so a log without them carries nothing it can
+#: chart -- however long the log is.
+SNAPSHOT_MARKER = "= Test Time:"
+#: One, matching analyzer3: it builds a record per marker and succeeds on a
+#: single one. A stricter floor here would refuse logs the analyzer can plot,
+#: which makes this a second opinion about what is analysable rather than a
+#: guard in front of the first.
+MIN_SNAPSHOT_MARKERS = 1
+
+
+class NoSysMonSnapshotsError(Exception):
+    """A log the analyzer has nothing to work with.
+
+    Its own name for the condition, rather than the analyzer's stdout. A remote
+    host console that was attached but never had sysMon run on it is the common
+    case: perfectly good log, megabytes of console output, and not one cycle to
+    parse. Left to the analyzer, that surfaces as whatever the script happened
+    to print on its way out.
+    """
+
+    status_code = 422
+
+
+def ensure_log_has_snapshots(
+    log_path: Path, minimum: int = MIN_SNAPSHOT_MARKERS
+) -> None:
+    """Raise :class:`NoSysMonSnapshotsError` unless the log holds enough cycles.
+
+    Stops reading at the threshold, so this costs a few lines on a log that is
+    fine and one pass on a log that is not.
+    """
+    try:
+        with log_path.open("r", encoding="utf-8", errors="ignore") as fp:
+            count = 0
+            for line in fp:
+                if SNAPSHOT_MARKER in line:
+                    count += 1
+                    if count >= minimum:
+                        return
+    except OSError as exc:
+        raise NoSysMonSnapshotsError(f"could not read the log: {exc}") from exc
+    blocks = "block" if minimum == 1 else "blocks"
+    raise NoSysMonSnapshotsError(
+        f"no sysMon snapshots in this log; nothing to analyse "
+        f"(needs at least {minimum} '{SNAPSHOT_MARKER}' {blocks})"
+    )
+
 
 def _clear_analyzer_outputs(output_dir: Path) -> None:
     """Remove previously published analyzer artifacts so the directory holds
@@ -80,6 +128,10 @@ class AnalyzerService:
             raise FileNotFoundError(f"Log file not found: {log_path}")
         if not ANALYZER_SCRIPT.exists() or not ANALYZER_SCRIPT.is_file():
             raise FileNotFoundError(f"Analyzer script not found: {ANALYZER_SCRIPT}")
+        # Before the analyzer runs, so "this log has no telemetry in it" is
+        # answered in the app's own words instead of arriving as whatever the
+        # script printed before giving up.
+        ensure_log_has_snapshots(log_file)
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)

@@ -150,7 +150,12 @@ def test_optional_tools_are_best_effort_at_both_invocation_points(tmp_path: Path
     session_dir = tmp_path / "session"
     session_dir.mkdir()
     log = session_dir / "dut.log"
-    log.write_text("log\n")
+    # Two sysMon cycles because the analyzer refuses a log with none -- this
+    # test is about optional tools being best-effort, not about that guard.
+    log.write_text(
+        "= Test Time: 1, 2026-08-03 00:00:00\n"
+        "= Test Time: 2, 2026-08-03 00:00:30\n"
+    )
     output_dir = tmp_path / "outputs"
     log_dir = tmp_path / "logs"
 

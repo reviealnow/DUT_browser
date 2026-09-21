@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 VERSION_NAME = "system_monitor_analyzer v1.1.2"
 GENERATED_AT = datetime.now()
 GENERATED_AT_STR = GENERATED_AT.strftime("%Y-%m-%d %H:%M:%S")
-RUN_PREFIX_TS = GENERATED_AT.strftime("%m%d%H%M")  # mmddHHMM，例如 02251331
+RUN_PREFIX_TS = GENERATED_AT.strftime("%m%d%H%M")  # mmddHHMM, i.e, 02251331
 
 # ======================================================
 #                   Auto File Detection
@@ -19,10 +19,10 @@ LOG_EXT = (".log", ".txt")
 log_files = sorted([f for f in os.listdir(".") if f.endswith(LOG_EXT)])
 
 if not log_files:
-    print("[ERROR] 找不到任何 log 檔案（.log/.txt）")
+    print("[ERROR] Found no log files(.log/.txt)")
     exit(1)
 
-print(f"[INFO] 偵測到 {len(log_files)} 個 log 檔案：")
+print(f"[INFO] Detected {len(log_files)} log files:")
 for lf in log_files:
     print(" -", lf)
 
@@ -63,7 +63,7 @@ else:
     fw_tag = fw_tag0
 
 OUT_PREFIX = f"{RUN_PREFIX_TS}_{time_tag}_{fw_tag}_"
-OUT_PREFIX = OUT_PREFIX.replace("_nofw_", "_")   # ✅ 把 nofw 從檔名清掉
+OUT_PREFIX = OUT_PREFIX.replace("_nofw_", "_")   #  Removed "nofw" from filenames
 print(f"[INFO] Output Prefix = {OUT_PREFIX}")
 
 # ======================================================
@@ -85,7 +85,7 @@ ts_pattern = re.compile(r"= Test Time:\s*(\d+),\s*([\d\-]+\s+[\d:]+)")
 cpu_pattern = re.compile(
     r"CPU(\d+):\s+([\d\.]+)% usr\s+([\d\.]+)% sys\s+([\d\.]+)% nic\s+([\d\.]+)% idle\s+([\d\.]+)% io\s+([\d\.]+)% irq\s+([\d\.]+)%% sirq"
 )
-# ✅ allow leading spaces
+# allow leading spaces
 mem_pattern = re.compile(r"(MemAvailable|Slab|SUnreclaim):\s+(\d+)\s*kB")
 
 # Storage
@@ -94,7 +94,7 @@ current = {}
 mem_hits = 0
 
 def flush_record():
-    # 只接受真正 snapshot（至少要有 Timestamp）
+    # Only accept real snapshot(At least with Timestamp)
     if current and "Timestamp" in current:
         records.append(current.copy())
 
@@ -102,7 +102,7 @@ def flush_record():
 #            Step 1: Parse All Log Files
 # ======================================================
 for LOG_FILE in log_files:
-    print(f"[INFO] 正在解析：{LOG_FILE}")
+    print(f"[INFO] Analyzing: {LOG_FILE}")
     with open(LOG_FILE, "r", encoding="utf-8", errors="ignore") as f:
         for line in f:
             line = line.rstrip("\n")
@@ -132,18 +132,18 @@ for LOG_FILE in log_files:
                 key = mem_match.group(1)
                 val = mem_match.group(2)
                 current[key] = val
-                mem_hits += 1  # ✅ 記數
+                mem_hits += 1  # ✅ counts
                 #print(f"[MEM] {key} = {val}")
                 continue
 
 flush_record()
 
 if not records:
-    print("[ERROR] 解析不到任何 snapshot（records=0），請確認 log 格式是否符合 regex。")
+    print("[ERROR] Non snapshot is analyzed(records=0),please check if the format of the log matches regex.")
     exit(1)
 
-print(f"[OK] 已解析 {len(records)} 筆 snapshot.")
-print(f"[DEBUG] mem_hits = {mem_hits}")   # ✅ 就放這裡
+print(f"[OK] Analyzed {len(records)} snapshot.")
+print(f"[DEBUG] mem_hits = {mem_hits}")  # Leave it here
 
 first_mem = next((r for r in records if "Slab" in r or "MemAvailable" in r or "SUnreclaim" in r), None)
 print("[DEBUG] first_mem fields:",
@@ -204,7 +204,7 @@ def thin_xticks(ax, labels, max_ticks=25):
     fig = plt.figure(figsize=(14, 6))
     ax = fig.gca()
 
-    ax.plot(x, y, label=ylabel)  # 自動顏色
+    ax.plot(x, y, label=ylabel)  # Auto colour-selection
     thin_xticks(ax, xlabels, max_ticks=25)
 
     ax.set_ylabel(ylabel)
@@ -221,7 +221,7 @@ def thin_xticks(ax, labels, max_ticks=25):
     fig.tight_layout()
     fig.savefig(out_path)
     plt.close(fig)
-    print(f"[OK] 已輸出 {out_path}")
+    print(f"[OK] Rendered {out_path}")
 """
 # ======================================================
 #            Step 2: Dynamic CPU Utilization
@@ -280,7 +280,7 @@ with open(CPU_CSV, "w", newline="", encoding="utf-8") as f:
     w.writeheader()
     w.writerows(cpu_rows)
 
-print(f"[OK] 已輸出 {CPU_CSV}")
+print(f"[OK] Rendered {CPU_CSV}")
 
 # ======================================================
 #            Step 4: Write memory.csv  (kB units)
@@ -308,7 +308,7 @@ print("[LEAK] SUnreclaim: start/end/delta(kB) =", sunreclaim_kb[0], sunreclaim_k
 print("[LEAK] MemAvail: start/end/delta(kB) =", mem_avail_kb[0], mem_avail_kb[-1], delta(mem_avail_kb),
       "| slope(kB/sample) =", calc_slope(mem_avail_kb))
 
-# ⭐ 關鍵 leak 指標（你手繪黑線）
+# Key leak index（There was a author hand-drawing picture.）
 #effective_kb = [max(ma - su, 0) for ma, su in zip(mem_avail_kb, sunreclaim_kb)]
 effective_kb = [ma - su for ma, su in zip(mem_avail_kb, sunreclaim_kb)]
 mem_rows = []
@@ -336,7 +336,7 @@ with open(MEM_CSV, "w", newline="", encoding="utf-8") as f:
     w.writeheader()
     w.writerows(mem_rows)
 
-print(f"[OK] 已輸出 {MEM_CSV}")
+print(f"[OK] Rendered {MEM_CSV}")
 
 # ======================================================
 #            Step 5: CPU Plot
@@ -357,15 +357,15 @@ if cpu_indices:
     fig.tight_layout()
     fig.savefig(CPU_PLOT)
     plt.close(fig)
-    print(f"[OK] 已輸出 {CPU_PLOT}")
+    print(f"[OK] Rendered {CPU_PLOT}")
 else:
-    print("[WARN] records 裡找不到任何 CPU*_usr 欄位，跳過 CPU plot。")
+    print("[WARN] Found no records related to 'CPU*_usr' column, skip CPU plot.")
 
 def plot_series_single(x, xlabels, y, ylabel, title, out_path):
     fig = plt.figure(figsize=(14, 6))
     ax = fig.gca()
 
-    ax.plot(x, y, label=ylabel)  # 自動顏色
+    ax.plot(x, y, label=ylabel)  # Auto colour-selection
     thin_xticks(ax, xlabels, max_ticks=25)
 
     ax.set_ylabel(ylabel)
@@ -382,7 +382,7 @@ def plot_series_single(x, xlabels, y, ylabel, title, out_path):
     fig.tight_layout()
     fig.savefig(out_path)
     plt.close(fig)
-    print(f"[OK] 已輸出 {out_path}")
+    print(f"[OK] Rendered {out_path}")
 
 # ======================================================
 #            Step 6: Memory Plots (separate PNGs, kB)
@@ -425,5 +425,5 @@ with open(SPIKE_REPORT, "w", encoding="utf-8") as f:
         for ts, cpu, val in cpu_spikes:
             f.write(f"{ts}  {cpu}: {val:.2f}%\n")
 
-print(f"[OK] 已輸出 {SPIKE_REPORT}")
-print("\n=== 完成！所有輸出已生成 ===") 
+print(f"[OK] Rendered {SPIKE_REPORT}")
+print("\n=== Done, all rendering is fulfilled. ===") 
