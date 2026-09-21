@@ -98,7 +98,10 @@ class DownloadLogWorkflowTests(unittest.TestCase):
             log_dir = base / "logs"
             analyzer_script = base / "tools" / "analyzer3.py"
 
-            self._write_file(log_dir / "dut.log", "= Test Time: 1, 2026-03-23 10:00:00\nTOP\n")
+            # No marker at all. One used to be short enough to refuse; the
+            # threshold matches analyzer3 now, so one is analysable and only a
+            # log with none is not. TOP keeps should_bypass_analyzer off it.
+            self._write_file(log_dir / "dut.log", "TOP\nconsole output, no telemetry\n")
             self._write_file(analyzer_script, "print('stub analyzer')\n")
 
             with (

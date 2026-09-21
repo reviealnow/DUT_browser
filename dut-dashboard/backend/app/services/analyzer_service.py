@@ -25,8 +25,11 @@ logger = logging.getLogger(__name__)
 #: whole series from these blocks, so a log without them carries nothing it can
 #: chart -- however long the log is.
 SNAPSHOT_MARKER = "= Test Time:"
-#: Two, not one: the analyzer plots a series, and one point is not a series.
-MIN_SNAPSHOT_MARKERS = 2
+#: One, matching analyzer3: it builds a record per marker and succeeds on a
+#: single one. A stricter floor here would refuse logs the analyzer can plot,
+#: which makes this a second opinion about what is analysable rather than a
+#: guard in front of the first.
+MIN_SNAPSHOT_MARKERS = 1
 
 
 class NoSysMonSnapshotsError(Exception):
@@ -60,9 +63,10 @@ def ensure_log_has_snapshots(
                         return
     except OSError as exc:
         raise NoSysMonSnapshotsError(f"could not read the log: {exc}") from exc
+    blocks = "block" if minimum == 1 else "blocks"
     raise NoSysMonSnapshotsError(
         f"no sysMon snapshots in this log; nothing to analyse "
-        f"(needs at least {minimum} '{SNAPSHOT_MARKER}' blocks)"
+        f"(needs at least {minimum} '{SNAPSHOT_MARKER}' {blocks})"
     )
 
 
