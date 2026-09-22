@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import date, datetime, timedelta
+from collections import Counter
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import BinaryIO
 
@@ -224,11 +225,28 @@ def delete_file(file_row: dict) -> None:
 # Dashboard aggregates (KPI row + charts). Plain JSON-serialisable dicts.
 # ---------------------------------------------------------------------------
 
+# `uploaded_at` is SQLite's CURRENT_TIMESTAMP: UTC, in this format. A calendar
+# day, though, is the operator's: an upload at 07:00 in Taipei belongs to that
+# day, not to the UTC one that ended an hour earlier.
+_TS_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+
+def _now() -> datetime:
+    """Current time in UTC. The one clock the aggregates read, so tests can pin it."""
+    return datetime.now(timezone.utc)
+
+
+def _local_day(stamp: str) -> str:
+    """ISO date of a stored UTC stamp in the host's local time zone."""
+    utc = datetime.strptime(stamp[:19], _TS_FORMAT).replace(tzinfo=timezone.utc)
+    return utc.astimezone().date().isoformat()
+
+
 def uploads_per_day(days: int = 14) -> list[dict]:
-    """Files uploaded per calendar day for the last `days` days, zero-filled."""
-    rows = query_all("SELECT date(uploaded_at) AS d, COUNT(*) AS c FROM files GROUP BY d")
-    counts = {r["d"]: r["c"] for r in rows}
-    today = date.today()
+    """Files uploaded per local calendar day for the last `days` days, zero-filled."""
+    rows = query_all("SELECT uploaded_at FROM files WHERE uploaded_at IS NOT NULL")
+    counts = Counter(_local_day(r["uploaded_at"]) for r in rows)
+    today = _now().astimezone().date()
     series = []
     for offset in range(days - 1, -1, -1):
         day = today - timedelta(days=offset)
@@ -274,7 +292,8 @@ def stats() -> dict:
     total = len(rows)
     total_size = sum(r["size"] for r in rows)
     contributors = len({r["uploader"] for r in rows if r["uploader"]})
-    week_ago = (datetime.now() - timedelta(days=7)).isoformat(timespec="seconds")
+    # Same shape and zone as the stored stamps, so the string compare is exact.
+    week_ago = (_now() - timedelta(days=7)).strftime(_TS_FORMAT)
     this_week = sum(1 for r in rows if (r["uploaded_at"] or "") >= week_ago)
     return {
         "total": total,
