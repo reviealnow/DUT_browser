@@ -1908,15 +1908,19 @@ body {
   flex-wrap: wrap;
 }
 /* Standing between the mesh card and the grid rather than inside a card of its
-   own, so it needs the horizontal padding a card would have given it. */
-.fleet-grid-toolbar {
+   own, so it needs the horizontal padding a card would have given it. The
+   Overview strip's own toolbar sits the same way, above its row of cards, and
+   shares these rules rather than growing a second copy of them that drifts. */
+.fleet-grid-toolbar,
+.fleet-strip-toolbar {
   padding: 0 var(--space-2);
   margin-bottom: var(--space-3);
 }
 /* Let the sentence take the room it needs and keep the button on the same row
    until there is genuinely no space -- with a plain `space-between` the longer
    text wrapped the button onto its own line, left-aligned under the hint. */
-.fleet-grid-toolbar .setting-hint {
+.fleet-grid-toolbar .setting-hint,
+.fleet-strip-toolbar .setting-hint {
   flex: 1 1 32rem;
   min-width: 0;
 }
