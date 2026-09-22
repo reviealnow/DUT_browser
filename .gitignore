@@ -17,6 +17,10 @@ dut-dashboard/logs/dut-session-*.log
 dut-dashboard/logs/dut-session-*/
 dut-dashboard/logs/dut-session-*.zip
 dut-dashboard/logs/.mplconfig/
+# Operator bookkeeping written next to the data it describes (inventories,
+# what was compressed when). Runtime state of one bench, stale the moment
+# it is written, and it names every capture on that machine.
+dut-dashboard/logs/*.md
 # Captured DUT context: site surveys (P68) plus the connect-time snapshots and
 # per-log bundles added in P73. All runtime capture data, never committed.
 dut-dashboard/logs/site-surveys/
@@ -96,6 +100,12 @@ test_*-signed/
 # Anything outside it needs `git add -f`, which is friction pointing the right
 # way.
 *.log
+# A compressed session log carries exactly the same MAC addresses as the
+# log it was made from, and `*.log` does not match `.log.gz`. Added when
+# tools/compress_session_logs.py started producing them: the tool was
+# introduced without extending the patterns here, so for one afternoon a
+# 1.7 MB capture sat in logs/ as an untracked file in a public repository.
+*.log.gz
 !dut-dashboard/backend/tests/fixtures/**/*.log
 
 # The demo kit's DOM verifier declares its own single dependency.
