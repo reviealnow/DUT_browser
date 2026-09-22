@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import io
+import os
 import tempfile
+import time
 import unittest
 from contextlib import ExitStack
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -13,6 +16,8 @@ from fastapi import HTTPException, UploadFile
 from app.api import files_api
 from app.db import workspace
 from app.services import file_service
+
+_PINNED_NOW = datetime(2026, 9, 21, 23, 23, tzinfo=timezone.utc)
 
 
 def _upload(name: str, data: bytes, uploader: str | None = None, tags: str | None = None) -> dict:
@@ -78,10 +83,29 @@ class WorkspaceFilesTests(unittest.TestCase):
         self.assertEqual(first["filename"], "dup.csv")
         self.assertEqual(second["filename"], "dup_1.csv")
 
+    def _pin_clock_in_taipei(self) -> None:
+        """07:23 on 2026-09-22 in Taipei, which is still 2026-09-21 in UTC.
+
+        The first eight local hours of every day are the ones where the two
+        calendars disagree, so a stats test that reads the real clock passes
+        or fails depending on when it runs.
+        """
+        self._stack.callback(time.tzset)  # LIFO: runs after the env below is restored
+        self._stack.enter_context(patch.dict(os.environ, {"TZ": "Asia/Taipei"}))
+        time.tzset()
+        self._stack.enter_context(patch.object(file_service, "_now", return_value=_PINNED_NOW))
+
+    def _stamp(self, file_id: int, uploaded_at: str) -> None:
+        workspace.execute("UPDATE files SET uploaded_at = ? WHERE id = ?", (uploaded_at, file_id))
+
     def test_aggregates_group_by_type_and_uploader(self) -> None:
-        _upload("a.csv", b"123", uploader="amy")
-        _upload("b.csv", b"45", uploader="amy")
-        _upload("c.log", b"6", uploader="nelson")
+        self._pin_clock_in_taipei()
+        for created in (
+            _upload("a.csv", b"123", uploader="amy"),
+            _upload("b.csv", b"45", uploader="amy"),
+            _upload("c.log", b"6", uploader="nelson"),
+        ):
+            self._stamp(created["id"], "2026-09-21 23:20:00")  # 07:20 local
 
         stats = files_api.list_files()["stats"]
         self.assertEqual(stats["total"], 3)
@@ -97,7 +121,30 @@ class WorkspaceFilesTests(unittest.TestCase):
         self.assertEqual(top["nelson"], 1)
         # uploads_per_day is zero-filled to 14 days, today carries all 3.
         self.assertEqual(len(stats["uploads_per_day"]), 14)
+        self.assertEqual(stats["uploads_per_day"][-1]["date"], "2026-09-22")
         self.assertEqual(stats["uploads_per_day"][-1]["count"], 3)
+
+    def test_upload_day_is_the_local_calendar_day(self) -> None:
+        self._pin_clock_in_taipei()
+        # 16:00 UTC is local midnight: one second either side is a different day.
+        before = _upload("before.log", b"x")
+        after = _upload("after.log", b"x")
+        self._stamp(before["id"], "2026-09-20 15:59:59")
+        self._stamp(after["id"], "2026-09-20 16:00:00")
+
+        per_day = {d["date"]: d["count"] for d in files_api.list_files()["stats"]["uploads_per_day"]}
+        self.assertEqual(per_day["2026-09-20"], 1)
+        self.assertEqual(per_day["2026-09-21"], 1)
+
+    def test_this_week_is_the_last_seven_days(self) -> None:
+        self._pin_clock_in_taipei()
+        inside = _upload("inside.log", b"x")
+        outside = _upload("outside.log", b"x")
+        # _PINNED_NOW is 2026-09-21 23:23 UTC, so the window opens at 2026-09-14 23:23.
+        self._stamp(inside["id"], "2026-09-15 03:23:00")
+        self._stamp(outside["id"], "2026-09-14 23:22:59")
+
+        self.assertEqual(files_api.list_files()["stats"]["this_week"], 1)
 
     def test_pagination_pages_newest_first_and_reports_total(self) -> None:
         for name in ("one.log", "two.log", "three.log"):
