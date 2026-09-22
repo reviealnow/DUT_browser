@@ -89,9 +89,16 @@ from a different tree** -- it currently serves from `~/Documents/DUT_browser-pro
 ## Running it weekly
 
 `launchd` rather than cron, because cron on macOS does not run when the machine
-was asleep at the scheduled minute and `launchd` catches up. Save as
-`~/Library/LaunchAgents/com.edimax.dut.compress-logs.plist` and load it with
-`launchctl load ~/Library/LaunchAgents/com.edimax.dut.compress-logs.plist`:
+was asleep at the scheduled minute and `launchd` catches up.
+
+**Point both paths at the tree that runs the service.** The script exists in
+every worktree, but the other ones sit on whatever branch is being worked on, so
+a scheduled job aimed at one of those runs whatever happened to be checked out
+that week -- possibly a half-finished edit -- against production's logs. On this
+bench that tree is `~/Documents/DUT_browser-prod`. An earlier version of this
+file got that wrong and named the main checkout.
+
+Save as `~/Library/LaunchAgents/com.edimax.dut.compress-logs.plist`:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -104,7 +111,7 @@ was asleep at the scheduled minute and `launchd` catches up. Save as
   <key>ProgramArguments</key>
   <array>
     <string>/usr/bin/python3</string>
-    <string>/Users/iotedimax/Documents/DUT_browser/dut-dashboard/tools/compress_session_logs.py</string>
+    <string>/Users/iotedimax/Documents/DUT_browser-prod/dut-dashboard/tools/compress_session_logs.py</string>
     <string>--logs</string>
     <string>/Users/iotedimax/Documents/DUT_browser-prod/dut-dashboard/logs</string>
     <string>--older-than</string>
@@ -117,16 +124,49 @@ was asleep at the scheduled minute and `launchd` catches up. Save as
     <key>Hour</key><integer>4</integer>
     <key>Minute</key><integer>0</integer>
   </dict>
+  <key>RunAtLoad</key>
+  <false/>
   <key>StandardOutPath</key>
-  <string>/tmp/dut-compress-logs.out</string>
+  <string>/Users/iotedimax/Library/Logs/dut-compress-logs.log</string>
   <key>StandardErrorPath</key>
-  <string>/tmp/dut-compress-logs.err</string>
+  <string>/Users/iotedimax/Library/Logs/dut-compress-logs.log</string>
+  <key>ProcessType</key>
+  <string>Background</string>
 </dict>
 </plist>
 ```
 
-Read the result with `tail /tmp/dut-compress-logs.out`. Start with a manual dry
-run and one `--apply` by hand before scheduling anything.
+Three of those keys are there for a reason:
+
+- **`RunAtLoad` false** -- loading the agent must not compress anything on the
+  spot. Without it, `launchctl load` is itself an `--apply` run.
+- **`StandardOutPath` under `~/Library/Logs`, not `/tmp`** -- the OS clears
+  `/tmp`. This is an unattended job that removes original captures, so its
+  output *is* the audit trail: what it compressed, what it reclaimed, what it
+  skipped and why. Both streams go to one appended file so the order is real.
+- **`ProcessType` Background** -- it should not compete with whatever the bench
+  is doing.
+
+Then, checked in this order:
+
+```bash
+plutil -lint ~/Library/LaunchAgents/com.edimax.dut.compress-logs.plist
+launchctl load ~/Library/LaunchAgents/com.edimax.dut.compress-logs.plist
+launchctl list | grep compress-logs
+tail -30 ~/Library/Logs/dut-compress-logs.log     # after the first Sunday
+```
+
+`launchctl unload` on the same path stops it.
+
+Before scheduling anything, run the **exact command from the plist** by hand
+without `--apply`, and then once with it. A schedule is a bad place to discover
+that a path is wrong.
+
+**What you are agreeing to.** This hands an unattended timer the one action this
+bench otherwise keeps in a human's hands: removing a capture. The guards still
+hold -- it never touches a log a process has open or one written recently, and it
+verifies every archive against the original before removing anything -- but
+nobody is watching when it runs.
 
 ## Retention
 
