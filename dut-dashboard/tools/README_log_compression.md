@@ -36,7 +36,7 @@ suffix:
 | `main.py` `/api/logs` | globs `dut-session-*.log`; a `.gz` vanishes from Downloads |
 | `main.py` `/api/logs/tail` | 400 "Not a session log" |
 | `api/analyzer_api.py` | same validation |
-| `api/serial_api.py` `download_log` | cannot find the source |
+| `api/serial_api.py` `download_log` | no suffix check, so it *finds* the file and fails later: 422 "no sysMon snapshots in this log", which names the wrong cause — the file is gzip, not empty of telemetry. Only reachable by hand: the listing never offers it |
 | `services/context_snapshot.py` `_SESSION_RE` | context stops matching the session |
 
 So this is for logs that are **finished and being kept**, not for logs anybody

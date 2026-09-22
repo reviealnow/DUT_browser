@@ -77,9 +77,15 @@ detail; this section is the short version of what actually breaks when ignored.
    Authorship of uploads and posts comes from the **session**, never from a
    client-supplied name. Do not weaken either; older docs describing a
    "no login, shared-trust" model are out of date.
-5. **Never commit runtime data.** Everything under `dut-dashboard/logs/` and
-   `dut-dashboard/data/` is gitignored, and `snapshots.jsonl` may hold real
-   captured DUT data — do not delete it while testing.
+5. **Never commit runtime data.** `dut-dashboard/data/` is gitignored
+   wholesale. **`dut-dashboard/logs/` is not** — it is covered by a list of
+   patterns plus a global `*.log` / `*.log.gz`, so an artifact of a *new* kind
+   dropped there is committable until somebody adds a rule for it. That has
+   happened: a compressed capture, carrying the same MAC addresses as the log it
+   came from, sat there untracked in this public repository until #189. Check
+   with `git check-ignore -v <path>` rather than assuming, and read the matched
+   pattern — check-ignore exits 0 on a negation too. `snapshots.jsonl` may hold
+   real captured DUT data; do not delete it while testing.
 6. **No background polling of the serial port.** `capture_command` is a
    synchronous RPC that pauses sysmon parsing; trigger it on section entry or an
    explicit user action only, and coalesce concurrent captures.
@@ -257,11 +263,14 @@ flowchart TD
     │                       build_demo_data.py to regenerate them from a real
     │                       bundle, verify/ to drive them in a real DOM
     ├── tools/              analyzer3.py · log_event_detector.py · wifi_timeseries.py ·
-    │                       context_render.py · bench_*.py (diagnostics that need the
-    │                       hardware — see README_bench_tools.md)
+    │                       context_render.py · compress_session_logs.py (operator-run,
+    │                       see README_log_compression.md) · bench_*.py (diagnostics
+    │                       that need the hardware — see README_bench_tools.md)
     ├── scripts/            sysMon.sh (DUT-side telemetry script)
     ├── data/               workspace.db + uploads/ (runtime, gitignored)
-    └── logs/               session logs + snapshots-*.jsonl + analyzer_output (gitignored)
+    └── logs/               session logs (.log, .log.gz once compressed) +
+                            snapshots-*.jsonl + analyzer_output — runtime data,
+                            ignored by pattern rather than wholesale (see rule 5)
 ```
 
 ## Quick start
@@ -374,6 +383,14 @@ Per-DUT endpoints accept `?dut=<id>` (defaults to the `default` DUT).
   again. Key authentication is the alternative, and the key file stays on the
   dashboard's machine. An unknown SSH host key is reported, never accepted for
   you: SSH to a new host by hand once first.
+- **Nothing prunes or rotates `logs/`.** A session log grows for as long as
+  its console is attached, and no code deletes one. Measured on a real AP6 420E:
+  one sysMon cycle is ~29 KB and a cycle takes `step + 19 s` idle (`+63 s` under
+  load, not the step), so eight DUTs at a 30 s step come to roughly 0.4 GB a
+  day. `tools/compress_session_logs.py` is the answer — operator-run, gzip -6
+  for ~24x on this kind of output — but a compressed log leaves the web UI,
+  because the listing, tail, analyzer and context paths all require the exact
+  `.log` suffix. `gunzip` brings it back.
 - **Auth is role-based, not per-user access control** — browsing is open as
   `guest`; `engineer` and `admin` are unlocked by a shared passcode (or a QR
   invite token), so a role proves someone held the passcode, not who they are.
@@ -385,6 +402,11 @@ Per-DUT endpoints accept `?dut=<id>` (defaults to the `default` DUT).
 See **[`dut-dashboard/README.md`](dut-dashboard/README.md)** for the WebSocket
 event contracts, the frontend/backend module map, the log-download + CPU/memory
 plot mechanism, and the analyzer / log-event-detector tooling.
+
+See **[`dut-dashboard/tools/README_log_compression.md`](dut-dashboard/tools/README_log_compression.md)**
+for what a session log costs on disk, the measured compression ratios, the three
+guards that keep the compressor off a log still being written, and what
+scheduling it with launchd does and does not hand to a timer.
 
 See **[`dut-dashboard/demo/README_demo_kit.md`](dut-dashboard/demo/README_demo_kit.md)**
 for the demo kit: how to regenerate its data from a capture, the anonymisation
