@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Role } from "../api/rest";
 import type { RemoteRssiState } from "../monitoring/RemoteRssiContext";
@@ -24,7 +24,7 @@ import type { FleetEntry } from "../monitoring/useFleetMonitor";
  *  - a count that stops matching the cards under it.
  */
 
-const role: Role = "admin";
+let role: Role = "admin";
 vi.mock("../monitoring/AuthContext", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../monitoring/AuthContext")>()),
   useAuth: () => ({ role }),
@@ -99,6 +99,9 @@ function entry(id: string, over: Partial<FleetEntry> = {}): FleetEntry {
   };
 }
 
+/** A console held on a Pi — driving one of these needs admin, not engineer. */
+const REMOTE = { host: "192.168.30.145", port: 22, device: "/dev/ttyUSB0" };
+
 function show() {
   render(<FleetStrip onSelectDut={() => undefined} onOpenConsole={() => undefined} />);
 }
@@ -109,6 +112,10 @@ function cardLabels(): string[] {
     (node) => node.textContent ?? "",
   );
 }
+
+beforeEach(() => {
+  role = "admin";
+});
 
 afterEach(cleanup);
 
@@ -173,6 +180,19 @@ describe("when the strip must not collapse", () => {
     show();
     expect(cardLabels()).toEqual(["DUT a", "DUT b"]);
     expect(screen.queryByText(/registered/)).toBeNull();
+  });
+
+  it("does not promise a Connect button to a reader who has none", () => {
+    // Driving a remote node needs admin. An engineer sees no Connect button on
+    // these cards at all, so naming one would send them looking for something
+    // that was never on the page -- the sentence has to describe this reader's
+    // screen, not the most privileged one.
+    role = "engineer";
+    fleet = [entry("a", { serialOpen: true }), entry("b", { remote: REMOTE })];
+    show();
+    expect(cardLabels()).toEqual(["DUT a"]);
+    expect(screen.getByText(/hides 1 other\./)).toBeTruthy();
+    expect(screen.queryByText(/Connect button/)).toBeNull();
   });
 
   it("stays hidden entirely for a single DUT, open or not", () => {

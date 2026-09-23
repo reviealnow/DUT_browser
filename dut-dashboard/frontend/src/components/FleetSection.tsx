@@ -6,6 +6,7 @@ import { FleetEntry, useFleetMonitor } from "../monitoring/useFleetMonitor";
 import { useFleetRecommendations } from "../monitoring/useLastRecommendation";
 import { useRemoteRssi } from "../monitoring/RemoteRssiContext";
 import FleetCard from "./FleetCard";
+import FleetCollapseNotice from "./FleetCollapseNotice";
 import MeshTopologySection from "./MeshTopology";
 import {
   meshPresence,
@@ -125,7 +126,6 @@ function FleetBody({
     consoleOpen.length > 0 &&
     consoleOpen.length < fleet.length;
   const shown = collapsed && !showAll ? consoleOpen : fleet;
-  const hidden = fleet.length - shown.length;
 
   const captureAll = useCallback(() => {
     setCapturingAll(true);
@@ -152,36 +152,18 @@ function FleetBody({
           card held nothing else, and its title repeated the page's: three
           headings stacked up before any data, one of them empty. */}
       <div className="fleet-section-toolbar fleet-grid-toolbar">
-        <div className="setting-hint">
-          <strong className="fleet-count">
-            {fleet.length} registered · {consoleOpen.length} with a console open.
-          </strong>{" "}
-          {/* Said where the count is, because the count is what stops adding up
-              otherwise: a reader who sees "3 registered" above one card needs
-              the reason in the same breath, not two paragraphs away. */}
-          {collapsed && !showAll ? (
-            <>
-              The DUT reports no mesh, so the grid shows the{" "}
-              {consoleOpen.length === 1 ? "DUT" : "DUTs"} on a console and{" "}
-              {hidden === 1 ? "hides 1 other" : `hides ${hidden} others`}.{" "}
-              <button type="button" className="linklike" onClick={() => setShowAll(true)}>
-                Show all
-              </button>
-              .{" "}
-            </>
-          ) : null}
-          {collapsed && showAll ? (
-            <>
-              Showing every registered DUT.{" "}
-              <button type="button" className="linklike" onClick={() => setShowAll(false)}>
-                Show only the console
-              </button>
-              .{" "}
-            </>
-          ) : null}
+        <FleetCollapseNotice
+          fleet={fleet}
+          consoleOpen={consoleOpen}
+          shown={shown}
+          collapsed={collapsed}
+          showAll={showAll}
+          onShowAll={setShowAll}
+          lead="The DUT reports no mesh, so the grid"
+        >
           Backhaul figures are the last capture, not a live feed: reading one occupies that
           DUT&apos;s serial console, so nothing here refreshes on its own.
-        </div>
+        </FleetCollapseNotice>
         {canCapture ? (
           <button
             type="button"

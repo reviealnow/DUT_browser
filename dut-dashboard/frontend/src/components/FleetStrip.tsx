@@ -4,6 +4,7 @@ import { useFleetMonitor } from "../monitoring/useFleetMonitor";
 import { useFleetRecommendations } from "../monitoring/useLastRecommendation";
 import { useRemoteRssi } from "../monitoring/RemoteRssiContext";
 import FleetCard from "./FleetCard";
+import FleetCollapseNotice from "./FleetCollapseNotice";
 
 /**
  * Phase 37 / 69: all registered DUTs side-by-side. Each card shows status /
@@ -61,7 +62,6 @@ export default function FleetStrip({
   const consoleOpen = fleet.filter((entry) => entry.serialOpen);
   const collapsed = consoleOpen.length > 0 && consoleOpen.length < fleet.length;
   const shown = collapsed && !showAll ? consoleOpen : fleet;
-  const hidden = fleet.length - shown.length;
 
   // Single-DUT (or empty) users have nothing to switch between — hide the strip
   // so Overview isn't cluttered with a redundant one-card row.
@@ -77,32 +77,15 @@ export default function FleetStrip({
           nothing. */}
       {collapsed ? (
         <div className="fleet-section-toolbar fleet-strip-toolbar">
-          <div className="setting-hint">
-            <strong className="fleet-count">
-              {fleet.length} registered · {consoleOpen.length} with a console open.
-            </strong>{" "}
-            {showAll ? (
-              <>
-                Showing every registered DUT.{" "}
-                <button type="button" className="linklike" onClick={() => setShowAll(false)}>
-                  Show only open consoles
-                </button>
-                .
-              </>
-            ) : (
-              <>
-                A registration is kept until somebody removes it, so the strip shows the{" "}
-                {consoleOpen.length === 1 ? "DUT" : "DUTs"} on a console and{" "}
-                {hidden === 1 ? "hides 1 other" : `hides ${hidden} others`} — with{" "}
-                {hidden === 1 ? "its" : "their"} Connect{" "}
-                {hidden === 1 ? "button" : "buttons"}.{" "}
-                <button type="button" className="linklike" onClick={() => setShowAll(true)}>
-                  Show all
-                </button>
-                .
-              </>
-            )}
-          </div>
+          <FleetCollapseNotice
+            fleet={fleet}
+            consoleOpen={consoleOpen}
+            shown={shown}
+            collapsed={collapsed}
+            showAll={showAll}
+            onShowAll={setShowAll}
+            lead="A registration is kept until somebody removes it, so the strip"
+          />
         </div>
       ) : null}
 
