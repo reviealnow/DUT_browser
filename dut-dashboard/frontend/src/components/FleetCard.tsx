@@ -296,7 +296,10 @@ export default function FleetCard({
               {meshRole ? ` Mesh ${meshRole.role === "root" ? "Root" : "Node"}` : ""}
             </div>
           </div>
-          <span className={`pill ${meta.pill}`}>
+          {/* Sits on the card's top edge (see `.fleet-card-state`), so the
+              title has the full width of the card instead of wrapping beside
+              it. */}
+          <span className={`pill ${meta.pill} fleet-card-state`}>
             {/* The dot is drawn only where it moves. A resting one beside
                 "Connected" is what made a held console look dead. */}
             {meta.live ? <LiveDot live /> : null}
