@@ -184,6 +184,30 @@ describe("a bench whose DUT answered that it is in no mesh", () => {
     expect(cardLabels()).toEqual(["DUT a", "DUT b", "DUT c"]);
   });
 
+  it("says the hidden cards take their Connect buttons with them", () => {
+    // The card is the only place a remembered DUT can be reconnected from, so
+    // collapsing the grid also collapses the way back. Saying so is the
+    // difference between a filter and a disappearance.
+    fleet = [entry("a", { serialOpen: true, meshProbe: NO_MESH }), entry("b")];
+    show();
+    expect(screen.getByText(/hides 1 other — with its Connect button/)).toBeTruthy();
+  });
+
+  it("offers the way back in the plural", () => {
+    // "Show only the console" was wrong exactly when the test below is right:
+    // two consoles can be open at once, and the link named one of them.
+    fleet = [
+      entry("a", { serialOpen: true, meshProbe: NO_MESH }),
+      entry("b", { serialOpen: true }),
+      entry("c"),
+    ];
+    show();
+    fireEvent.click(screen.getByText("Show all"));
+    expect(cardLabels()).toEqual(["DUT a", "DUT b", "DUT c"]);
+    fireEvent.click(screen.getByText("Show only open consoles"));
+    expect(cardLabels()).toEqual(["DUT a", "DUT b"]);
+  });
+
   it("shows both DUTs when two consoles are open", () => {
     // "The console" is not necessarily one. Filtering to the first would drop a
     // DUT somebody is actively working on.
