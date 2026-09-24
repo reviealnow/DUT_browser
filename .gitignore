@@ -5,7 +5,11 @@ __pycache__/
 .venv/
 venv/
 
-dut-dashboard/frontend/node_modules/
+# No trailing slash: `dir/` matches only a directory, and a worktree that links
+# node_modules to another checkout's has a symlink here, which git treats as a
+# file -- so the slashed rule let it show up as untracked, one `git add` away
+# from being committed.
+dut-dashboard/frontend/node_modules
 dut-dashboard/frontend/dist/
 
 dut-dashboard/logs/analyzer_output/
@@ -109,4 +113,4 @@ test_*-signed/
 !dut-dashboard/backend/tests/fixtures/**/*.log
 
 # The demo kit's DOM verifier declares its own single dependency.
-dut-dashboard/demo/verify/node_modules/
+dut-dashboard/demo/verify/node_modules
