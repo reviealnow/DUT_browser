@@ -1824,6 +1824,9 @@ body {
   display: flex;
   gap: var(--space-4);
   overflow-x: auto;
+  /* Room for the state pill standing on each card's top edge: a sideways
+     scroller clips vertically too, so without it the pill is cut in half. */
+  padding-top: var(--space-3);
   padding-bottom: var(--space-2);
   margin-bottom: var(--space-4);
 }
@@ -1833,9 +1836,23 @@ body {
   border-top-width: 4px;
 }
 .fleet-card {
+  position: relative;
   gap: var(--space-4);
   padding: var(--space-5);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+/* The console state, standing on the card's top edge rather than beside the
+   title. Beside it, the pill took a third of a 250px card and the title
+   ("192.168.30.124 ttyUSB0") wrapped onto two lines on every remote DUT. The
+   ring in the panel colour separates it from the coloured top border it
+   straddles. It stays inside the card's button, so it still selects the DUT. */
+.fleet-card-state {
+  position: absolute;
+  /* `top` is measured inside the 4px top border; -2px centres it on it. */
+  top: -2px;
+  right: var(--space-4);
+  transform: translateY(-50%);
+  box-shadow: 0 0 0 2px var(--panel);
 }
 .fleet-card:hover { border-color: var(--accent); box-shadow: var(--shadow-lg, var(--shadow)); }
 /* The card body is one big button (jump to Overview); the quick-action row
