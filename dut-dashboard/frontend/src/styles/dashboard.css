@@ -1704,12 +1704,23 @@ body {
   width: 100%;
 }
 .fleet-card-main:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Pinned to the bottom of the card: the strip and the grid both stretch a row of
+   cards to one height, and this is what makes the buttons line up across it. */
 .fleet-card-actions {
   display: flex;
   gap: var(--space-2);
   align-items: center;
   flex-wrap: wrap;
+  margin-top: auto;
 }
+/* A long value wraps under itself, right-aligned, rather than squeezing its
+   label onto two lines: "Mesh (device says)" broke on one card and not the
+   next, which knocked every row below it out of line. Grid only: at the
+   strip's 250px, "Children on backhaul" beside "Not applicable" does not fit on
+   one line whichever side gives way, and a label that refuses to wrap there
+   pushes the value out of the card. */
+.fleet-card--grid .stat-row dt { flex: 0 0 auto; }
+.fleet-card .stat-row dd { text-align: right; min-width: 0; }
 .fleet-card-head {
   display: flex;
   align-items: flex-start;
@@ -1892,10 +1903,12 @@ body {
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: var(--space-4);
   margin-top: var(--space-4);
-  /* Cards in a row are wildly different heights — a local DUT has no backhaul
-     detail at all, a mesh node has two tables — and stretching the short one to
-     the tallest leaves a card that is mostly blank and reads as broken. */
-  align-items: start;
+  /* Cards in a row share one height. Their content differs — a remote DUT has
+     two session rows, a local one a capture note — and a ragged row read as
+     three unrelated boxes. The spare space goes above the action row (see
+     `.fleet-card-actions`), so the buttons line up across the row instead of a
+     short card ending in blank panel. */
+  align-items: stretch;
 }
 .fleet-card--grid {
   border-top-width: 4px;
