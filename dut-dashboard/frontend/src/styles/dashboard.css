@@ -398,6 +398,40 @@ body {
   min-width: 220px;
 }
 
+/* Desktop only (the phone layout has its own rows). The title was the one item
+   in the toolbar allowed to shrink, so on the four sections with a search box
+   it took the whole deficit: at 1400px the search, the DUT picker, status,
+   Connect and the login chip left it 18px, one word per line, and the toolbar
+   grew to 249px. A section title that cannot be read is the wrong thing to
+   give up.
+
+   The title now keeps its line, and the search takes a full-width row of its
+   own under it -- every time, not only when the first row runs out, so the
+   box does not jump between two places as the window is resized. Wrapping is
+   also what catches a first row that still does not fit at narrow desktop
+   widths, instead of crushing something inside it. */
+@media (min-width: 721px) {
+  /* `flex-end` only moves a wrapped line: the first one is filled by the
+     spacer, and the search row by the search. Controls pushed onto a line of
+     their own stay under the rest of the actions, on the right. */
+  .toolbar {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    row-gap: var(--space-3);
+  }
+  .toolbar-titles {
+    flex-shrink: 0;
+  }
+  .toolbar-title {
+    white-space: nowrap;
+  }
+  .search {
+    order: 1;
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+}
+
 .search input {
   border: none;
   outline: none;
