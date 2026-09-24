@@ -225,7 +225,16 @@ export default function ConsolePanel({
 
   return (
     <div style={{ border: "1px solid #ddd", padding: 12 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: 8,
+          marginBottom: 8,
+        }}
+      >
         <h3 style={{ margin: 0 }}>Serial Console</h3>
         <div style={{ display: "flex", gap: 8 }}>
           <button type="button" onClick={onDownloadLog} disabled={!canDownloadLog}>
@@ -280,13 +289,16 @@ export default function ConsolePanel({
           <span key={linesStartSeq + index}>{line + "\n"}</span>
         ))}
       </div>
-      <form onSubmit={handleSubmit} style={{ marginTop: 8, display: "flex", gap: 8 }}>
+      {/* Wraps, and the input may shrink: an <input> keeps a browser-default
+          width of ~20 characters even under `flex: 1`, so on a phone the row
+          was wider than the panel and Send sat outside its border. */}
+      <form onSubmit={handleSubmit} style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 8 }}>
         <input
           value={command}
           onChange={(e) => setCommand(e.target.value)}
           onKeyDown={handleInputKeyDown}
           placeholder="Type command"
-          style={{ flex: 1 }}
+          style={{ flex: "1 1 12rem", minWidth: 0 }}
         />
         <button type="button" onClick={openEditor}>
           Edit in Popup

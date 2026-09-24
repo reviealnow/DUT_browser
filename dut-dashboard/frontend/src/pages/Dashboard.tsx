@@ -489,7 +489,10 @@ export default function Dashboard({
           style={{
             display: "grid",
             gap: 12,
-            gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+            // Capped at the box's own width: on a phone the panel is narrower
+            // than 300px, and a fixed minimum pushed the whole column -- "Mark
+            // as seen", "Lock in" -- out past the border.
+            gridTemplateColumns: "repeat(auto-fit, minmax(min(300px, 100%), 1fr))",
             alignItems: "start",
           }}
         >
@@ -505,7 +508,16 @@ export default function Dashboard({
             </div>
           </div>
           <div>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                flexWrap: "wrap",
+                gap: 8,
+                marginBottom: 8,
+              }}
+            >
               <h3 style={{ marginTop: 0, marginBottom: 0, color: "#b71c1c" }}>
                 Critical Crash ({allCriticalCrashLines.length})
               </h3>
