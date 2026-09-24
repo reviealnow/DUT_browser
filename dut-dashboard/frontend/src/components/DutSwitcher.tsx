@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { addDut, DutInfo, getDuts, removeDut, renameDut } from "../api/rest";
 import { DEFAULT_DUT_ID } from "../api/dut";
 import { useAuth } from "../monitoring/AuthContext";
+import { IconDuts } from "./shell/icons";
 
 /**
  * Topbar DUT selector (multi-DUT Stage 2a). Lists the registered DUTs, switches
@@ -106,7 +107,7 @@ export default function DutSwitcher({
       </select>
       {canManage ? (
         <button
-          className="btn"
+          className="btn tb-icon-btn"
           onClick={() => setManageOpen((v) => !v)}
           title={`Manage DUTs — ${duts.length} registered, ${openCount} with a console open`}
         >
@@ -115,7 +116,11 @@ export default function DutSwitcher({
               somebody who opened this, and the bench spent a while believing
               the second host had not been created at all. The number moves
               even when nothing is open. */}
-          DUTs {duts.length}
+          {/* On a phone the word goes screen-reader-only and the count becomes
+              a badge on the icon; the accessible name stays "DUTs N". */}
+          <IconDuts />
+          <span className="tb-label">DUTs</span>{" "}
+          <span className="tb-count">{duts.length}</span>
         </button>
       ) : null}
 

@@ -373,6 +373,20 @@ body {
   display: contents;
 }
 
+/* The toolbar's icons and the account toggle exist for the phone layout
+   (see the max-width: 720px block); on desktop the buttons read as words and
+   the account panel sits inline, exactly as before. */
+/* `.auth-chip .auth-toggle`, not `.auth-toggle`: the toggle is also a `.btn`,
+   whose `display` comes later in this file and would otherwise win. */
+.toolbar .icon,
+.auth-chip .auth-toggle,
+.auth-age {
+  display: none;
+}
+.auth-panel {
+  display: contents;
+}
+
 .search {
   display: flex;
   align-items: center;
@@ -1500,22 +1514,27 @@ body {
   .kpis {
     grid-template-columns: 1fr;
   }
-  /* Three rows, still sticky, about 100px. It used to stack five full-width
+  /* Two rows, still sticky, about 76px. It used to stack five full-width
      rows -- title, DUT picker, status, Connect, login -- for ~300px, a third of
      a phone screen held over every section while scrolling.
 
-       row 1: menu | title        | status pill
-       row 2: DUT picker + DUTs   | Connect DUT
-       row 3: login              | last event age
+       row 1: menu | title                 | status pill | account
+       row 2: DUT picker + DUTs            | Connect
+
+     Buttons become icons (their words stay, screen-reader-only), identity and
+     the event age move into the account menu, and the section subtitle is
+     dropped. The status pill keeps its word: it is the one line of the
+     toolbar that says what state the DUT is in, and a dot alone would say it
+     with colour and motion only.
 
      The action wrappers stay `display: contents` (as on desktop), so every
      control is a direct grid item and is placed by class, not by DOM order. */
   .toolbar {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
     align-items: center;
     column-gap: var(--space-2);
-    row-gap: var(--space-1);
+    row-gap: 6px;
     padding: 6px var(--space-4);
   }
   .toolbar-spacer {
@@ -1538,19 +1557,22 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  /* The section subtitle is the line that does least on a phone; the age that
-     shares its class is kept (row 3). */
-  .toolbar-titles .toolbar-sub {
+  .toolbar-titles .toolbar-sub,
+  .toolbar-status > .toolbar-sub {
     display: none;
   }
   .toolbar-status > .pill {
     grid-row: 1;
     grid-column: 3;
-    justify-self: end;
+  }
+  .auth-chip,
+  .toolbar-actions > .tb-icon-btn:not(.primary) {
+    grid-row: 1;
+    grid-column: 4;
   }
   .dut-switcher {
     grid-row: 2;
-    grid-column: 1 / 3;
+    grid-column: 1 / 4;
     min-width: 0;
   }
   .dut-switcher > select {
@@ -1560,49 +1582,75 @@ body {
   }
   .toolbar-actions > .btn.primary {
     grid-row: 2;
-    grid-column: 3;
+    grid-column: 4;
   }
-  .toolbar .btn {
-    padding: 5px var(--space-3);
-    font-size: 14px;
+  /* Icon buttons: a 32px square, the word kept for assistive tech only. */
+  .toolbar .icon {
+    display: block;
   }
-  .auth-chip,
-  .toolbar-actions > .btn:not(.primary) {
-    grid-row: 3;
-    grid-column: 1 / 3;
-    justify-self: start;
-    min-width: 0;
+  .toolbar .tb-icon-btn {
+    position: relative;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    justify-content: center;
   }
-  /* The chip keeps to its cell and the name gives way (ellipsis), so it never
-     runs under the event age beside it; with no age shown it takes the row. */
-  .auth-chip {
-    max-width: 100%;
-  }
-  .toolbar:not(:has(.toolbar-status > .toolbar-sub)) .auth-chip {
-    grid-column: 1 / -1;
-  }
-  .auth-chip .auth-name {
-    font-size: 12px;
-    min-width: 0;
-  }
-  .auth-chip .pill {
-    padding: 0 var(--space-2);
-    font-size: 11px;
-  }
-  .toolbar .auth-chip .btn,
-  .toolbar-actions > .btn:not(.primary) {
-    padding: 1px var(--space-2);
-    font-size: 12px;
-    border-radius: 8px;
-  }
-  .toolbar-status > .toolbar-sub {
-    grid-row: 3;
-    grid-column: 3;
-    justify-self: end;
+  .toolbar .tb-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
     white-space: nowrap;
   }
+  /* The DUT count, which is why the button exists (see DutSwitcher), stays on
+     screen as a badge rather than going with the word. */
+  .toolbar .tb-count {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: var(--ink);
+    color: var(--panel);
+    font-size: 11px;
+    line-height: 16px;
+    text-align: center;
+  }
+  .auth-chip .auth-toggle {
+    display: inline-flex;
+  }
+  /* The account menu, dropped under the toolbar's right edge. Positioned
+     against the sticky toolbar, so it scrolls with it. */
+  .auth-panel {
+    display: none;
+  }
+  .auth-chip.open .auth-panel {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: var(--space-4);
+    z-index: 25;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+    min-width: 200px;
+    padding: var(--space-3);
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+  }
+  .auth-panel .auth-name {
+    max-width: 240px;
+  }
+  .auth-age {
+    display: block;
+  }
   .search {
-    grid-row: 4;
+    grid-row: 3;
     grid-column: 1 / -1;
   }
   .content {

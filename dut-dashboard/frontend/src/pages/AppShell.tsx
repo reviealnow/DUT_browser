@@ -14,6 +14,8 @@ import Sidebar from "../components/shell/Sidebar";
 import { dutPresence } from "../monitoring/dutPresence";
 import LiveDot from "../components/shell/LiveDot";
 import Topbar from "../components/shell/Topbar";
+import AccountMenu from "../components/shell/AccountMenu";
+import { IconConnect, IconLogin } from "../components/shell/icons";
 import { canAccess, NAV_ITEMS, SectionId } from "../components/shell/navigation";
 import { AuthProvider, useAuth } from "../monitoring/AuthContext";
 import { useAppVersion } from "../monitoring/useAppVersion";
@@ -232,18 +234,17 @@ function AppShellInner() {
                 onConnect={() => setActive("console")}
               />
               {user ? (
-                <span className="auth-chip">
-                  <span className="auth-name" title={user.username}>
-                    {user.display_name}
-                  </span>
-                  <span className={`pill role-${user.role}`}>{user.role}</span>
-                  <button type="button" className="btn" onClick={() => void logout()}>
-                    Logout
-                  </button>
-                </span>
+                <AccountMenu
+                  displayName={user.display_name}
+                  username={user.username}
+                  role={user.role}
+                  eventAge={monitor.status !== "offline" ? formatEventAge(monitor.lastEventAgeSec) : null}
+                  onLogout={() => void logout()}
+                />
               ) : (
-                <button type="button" className="btn" onClick={() => setLoginOpen(true)}>
-                  Login
+                <button type="button" className="btn tb-icon-btn" onClick={() => setLoginOpen(true)}>
+                  <IconLogin />
+                  <span className="tb-label">Login</span>
                 </button>
               )}
             </div>
@@ -981,8 +982,9 @@ function ToolbarActions({
           {statusMeta.label}
         </span>
       </div>
-      <button type="button" className="btn primary" onClick={onConnect}>
-        Connect DUT
+      <button type="button" className="btn primary tb-icon-btn" onClick={onConnect}>
+        <IconConnect />
+        <span className="tb-label">Connect DUT</span>
       </button>
     </>
   );
