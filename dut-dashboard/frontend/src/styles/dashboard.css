@@ -430,6 +430,32 @@ body {
     flex: 1 1 100%;
     min-width: 0;
   }
+  /* The event age under the status pill instead of beside it, and the login
+     chip a size tighter. With an age showing, the first row at 1400px needed
+     1182px of 1104: the login chip wrapped onto a line of its own and the
+     toolbar grew to three rows. Stacked, the age costs no width and the pair
+     still sits inside the 38px the buttons already take. Column-reverse
+     because the age comes first in the DOM, and the pill is the line that
+     matters. */
+  .toolbar-status {
+    display: flex;
+    flex-direction: column-reverse;
+    align-items: flex-end;
+    gap: 2px;
+  }
+  .toolbar-status > .toolbar-sub {
+    font-size: 11px;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+  .auth-chip .pill {
+    padding: 2px var(--space-2);
+    font-size: 11px;
+  }
+  .auth-panel .btn {
+    padding: var(--space-1) var(--space-3);
+    font-size: 13px;
+  }
 }
 
 .search input {
