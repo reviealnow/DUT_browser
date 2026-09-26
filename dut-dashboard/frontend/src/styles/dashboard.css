@@ -2253,7 +2253,9 @@ body {
 .cap-summary { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
 .cap-ts { font-size: 0.75rem; color: var(--muted); margin-left: auto; }
 .cap-row { transition: background 0.1s; }
-.cap-row:hover { background: var(--surface); }
+/* --surface was never defined, so this hover computed to transparent: invisible
+   on a plain row, and on a zebra-shaded row it cleared the shade. */
+.cap-row:hover { background: var(--accent-weak); }
 .cap-row--ok td:first-child { border-left: 3px solid var(--ok, #22c55e); }
 .cap-row--diff td:first-child { border-left: 3px solid var(--warn, #f59e0b); }
 .cap-row--miss td:first-child { border-left: 3px solid var(--danger, #ef4444); }
