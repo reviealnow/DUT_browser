@@ -39,6 +39,10 @@ button{font:inherit; color:inherit; cursor:pointer}
 
 .main{display:flex; flex-direction:column; min-width:0}
 .topbar{display:flex; align-items:center; gap:var(--space-3); padding:var(--space-4) var(--space-5); background:var(--panel); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:5}
+/* Phone widths: the topbar's title, DEMO chip, DUT and role pills do not fit one
+   390px row, and a flex row that cannot wrap pushed the whole page sideways.
+   Let them wrap onto a second line, as the product's two-row toolbar does. */
+@media (max-width:720px){ .topbar{flex-wrap:wrap; row-gap:var(--space-2); padding:var(--space-3) var(--space-4)} .topbar .pill{white-space:normal} }
 .topbar h1{font-size:17px; margin:0; letter-spacing:-.01em}
 .topbar .sub{color:var(--muted); font-size:12px}
 .spacer{flex:1}
@@ -66,13 +70,13 @@ button{font:inherit; color:inherit; cursor:pointer}
 
 /* ---------- the section toolbar ---------- */
 .fleet-section-toolbar{display:flex; align-items:center; gap:var(--space-4); flex-wrap:wrap}
-.setting-hint{color:var(--muted); font-size:12px; flex:1; min-width:280px}
+.setting-hint{color:var(--muted); font-size:12px; flex:1; min-width:min(280px,100%)}
 .setting-label{font-size:12px; font-weight:650; color:var(--muted); letter-spacing:.02em}
 
 /* ---------- the fleet at full width ----------
    A grid, not the Overview strip: the strip is a horizontal scroller sized for
    a glance, and the capture below needs the column. */
-.fleet-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(330px,1fr)); gap:var(--space-4); align-items:start}
+.fleet-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(min(330px,100%),1fr)); gap:var(--space-4); align-items:start}
 .fleet-card{background:var(--panel); border:1px solid var(--border); border-top-width:4px; border-radius:var(--radius); box-shadow:var(--shadow); padding:var(--space-3); display:flex; flex-direction:column; gap:var(--space-2)}
 .fleet-name{font-weight:650; color:var(--ink); font-size:13px}
 .fleet-id{color:var(--faint); font-size:11px}

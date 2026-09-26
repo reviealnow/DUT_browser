@@ -35,6 +35,10 @@ button{cursor:pointer}
 
 .main{display:flex; flex-direction:column; min-width:0}
 .topbar{display:flex; align-items:center; gap:var(--space-3); padding:var(--space-4) var(--space-5); background:var(--panel); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:5}
+/* Phone widths: the topbar's title, DEMO chip, DUT and role pills do not fit one
+   390px row, and a flex row that cannot wrap pushed the whole page sideways.
+   Let them wrap onto a second line, as the product's two-row toolbar does. */
+@media (max-width:720px){ .topbar{flex-wrap:wrap; row-gap:var(--space-2); padding:var(--space-3) var(--space-4)} .topbar .pill{white-space:normal} }
 .topbar h1{font-size:17px; margin:0; letter-spacing:-.01em}
 .topbar .sub{color:var(--muted); font-size:12px}
 .spacer{flex:1}
@@ -61,8 +65,10 @@ button{cursor:pointer}
 .console{height:320px; overflow-y:auto; background:#121212; color:#f5f5f5;
   font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; line-height:1.45;
   padding:8px; white-space:pre-wrap; border-radius:10px}
-.sendrow{margin-top:var(--space-2); display:flex; gap:var(--space-2)}
-.sendrow input{flex:1; border:1px solid var(--border); border-radius:9px; padding:6px 11px; font-size:13px}
+/* Wraps as ConsolePanel's form does (flexWrap: wrap, input 1 1 12rem), so the
+   four controls fold under the input on a phone instead of widening the page. */
+.sendrow{margin-top:var(--space-2); display:flex; flex-wrap:wrap; gap:var(--space-2)}
+.sendrow input{flex:1 1 12rem; min-width:0; border:1px solid var(--border); border-radius:9px; padding:6px 11px; font-size:13px}
 .sendrow input:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-weak)}
 .hint{margin-top:6px; font-size:12px; color:var(--muted)}
 .hint.warn{color:#8a4b00}
