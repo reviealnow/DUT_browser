@@ -190,7 +190,7 @@ function CapabilityReportBody({ report }: { report: CapabilityReport }) {
         <span className="cap-ts">A: {report.captured_at_a}{report.captured_at_b ? ` · B: ${report.captured_at_b}` : ""}</span>
       </div>
 
-      <div style={{ overflowX: "auto" }}>
+      <div className="table-sticky">
         <table className="filetable wifitable">
           <thead>
             <tr>
