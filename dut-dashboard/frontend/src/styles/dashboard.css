@@ -2060,27 +2060,54 @@ body {
   background: currentColor;
 }
 
+/* The pulse is the one the Aichi-Nagoya 2026 results widget puts beside its
+   LIVE heading: grow from a fifth to nearly full size once a second, then snap
+   back. It replaced a 2.4s opacity-and-glow breathe; a one-second beat reads
+   as "arriving now" from across a bench where a slow fade did not. It stays
+   the only liveness keyframes here, so every live dot changed with it. */
 .live-dot.is-live {
   background: var(--ok);
-  animation: live-breathe 2.4s ease-in-out infinite;
+  animation: live-pulse 1s infinite;
 }
 
-@keyframes live-breathe {
-  0%, 100% {
-    opacity: 0.4;
-    box-shadow: 0 0 0 0 var(--ok-weak);
+@keyframes live-pulse {
+  0% {
+    transform: scale(0.2);
   }
-  50% {
-    opacity: 1;
-    box-shadow: 0 0 0 4px var(--ok-weak);
+  to {
+    transform: scale(0.95);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .live-dot.is-live {
     animation: none;
-    opacity: 1;
   }
+}
+
+/* "● LIVE" in a card header, laid out like that widget's heading: the dot and
+   a bold uppercase word on one line. Its caller renders nothing when the card
+   is not live, so there is no resting style to define. */
+.live-badge {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  gap: var(--space-2);
+  color: var(--ok);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.9px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* The same slot on a card whose data is an on-demand scan: how old it is,
+   muted and still, because nothing about it is arriving. */
+.scan-age {
+  align-self: center;
+  color: var(--faint);
+  font-size: 12px;
+  white-space: nowrap;
 }
 .fleet-rssi-na {
   color: var(--muted);
