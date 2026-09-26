@@ -10,6 +10,7 @@ import {
 import { DEFAULT_DUT_ID } from "../api/dut";
 import { useWifiScan, wifiScanForDut } from "../monitoring/WifiScanContext";
 import { Card, EmptyState } from "./shell/Card";
+import { ScanAge } from "./shell/LiveBadge";
 
 const COL_COUNT = 11;
 const BAND_ORDER: Record<string, number> = { "2.4G": 0, "5G": 1, "6G": 2 };
@@ -112,9 +113,12 @@ export default function WifiClientsCard({ dutId = DEFAULT_DUT_ID }: { dutId?: st
   }, [data]);
 
   const action = (
-    <button className="btn" onClick={scan} disabled={loading}>
-      {loading ? "Scanning…" : "Scan clients"}
-    </button>
+    <>
+      <ScanAge capturedAt={data?.captured_at} />
+      <button className="btn" onClick={scan} disabled={loading}>
+        {loading ? "Scanning…" : "Scan clients"}
+      </button>
+    </>
   );
 
   return (
