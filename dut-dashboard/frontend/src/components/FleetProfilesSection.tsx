@@ -88,7 +88,7 @@ export default function FleetProfilesSection() {
           hint="Save one from a card on the Hosts page — the 💾 button beside its fields."
         />
       ) : (
-        <div className="profiles-table-wrap">
+        <div className="profiles-table-wrap table-sticky">
           <table className="filetable profiles-table">
             <thead>
               <tr>

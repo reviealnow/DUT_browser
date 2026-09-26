@@ -137,7 +137,7 @@ export default function WifiClientsCard({ dutId = DEFAULT_DUT_ID }: { dutId?: st
           ))}
           <span style={{ color: "var(--faint)", fontSize: 12, alignSelf: "center" }}>scanned {data.captured_at}</span>
         </div>
-        <div style={{ overflowX: "auto" }}>
+        <div className="table-sticky">
         <table className="filetable wifitable">
           <thead>
             <tr>

@@ -1193,11 +1193,63 @@ body {
 .logscroll-x {
   overflow-x: auto;
 }
-.logscroll .filetable thead th {
+.logscroll .filetable thead th,
+.table-sticky .filetable thead th {
   position: sticky;
   top: 0;
   background: var(--panel);
   z-index: 1;
+  /* A collapsed border belongs to the table, not the cell, so it scrolls away
+     from under a pinned header. Draw the rule on the cell instead. */
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+/* The rule above out-specifies `.wifitable thead th`, which left Site Survey's
+   pinned header white while every other Wi-Fi table read pale blue. */
+.logscroll .wifitable thead th,
+.table-sticky .wifitable thead th {
+  background: var(--accent-weak);
+}
+
+/* Every table wider than four columns. Past four, a phone scrolls sideways and
+   a long list scrolls down, and either way the reader loses which column is
+   which. One box scrolls both axes: a sticky header only pins inside its
+   nearest scroll container, so an `overflow-x` wrapper alone would silently
+   un-pin it against the page. Cap the height so the vertical scroll happens
+   here rather than on the page. */
+.table-sticky {
+  max-width: 100%;
+  max-height: 70vh;
+  overflow: auto;
+}
+
+/* Phone-width cell padding, taken from the Aichi-Nagoya 2026 results widget's
+   medal standings: 5px 6px in a cell, about 5px above and below the header
+   row. The desktop 8px 12px leaves an 11-column table two screens wide on a
+   phone; this brings more columns into view without shrinking the text.
+   A preview row is left as it renders today -- it holds a panel, not a
+   value, and denser padding would crowd the text inside it. */
+/* Zebra rows, as in the medal standings: every other data row shaded, the
+   first one included, so the eye can follow a row across eleven columns.
+
+   Only rows of values are counted. A full-width row (a colSpan cell: an
+   expanded preview, a band heading, a tag editor) sits between two data rows
+   and belongs to one of them; counting it would flip every shade below an
+   expanded row. Several of those rows carry no class, so they are recognised
+   by the colSpan rather than by name.
+
+   Painted on the row and zeroed by :where(), so a cell's own background (a
+   band heading, a tag editor) and a row's hover state still win. */
+.filetable :where(tbody tr:nth-child(odd of :not(:has(> td[colspan])))) {
+  background: var(--bg);
+}
+
+@media (max-width: 720px) {
+  .filetable thead th {
+    padding: 0.3rem 0.375rem;
+  }
+  .filetable tr:not(.preview-row) > td {
+    padding: 0.3125rem 0.375rem;
+  }
 }
 .logscroll-note {
   color: var(--faint);
@@ -2201,7 +2253,9 @@ body {
 .cap-summary { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
 .cap-ts { font-size: 0.75rem; color: var(--muted); margin-left: auto; }
 .cap-row { transition: background 0.1s; }
-.cap-row:hover { background: var(--surface); }
+/* --surface was never defined, so this hover computed to transparent: invisible
+   on a plain row, and on a zebra-shaded row it cleared the shade. */
+.cap-row:hover { background: var(--accent-weak); }
 .cap-row--ok td:first-child { border-left: 3px solid var(--ok, #22c55e); }
 .cap-row--diff td:first-child { border-left: 3px solid var(--warn, #f59e0b); }
 .cap-row--miss td:first-child { border-left: 3px solid var(--danger, #ef4444); }

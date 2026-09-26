@@ -114,7 +114,7 @@ export default function MeshTopologySection({ fleet }: { fleet: FleetEntry[] }) 
       ) : null}
 
       {members.length > 0 ? (
-        <div className="mesh-topology-table">
+        <div className="mesh-topology-table table-sticky">
           <table className="filetable">
             <thead>
               <tr>

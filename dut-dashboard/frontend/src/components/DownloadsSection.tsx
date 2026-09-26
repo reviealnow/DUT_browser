@@ -114,37 +114,39 @@ const NO_CONTEXT_HINT = "no context captured during this session";
  */
 function ContextTable({ rows }: { rows: ContextEntry[] }) {
   return (
-    <table className="filetable">
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Kind</th>
-          <th>Size</th>
-          <th>Modified</th>
-          <th aria-label="download" />
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => (
-          <tr key={`${row.kind}/${row.name}`}>
-            <td className="filetable-name">{row.name}</td>
-            <td>{row.kind}</td>
-            <td>{formatSize(row.size)}</td>
-            <td>{formatTimestamp(row.mtime)}</td>
-            <td className="filetable-actions">
-              <a
-                className="btn"
-                href={getContextDownloadUrl(row.kind, row.name)}
-                download
-                style={{ padding: "2px 10px" }}
-              >
-                Download
-              </a>
-            </td>
+    <div className="table-sticky">
+      <table className="filetable">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Kind</th>
+            <th>Size</th>
+            <th>Modified</th>
+            <th aria-label="download" />
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={`${row.kind}/${row.name}`}>
+              <td className="filetable-name">{row.name}</td>
+              <td>{row.kind}</td>
+              <td>{formatSize(row.size)}</td>
+              <td>{formatTimestamp(row.mtime)}</td>
+              <td className="filetable-actions">
+                <a
+                  className="btn"
+                  href={getContextDownloadUrl(row.kind, row.name)}
+                  download
+                  style={{ padding: "2px 10px" }}
+                >
+                  Download
+                </a>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
