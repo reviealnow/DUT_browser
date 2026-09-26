@@ -45,6 +45,10 @@ button{font:inherit; color:inherit; cursor:pointer}
 .pill{display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:999px; font-size:12px; font-weight:600; border:1px solid transparent; white-space:nowrap}
 .pill-demo{background:var(--warn-weak); color:var(--warn); border-color:#f0dfb4}
 .pill-ok{background:var(--ok-weak); color:var(--ok)}
+/* The product's live dot (styles/dashboard.css .live-dot.is-live): drawn only while live, and pulsing from a fifth to nearly full size once a second. */
+.dot.live{width:8px; height:8px; border-radius:50%; background:var(--ok); flex:none; animation:live-pulse 1s infinite}
+@keyframes live-pulse{0%{transform:scale(.2)} to{transform:scale(.95)}}
+@media (prefers-reduced-motion:reduce){ .dot.live{animation:none} }
 .pill-danger{background:var(--danger-weak); color:var(--danger)}
 .pill-muted{background:var(--bg); color:var(--muted); border-color:var(--border)}
 .pill-admin{background:#f3effb; color:#6b4fa8; border-color:#d9cdf0}
@@ -413,7 +417,7 @@ function renderFleet(){
           <div class="fleet-id">${esc(d.id)}</div>
           <div class="fleet-where">${r ? `Remote via ${esc(r.host)}:${esc(r.port)}` : "Mother server"}</div>
         </div>
-        <span class="pill ${meta.pill}"><span class="dot"></span>${meta.label}</span>
+        <span class="pill ${meta.pill}">${meta.live ? '<span class="dot live" aria-hidden="true"></span>' : ""}${meta.label}</span>
       </div>
       <div class="fleet-cpu"><span class="fleet-cpu-value">${esc(d.cpu)}</span><span class="fleet-cpu-sub">${esc(d.cpuSub)}</span></div>
       <span class="band-badge band-${esc(d.recoLevel)}">${esc(d.reco)}</span>
