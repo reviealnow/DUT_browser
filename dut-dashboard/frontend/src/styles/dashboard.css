@@ -1221,6 +1221,21 @@ body {
   max-height: 70vh;
   overflow: auto;
 }
+
+/* Phone-width cell padding, taken from the Aichi-Nagoya 2026 results widget's
+   medal standings: 5px 6px in a cell, about 5px above and below the header
+   row. The desktop 8px 12px leaves an 11-column table two screens wide on a
+   phone; this brings more columns into view without shrinking the text.
+   A preview row is left as it renders today -- it holds a panel, not a
+   value, and denser padding would crowd the text inside it. */
+@media (max-width: 720px) {
+  .filetable thead th {
+    padding: 0.3rem 0.375rem;
+  }
+  .filetable tr:not(.preview-row) > td {
+    padding: 0.3125rem 0.375rem;
+  }
+}
 .logscroll-note {
   color: var(--faint);
   font-size: 12px;
