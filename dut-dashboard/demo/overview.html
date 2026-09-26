@@ -50,6 +50,10 @@ button{font:inherit; color:inherit; cursor:pointer}
 .pill-warn{background:var(--warn-weak); color:var(--warn); border-color:#f0dfb4}
 .pill-admin{background:#f3effb; color:#6b4fa8; border-color:#d9cdf0}
 .dot{width:7px; height:7px; border-radius:50%; background:currentColor; flex:none}
+/* The product's live dot (styles/dashboard.css .live-dot.is-live): drawn only while live, and pulsing from a fifth to nearly full size once a second. */
+.dot.live{width:8px; height:8px; border-radius:50%; background:var(--ok); flex:none; animation:live-pulse 1s infinite}
+@keyframes live-pulse{0%{transform:scale(.2)} to{transform:scale(.95)}}
+@media (prefers-reduced-motion:reduce){ .dot.live{animation:none} }
 
 .content{padding:var(--space-5); display:flex; flex-direction:column; gap:var(--space-5); max-width:1400px; width:100%}
 
@@ -371,7 +375,7 @@ function renderFleet(){
     // registry's console flag decides between them -- dutPresence(), verbatim.
     const meta =
       d.status === "offline" ? { label: "Offline", pill: "pill-danger" }
-      : d.status === "streaming" ? { label: "Streaming", pill: "pill-ok" }
+      : d.status === "streaming" ? { label: "Streaming", pill: "pill-ok", live: true }
       : d.open ? { label: "Connected", pill: "pill-ok" }
       : { label: "No DUT", pill: "pill-muted" };
     const statusPill = meta.pill;
@@ -383,7 +387,7 @@ function renderFleet(){
           <div class="fleet-id">${d.id}</div>
           <div class="fleet-where">${r ? `Remote via ${r.host}:${r.port}` : "Mother server"}</div>
         </div>
-        <span class="pill ${statusPill}"><span class="dot"></span>${meta.label}</span>
+        <span class="pill ${statusPill}">${meta.live ? '<span class="dot live" aria-hidden="true"></span>' : ""}${meta.label}</span>
       </div>
       <div class="fleet-cpu"><span class="fleet-cpu-value">${d.cpu}</span><span class="fleet-cpu-sub">${d.cpuSub}</span></div>
       <span class="band-badge band-${d.recoLevel}">${d.reco}</span>

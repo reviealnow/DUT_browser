@@ -13,6 +13,7 @@ import LoginDialog from "../components/LoginDialog";
 import Sidebar from "../components/shell/Sidebar";
 import { dutPresence } from "../monitoring/dutPresence";
 import LiveDot from "../components/shell/LiveDot";
+import { LiveBadge, ScanAge } from "../components/shell/LiveBadge";
 import Topbar from "../components/shell/Topbar";
 import AccountMenu from "../components/shell/AccountMenu";
 import { IconConnect, IconLogin } from "../components/shell/icons";
@@ -381,20 +382,22 @@ function renderSection(
     case "console":
       // Rendered separately (always mounted) so its session/state persists.
       return null;
-    case "cpu":
+    case "cpu": {
+      const live = <LiveBadge live={dutPresence(monitor.status, consoleOpen).live} />;
       return (
         <div className="grid">
-          <Card title="CPU trend" subtitle="Per-core busy % over time">
+          <Card title="CPU trend" subtitle="Per-core busy % over time" actions={live}>
             <CpuTrendBody monitor={monitor} />
           </Card>
-          <Card title="Per-core CPU" subtitle="Current busy % by core">
+          <Card title="Per-core CPU" subtitle="Current busy % by core" actions={live}>
             <PerCoreCpuBody monitor={monitor} />
           </Card>
-          <Card title="Memory trend" subtitle="Effective available — live or post-analysis">
+          <Card title="Memory trend" subtitle="Effective available — live or post-analysis" actions={live}>
             <MemoryTrendBody monitor={monitor} />
           </Card>
         </div>
       );
+    }
     case "wifi":
       // Scan-driven: WifiClientsCard auto-scans on entry and shows both the
       // per-band summary and the detail (one authoritative source). The live
@@ -488,19 +491,26 @@ function OverviewSection({
       </div>
 
       <div className="grid">
-        <Card title="CPU trend" subtitle="Per-core busy % over time">
+        <Card title="CPU trend" subtitle="Per-core busy % over time" actions={<LiveBadge live={statusMeta.live} />}>
           <CpuTrendBody monitor={monitor} />
         </Card>
-        <Card title="Memory trend" subtitle="Effective available — live or post-analysis">
+        <Card
+          title="Memory trend"
+          subtitle="Effective available — live or post-analysis"
+          actions={<LiveBadge live={statusMeta.live} />}
+        >
           <MemoryTrendBody monitor={monitor} />
         </Card>
         <Card
           title="Wi-Fi client summary"
           subtitle="Associated clients per band (wlanconfig)"
           actions={
-            <button type="button" className="btn" onClick={() => void wifi.scan(selectedDut)} disabled={wifiLoading}>
-              {wifiLoading ? "Scanning…" : "Scan"}
-            </button>
+            <>
+              <ScanAge capturedAt={wifiScan?.captured_at} />
+              <button type="button" className="btn" onClick={() => void wifi.scan(selectedDut)} disabled={wifiLoading}>
+                {wifiLoading ? "Scanning…" : "Scan"}
+              </button>
+            </>
           }
         >
           <WifiSummaryBody result={wifiScan} loading={wifiLoading} error={wifiError} status={monitor.status} />
