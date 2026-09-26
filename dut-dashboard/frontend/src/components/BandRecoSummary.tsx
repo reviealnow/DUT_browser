@@ -2,6 +2,7 @@ import { ChannelRecommendation, LastChannelRecommendationResult } from "../api/r
 import { useLastRecommendation } from "../monitoring/useLastRecommendation";
 import { RecommendationPill } from "./RecommendationPill";
 import { EmptyState } from "./shell/Card";
+import { formatAge } from "../utils/datetime";
 
 const BAND_ORDER: Record<string, number> = { "2.4GHz": 0, "5GHz": 1, "6GHz": 2 };
 
@@ -12,25 +13,6 @@ function byBand(a: ChannelRecommendation, b: ChannelRecommendation): number {
 /** Number of bands where a clearer channel than the current one exists. */
 export function warnCount(recs: ChannelRecommendation[]): number {
   return recs.filter((r) => r.recommended_channel !== r.current_channel).length;
-}
-
-/** "just now" / "3m ago" / "2h ago" from an ISO timestamp; "" if unparseable. */
-function formatAge(iso: string | null): string {
-  if (!iso) {
-    return "";
-  }
-  const then = Date.parse(iso);
-  if (Number.isNaN(then)) {
-    return "";
-  }
-  const sec = Math.max(0, Math.round((Date.now() - then) / 1000));
-  if (sec < 60) {
-    return "just now";
-  }
-  if (sec < 3600) {
-    return `${Math.floor(sec / 60)}m ago`;
-  }
-  return `${Math.floor(sec / 3600)}h ago`;
 }
 
 /**
