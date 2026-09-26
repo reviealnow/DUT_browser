@@ -37,8 +37,10 @@ button{cursor:pointer}
 .topbar{display:flex; align-items:center; gap:var(--space-3); padding:var(--space-4) var(--space-5); background:var(--panel); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:5}
 /* Phone widths: the topbar's title, DEMO chip, DUT and role pills do not fit one
    390px row, and a flex row that cannot wrap pushed the whole page sideways.
-   Let them wrap onto a second line, as the product's two-row toolbar does. */
-@media (max-width:720px){ .topbar{flex-wrap:wrap; row-gap:var(--space-2); padding:var(--space-3) var(--space-4)} .topbar .pill{white-space:normal} }
+   Let them wrap onto a second line, as the product's two-row toolbar does. The DEMO chip
+   shows only "● DEMO" here; its explanation stays in the DOM for screen readers, in the
+   chip's title, and in the page's provenance footer. */
+@media (max-width:720px){ .topbar{flex-wrap:wrap; row-gap:var(--space-2); padding:var(--space-3) var(--space-4)} .topbar .pill{white-space:normal} .topbar .pill-demo .demo-more{position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap} }
 .topbar h1{font-size:17px; margin:0; letter-spacing:-.01em}
 .topbar .sub{color:var(--muted); font-size:12px}
 .spacer{flex:1}
@@ -202,7 +204,7 @@ input[type=password]{border:1px solid var(--border); border-radius:9px; padding:
         <div class="sub">Boxes reached over SSH, and their DUT consoles</div>
       </div>
       <span class="spacer"></span>
-      <span class="pill pill-demo">● DEMO — no box is reachable, no session is held</span>
+      <span class="pill pill-demo" title="no box is reachable, no session is held">● DEMO<span class="demo-more"> — no box is reachable, no session is held</span></span>
       <span class="pill pill-admin" data-role="admin">admin only</span>
     </header>
 

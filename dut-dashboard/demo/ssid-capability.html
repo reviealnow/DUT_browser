@@ -36,8 +36,10 @@ button{font:inherit; color:inherit; cursor:pointer}
 .topbar{display:flex; align-items:center; gap:var(--space-3); padding:var(--space-4) var(--space-5); background:var(--panel); border-bottom:1px solid var(--border); position:sticky; top:0; z-index:5}
 /* Phone widths: the topbar's title, DEMO chip, DUT and role pills do not fit one
    390px row, and a flex row that cannot wrap pushed the whole page sideways.
-   Let them wrap onto a second line, as the product's two-row toolbar does. */
-@media (max-width:720px){ .topbar{flex-wrap:wrap; row-gap:var(--space-2); padding:var(--space-3) var(--space-4)} .topbar .pill{white-space:normal} }
+   Let them wrap onto a second line, as the product's two-row toolbar does. The DEMO chip
+   shows only "● DEMO" here; its explanation stays in the DOM for screen readers, in the
+   chip's title, and in the page's provenance footer. */
+@media (max-width:720px){ .topbar{flex-wrap:wrap; row-gap:var(--space-2); padding:var(--space-3) var(--space-4)} .topbar .pill{white-space:normal} .topbar .pill-demo .demo-more{position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap} }
 .topbar h1{font-size:17px; margin:0; letter-spacing:-.01em}
 .topbar .sub{color:var(--muted); font-size:12px}
 .spacer{flex:1}
@@ -136,7 +138,7 @@ tbody td{padding:var(--space-2) var(--space-3); border-bottom:1px solid #f1f4f9;
         <div class="sub">DUT config vs host-side scan reconciliation</div>
       </div>
       <span class="spacer"></span>
-      <span class="pill pill-demo">● DEMO — canned data, no DUT attached</span>
+      <span class="pill pill-demo" title="canned data, no DUT attached">● DEMO<span class="demo-more"> — canned data, no DUT attached</span></span>
       <span class="pill pill-muted">DemoDUT-6E</span>
       <!-- The kit shows one admin session throughout; overview.html states the
            rule in full. This page carried no role pill at all, which is not "no
