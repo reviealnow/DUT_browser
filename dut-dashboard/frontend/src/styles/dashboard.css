@@ -84,6 +84,13 @@ body {
   padding: var(--space-5) var(--space-3);
   position: sticky;
   top: 0;
+  /* Sticky makes the sidebar a stacking context, so the rail flyout's own
+     z-index only ranks it among the sidebar's children. Without a z-index here
+     the whole sidebar paints at level 0, under every positioned element later
+     in the page — the fleet cards (position: relative) covered the flyout and
+     took its clicks. Above the sticky toolbar (20), below the drawer backdrop
+     (30) and modals (60); the drawer breakpoint raises it to 40. */
+  z-index: 25;
   height: 100vh;
   overflow-y: auto;
   /* Labels are clipped, never reflowed, while the width animates: a nav that
