@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { DEFAULT_DUT_ID } from "../api/dut";
-import { getConsoleTail, getSnapshots } from "../api/rest";
-import { connectDashboardWebSocket, SnapshotPayload } from "../api/websocket";
+import { SnapshotPayload } from "../api/websocket";
+import { getDataSource } from "../data/createDataSource";
 import { createLineBuffer } from "./consoleLineBuffer";
 import { setFirmwareProgress } from "./firmwareStore";
 import { setSurveyProgress } from "./siteSurveyStore";
@@ -96,9 +96,10 @@ export type DutMonitorState = {
 /**
  * Phase 2/3: derive real monitoring state from the existing /ws event stream.
  *
- * Opens a single WebSocket (same contract as the console) and reads the
- * snapshot / wifi / console events the backend already broadcasts. No backend
- * changes; no metrics invented — every value comes from a real event.
+ * Subscribes through the app's one `IDataSource` (`data/createDataSource.ts`):
+ * in live mode that is the single shared WebSocket, in demo mode the bundled
+ * replay. Either way it reads the same snapshot / wifi / console events, and
+ * no metric is invented here — every value comes from an event.
  *
  * Phase 3: this is the single source of WS truth. The Serial Console
  * (Dashboard) consumes `lines` from here via context instead of opening its
@@ -132,7 +133,7 @@ export function useDutMonitor(dutId: string = DEFAULT_DUT_ID): DutMonitorState {
   // device_ts / seed-if-empty) so it is safe to call on every reconnect.
   const runBackfill = useCallback(async () => {
     try {
-      const snaps = await getSnapshots(MAX_HISTORY, dutId);
+      const snaps = await getDataSource().loadSnapshots(MAX_HISTORY, dutId);
       if (snaps.length > 0) {
         const backfillHistory = snaps.reduce<CpuHistoryPoint[]>((acc, snap) => upsertCpuPoint(acc, snap), []);
         setCpuHistory((prev) => {
@@ -167,7 +168,7 @@ export function useDutMonitor(dutId: string = DEFAULT_DUT_ID): DutMonitorState {
     }
 
     try {
-      const tail = await getConsoleTail(MAX_LINES, dutId);
+      const tail = await getDataSource().loadConsoleTail(MAX_LINES, dutId);
       // Console is an unkeyed append-only stream → seed only if empty (live wins).
       if (tail.length > 0) {
         setConsoleWindow((prev) =>
@@ -228,7 +229,7 @@ export function useDutMonitor(dutId: string = DEFAULT_DUT_ID): DutMonitorState {
       recordActivity();
     };
 
-    const socket = connectDashboardWebSocket({
+    const socket = getDataSource().subscribe({
       onEvent: (event) => {
         const maybeText = (event as { text?: unknown }).text;
         if (event.type === "console_line" && typeof maybeText === "string") {

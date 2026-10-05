@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { DutInfo, getDuts, getSnapshots } from "../api/rest";
-import { applySnapshotDelta, connectFleetWebSocket, SnapshotPayload } from "../api/websocket";
+import { DutInfo, getDuts } from "../api/rest";
+import { applySnapshotDelta, SnapshotPayload } from "../api/websocket";
+import { getDataSource } from "../data/createDataSource";
 import { useCrashKeywords } from "./useCrashKeywords";
 import { cpuFromSnapshot, DutStatus } from "./useDutMonitor";
 
@@ -185,7 +186,7 @@ export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () =>
       await Promise.all(
         list.map(async ({ id }) => {
           try {
-            const snaps = await getSnapshots(1, id);
+            const snaps = await getDataSource().loadSnapshots(1, id);
             if (!cancelled && snaps.length > 0) {
               baseRef.current.set(id, snaps[snaps.length - 1]);
             }
@@ -209,7 +210,7 @@ export function useFleetMonitor(): { fleet: FleetEntry[]; refreshRegistry: () =>
       lastActivityRef.current.set(dutId, Date.now());
     };
 
-    const socket = connectFleetWebSocket({
+    const socket = getDataSource().subscribeFleet({
       onEvent: (event) => {
         const dutId = event.dut_id;
         if (!dutId) {
