@@ -1,6 +1,14 @@
 import { defineConfig } from "vite";
 
-export default defineConfig({
+// Where the Demo Mode build is served from: the `app/` folder of the project's
+// GitHub Pages site, next to the static demo kit at the site root (see
+// .github/workflows/demo-pages.yml). Overridable for a fork or another host.
+const DEMO_BASE = process.env.DEMO_BASE ?? "/DUT_browser/app/";
+
+// `--mode demo` (npm run dev:demo / build:demo) loads .env.demo, which sets
+// VITE_APP_MODE=demo; every other mode is the live, backend-served app at `/`.
+export default defineConfig(({ mode }) => ({
+  base: mode === "demo" ? DEMO_BASE : "/",
   server: {
     host: "0.0.0.0",
     port: 5173,
@@ -33,4 +41,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

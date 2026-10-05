@@ -8,13 +8,22 @@
 # Only the pages are published. `build_demo_data.py`, `demo-fixtures.json` and
 # `verify/` stay in the repository where they belong: a visitor is here to see
 # the screens, and a static host has no use for the generator that made them.
-name: Deploy demo kit to Pages
+#
+# The same site also carries the real React app, built in Demo Mode, under
+# `app/`: the kit stays the front door at the root, and `app/` is the product
+# itself running on replayed synthetic telemetry (see the "Demo Mode" section
+# of dut-dashboard/README.md). They are deployed by this one workflow
+# because a repository has one Pages site and every deployment replaces all of
+# it -- a second workflow uploading only `app/` would delete the kit, and the
+# kit's next deployment would delete `app/`.
+name: Deploy demo kit and Demo Mode app to Pages
 
 on:
   push:
     branches: [CPU_Plots]
     paths:
       - "dut-dashboard/demo/*.html"
+      - "dut-dashboard/frontend/**"
       - ".github/workflows/demo-pages.yml"
   workflow_dispatch:
 
@@ -44,6 +53,24 @@ jobs:
           cp dut-dashboard/demo/*.html _site/
           echo "Publishing $(ls _site | wc -l) pages:"
           ls -lh _site
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dut-dashboard/frontend/package-lock.json
+
+      # `--mode demo` loads .env.demo (VITE_APP_MODE=demo) and sets the base to
+      # /DUT_browser/app/, so every asset URL in the build already points where
+      # it is about to be served from. No backend is reachable from Pages, and
+      # a demo build never asks for one.
+      - name: Build the app in Demo Mode into app/
+        working-directory: dut-dashboard/frontend
+        run: |
+          npm ci
+          npm run build:demo
+          cp -r dist ../../_site/app
+          echo "app/ holds $(find ../../_site/app -type f | wc -l) files"
 
       # No `enablement:` — `configure-pages` says that option "requires a token
       # other than GITHUB_TOKEN", so with the default token it cannot turn Pages
