@@ -68,6 +68,11 @@ jobs:
       # Both, and in this order: a type error is the cheaper failure to read.
       - run: npm run typecheck
       - run: npm test
+      # The Demo Mode build is otherwise only built by demo-pages.yml, which
+      # runs after merge: a demo build broken on a PR would be found by the
+      # public site failing to deploy. `tsc --noEmit` does not catch what only
+      # the bundler resolves (`--mode demo`, `.env.demo`, the `base` path).
+      - run: npm run build:demo
 
   demo:
     name: demo kit
