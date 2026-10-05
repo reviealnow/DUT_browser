@@ -14,7 +14,9 @@ import Sidebar from "../components/shell/Sidebar";
 import { dutPresence } from "../monitoring/dutPresence";
 import LiveDot from "../components/shell/LiveDot";
 import { LiveBadge, ScanAge } from "../components/shell/LiveBadge";
+import DemoModeBanner from "../components/shell/DemoModeBanner";
 import Topbar from "../components/shell/Topbar";
+import { DEMO_UNAVAILABLE, IS_DEMO } from "../data/appMode";
 import AccountMenu from "../components/shell/AccountMenu";
 import { IconConnect, IconLogin } from "../components/shell/icons";
 import { canAccess, NAV_ITEMS, SectionId } from "../components/shell/navigation";
@@ -243,7 +245,14 @@ function AppShellInner() {
                   onLogout={() => void logout()}
                 />
               ) : (
-                <button type="button" className="btn tb-icon-btn" onClick={() => setLoginOpen(true)}>
+                <button
+                  type="button"
+                  className="btn tb-icon-btn"
+                  onClick={() => setLoginOpen(true)}
+                  // Signing in needs the backend's session store.
+                  disabled={IS_DEMO}
+                  title={IS_DEMO ? DEMO_UNAVAILABLE : undefined}
+                >
                   <IconLogin />
                   <span className="tb-label">Login</span>
                 </button>
@@ -251,6 +260,7 @@ function AppShellInner() {
             </div>
           }
           />
+          {IS_DEMO ? <DemoModeBanner /> : null}
           {inviteToken ? (
             <InviteRedeemDialog token={inviteToken} onClose={() => setInviteToken(null)} />
           ) : loginOpen ? (
@@ -992,7 +1002,14 @@ function ToolbarActions({
           {statusMeta.label}
         </span>
       </div>
-      <button type="button" className="btn primary tb-icon-btn" onClick={onConnect}>
+      <button
+        type="button"
+        className="btn primary tb-icon-btn"
+        onClick={onConnect}
+        // Connecting opens a serial port; the demo build has none to open.
+        disabled={IS_DEMO}
+        title={IS_DEMO ? DEMO_UNAVAILABLE : undefined}
+      >
         <IconConnect />
         <span className="tb-label">Connect DUT</span>
       </button>

@@ -204,6 +204,25 @@ h1{font-size:23px; margin:0; letter-spacing:-.02em}
   </div>
 
   <div class="panel">
+    <h2>The real app, in Demo Mode</h2>
+    <p>
+      These pages are hand-built copies of each screen. The published site also carries the
+      product itself — the same React build that runs on the bench — at
+      <a href="app/"><span class="mono">app/</span></a>, started in <b>Demo Mode</b>: it replays
+      two minutes of <b>synthetic</b> telemetry in a loop instead of reading a DUT, browses as a
+      guest, and disables every action that would need a device. It complements the kit rather
+      than replacing it: the kit shows every screen with measured data; the app shows the
+      monitoring screens moving, with invented data.
+    </p>
+    <p>
+      <span class="mono">app/</span> exists only on the published site, not in this folder — it
+      is built by the Pages workflow from <span class="mono">dut-dashboard/frontend/</span>
+      (<span class="mono">npm run build:demo</span>), so the link above does nothing when this
+      file was opened from disk.
+    </p>
+  </div>
+
+  <div class="panel">
     <h2>Showing this to someone</h2>
     <p>
       Open <b>Site Survey</b> first — 2,438 real networks across two bands is the fastest way to

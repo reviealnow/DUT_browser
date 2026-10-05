@@ -28,7 +28,10 @@ served over the LAN. It monitors a QCA/Atheros AP6 DUT over a **serial console**
    `<script type="application/json">` for a future migration. Bundled npm deps
    (React, xterm, codemirror) are fine — the ban is on CDN + chart/UI libs.
 3. **One WebSocket.** Realtime telemetry reuses the shared `useDutMonitor`
-   monitor. Do **not** open new `/ws` connections. On-demand features use REST.
+   monitor. Do **not** open new `/ws` connections. On-demand features use REST,
+   through the typed client in `api/rest.ts` — never a bare `fetch`, which
+   would bypass `apiFetch` and make the Demo Mode build call a backend that
+   is not there.
 4. **Don't break existing behavior.** Serial console, Critical Crash panel, log
    download, and replay mode must keep working.
 5. **Never commit runtime data.** Everything under `dut-dashboard/logs/` and
@@ -76,6 +79,11 @@ dut-dashboard/
     pages/        Dashboard, AppShell
     components/   shell/ (Card, Sidebar, Topbar, navigation.ts) · charts/ · *Card.tsx
     monitoring/   contexts + hooks (useDutMonitor, *Context.tsx)
+    data/         IDataSource (live WebSocket / demo replay), apiFetch (every
+                  REST call's door; demo mode answers in-process), appMode.
+                  The operating mode is read and mapped HERE and nowhere else:
+                  a component may disable a DUT-only control on IS_DEMO, but
+                  never chooses where its data comes from
     api/          rest.ts (typed REST client) · websocket.ts · dut.ts
     utils/        shared browser helpers (clipboard.ts)
     styles/

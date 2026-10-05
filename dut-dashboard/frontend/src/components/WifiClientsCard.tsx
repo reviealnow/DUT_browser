@@ -8,6 +8,7 @@ import {
   WifiClientStats,
 } from "../api/rest";
 import { DEFAULT_DUT_ID } from "../api/dut";
+import { DEMO_UNAVAILABLE, IS_DEMO } from "../data/appMode";
 import { useWifiScan, wifiScanForDut } from "../monitoring/WifiScanContext";
 import { Card, EmptyState } from "./shell/Card";
 import { ScanAge } from "./shell/LiveBadge";
@@ -191,6 +192,9 @@ export default function WifiClientsCard({ dutId = DEFAULT_DUT_ID }: { dutId?: st
                     <button
                       className="btn"
                       onClick={() => kick(c)}
+                      // Kick runs wlanconfig on the DUT; a replay has no DUT to run it on.
+                      disabled={IS_DEMO}
+                      title={IS_DEMO ? DEMO_UNAVAILABLE : undefined}
                       style={{ padding: "2px 10px", color: "var(--danger)", borderColor: "var(--danger)" }}
                     >
                       Kick

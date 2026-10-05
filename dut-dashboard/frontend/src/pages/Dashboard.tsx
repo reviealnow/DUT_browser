@@ -15,6 +15,7 @@ import {
   SerialPortInfo,
 } from "../api/rest";
 import ConsolePanel from "../components/ConsolePanel";
+import { apiFetch } from "../data/apiFetch";
 import LiveDot from "../components/shell/LiveDot";
 // Lazy-loaded so the xterm.js bundle only loads when the terminal is opened.
 const TerminalView = lazy(() => import("../components/TerminalView"));
@@ -238,7 +239,7 @@ export default function Dashboard({
       return;
     }
     const fallbackName = currentLogFileName;
-    const response = await fetch(getSerialLogDownloadUrl(currentLogFileName));
+    const response = await apiFetch(getSerialLogDownloadUrl(currentLogFileName));
     if (!response.ok) {
       throw new Error(await response.text());
     }

@@ -16,13 +16,28 @@ same parser, same snapshot history, same log.
 
 ### ▶ [Open the live demo](https://reviealnow.github.io/DUT_browser/)
 
+### ▶ [Run the real app in Demo Mode](https://reviealnow.github.io/DUT_browser/app/)
+
+The second link is the actual React frontend, built in **Demo Mode**: it
+replays synthetic DUT telemetry in a loop, browses as a guest, and disables
+everything that needs a device. Real DUT connectivity requires running the
+FastAPI backend locally — see
+[Demo Mode](dut-dashboard/README.md#demo-mode-no-backend-no-dut) for how the
+two modes differ and how to run either.
+
+```text
+Public demo (GitHub Pages)                Local live mode
+React → ReplayDataSource                  React → WebSocket → FastAPI → Serial → DUT
+      → static synthetic telemetry
+```
+
 Running the real thing needs an access point on a bench, a free serial port,
 both servers and `sysMon` alive on the device. So the repository also ships a
 **demo kit**: thirteen self-contained HTML files in
 [`dut-dashboard/demo/`](dut-dashboard/demo/) — one per screen, markup, styles,
 script and data inlined.
 
-The link above is those same files on GitHub Pages. They are equally happy off a
+The first link above is those same files on GitHub Pages. They are equally happy off a
 disk: download the folder and **double-click `index.html`** — no server, no
 build, no dependencies, and it still works with the network off. That is the
 point of them, and it is why they can be emailed to someone who will never clone
