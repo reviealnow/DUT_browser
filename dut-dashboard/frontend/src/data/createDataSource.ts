@@ -1,5 +1,6 @@
 import { APP_MODE, AppMode } from "./appMode";
 import type { IDataSource } from "./IDataSource";
+import { ReplayDataSource } from "./ReplayDataSource";
 import { WebSocketDataSource } from "./WebSocketDataSource";
 
 /**
@@ -8,8 +9,9 @@ import { WebSocketDataSource } from "./WebSocketDataSource";
  * ask `getDataSource()`.
  */
 export function createDataSource(mode: AppMode = APP_MODE): IDataSource {
-  // Only live mode exists so far; `mode` is the seam the demo source joins at.
-  void mode;
+  if (mode === "demo") {
+    return new ReplayDataSource();
+  }
   return new WebSocketDataSource();
 }
 
