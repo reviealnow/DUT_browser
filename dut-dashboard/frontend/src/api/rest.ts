@@ -1,3 +1,4 @@
+import { apiFetch } from "../data/apiFetch";
 import { DEFAULT_DUT_ID } from "./dut";
 import { SnapshotPayload } from "./websocket";
 
@@ -106,7 +107,7 @@ async function fail(response: Response): Promise<never> {
 }
 
 async function post<T>(url: string, body: unknown): Promise<T> {
-  const response = await fetch(url, {
+  const response = await apiFetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -118,7 +119,7 @@ async function post<T>(url: string, body: unknown): Promise<T> {
 }
 
 async function get<T>(url: string): Promise<T> {
-  const response = await fetch(url);
+  const response = await apiFetch(url);
   if (!response.ok) {
     await fail(response);
   }
@@ -126,7 +127,7 @@ async function get<T>(url: string): Promise<T> {
 }
 
 async function put<T>(url: string, body: unknown): Promise<T> {
-  const response = await fetch(url, {
+  const response = await apiFetch(url, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -146,7 +147,7 @@ async function put<T>(url: string, body: unknown): Promise<T> {
  * JSON body use this; `removeCollector` below is the one converted so far.
  */
 async function del<T>(url: string): Promise<T> {
-  const response = await fetch(url, { method: "DELETE" });
+  const response = await apiFetch(url, { method: "DELETE" });
   if (!response.ok) {
     await fail(response);
   }
@@ -301,7 +302,7 @@ export async function analyzeSessionLog(name: string): Promise<AnalyzeResult> {
 
 /** Switch the serial reader into raw interactive terminal mode (monitoring pauses). */
 export async function enterTerminal(dutId = DEFAULT_DUT_ID): Promise<void> {
-  const response = await fetch(`/api/serial/terminal/enter?dut=${dutId}`, { method: "POST" });
+  const response = await apiFetch(`/api/serial/terminal/enter?dut=${dutId}`, { method: "POST" });
   if (!response.ok) {
     throw new Error((await response.json().catch(() => ({}))).detail || "Failed to enter terminal mode");
   }
@@ -309,7 +310,7 @@ export async function enterTerminal(dutId = DEFAULT_DUT_ID): Promise<void> {
 
 /** Resume sysmon monitoring. */
 export async function exitTerminal(dutId = DEFAULT_DUT_ID): Promise<void> {
-  await fetch(`/api/serial/terminal/exit?dut=${dutId}`, { method: "POST" }).catch(() => undefined);
+  await apiFetch(`/api/serial/terminal/exit?dut=${dutId}`, { method: "POST" }).catch(() => undefined);
 }
 
 /**
@@ -997,7 +998,7 @@ export async function addDut(id: string, label?: string): Promise<void> {
  * to rename the built-in DUT, which cannot be removed and re-added.
  */
 export async function renameDut(id: string, label: string): Promise<void> {
-  const response = await fetch(`/api/duts/${encodeURIComponent(id)}`, {
+  const response = await apiFetch(`/api/duts/${encodeURIComponent(id)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ label }),
@@ -1009,7 +1010,7 @@ export async function renameDut(id: string, label: string): Promise<void> {
 
 /** Remove a DUT (frees its serial port). The default DUT cannot be removed. */
 export async function removeDut(id: string): Promise<void> {
-  const response = await fetch(`/api/duts/${encodeURIComponent(id)}`, { method: "DELETE" });
+  const response = await apiFetch(`/api/duts/${encodeURIComponent(id)}`, { method: "DELETE" });
   if (!response.ok) {
     throw new Error((await response.json().catch(() => ({}))).detail || "Failed to remove DUT");
   }
@@ -1085,7 +1086,7 @@ export async function uploadFile(
   if (tags && tags.length) {
     form.append("tags", tags.join(","));
   }
-  const response = await fetch("/api/files", { method: "POST", body: form });
+  const response = await apiFetch("/api/files", { method: "POST", body: form });
   if (!response.ok) {
     throw new Error(await response.text());
   }
@@ -1113,7 +1114,7 @@ export type TextPreview = { content: string; truncated: boolean };
 
 /** First chunk of a text file (log/txt/csv/json) for the row-expand preview. */
 export async function getFileTextPreview(id: number): Promise<TextPreview> {
-  const response = await fetch(getFilePreviewUrl(id));
+  const response = await apiFetch(getFilePreviewUrl(id));
   if (!response.ok) {
     throw new Error(await response.text());
   }
@@ -1125,7 +1126,7 @@ export async function getFileTextPreview(id: number): Promise<TextPreview> {
 
 /** Delete a shared file (no owner check — shared-trust model). */
 export async function deleteFile(id: number): Promise<void> {
-  const response = await fetch(`/api/files/${id}`, { method: "DELETE" });
+  const response = await apiFetch(`/api/files/${id}`, { method: "DELETE" });
   if (!response.ok) {
     throw new Error(await response.text());
   }
@@ -1228,7 +1229,7 @@ export async function updateBulletinComment(id: number, body: string): Promise<v
 
 /** Delete a bulletin post (its comments cascade). No owner check — shared-trust model. */
 export async function deleteBulletinPost(id: number): Promise<void> {
-  const response = await fetch(`/api/bulletin/posts/${id}`, { method: "DELETE" });
+  const response = await apiFetch(`/api/bulletin/posts/${id}`, { method: "DELETE" });
   if (!response.ok) {
     throw new Error(await response.text());
   }
@@ -1270,7 +1271,7 @@ export async function getCrashKeywords(): Promise<string[]> {
 }
 
 export async function putCrashKeywords(keywords: string[]): Promise<string[]> {
-  const r = await fetch("/api/settings/crash-keywords", {
+  const r = await apiFetch("/api/settings/crash-keywords", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ keywords }),
@@ -1453,7 +1454,7 @@ export type RegisterParams = {
  * the unauthorized event at every anonymous page load.
  */
 export async function getMe(): Promise<AuthUser | null> {
-  const response = await fetch("/api/auth/me");
+  const response = await apiFetch("/api/auth/me");
   if (response.status === 401) {
     return null;
   }
@@ -1627,7 +1628,7 @@ export async function listInvites(): Promise<InviteSummary[]> {
 }
 
 export async function revokeInvite(id: number): Promise<void> {
-  const response = await fetch(`/api/auth/invites/${id}`, { method: "DELETE" });
+  const response = await apiFetch(`/api/auth/invites/${id}`, { method: "DELETE" });
   if (!response.ok) {
     throw new Error(await response.text());
   }
