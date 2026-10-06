@@ -5,6 +5,7 @@ import "@xterm/xterm/css/xterm.css";
 
 import { DEFAULT_DUT_ID } from "../api/dut";
 import { resizeTerminal } from "../api/rest";
+import { DEMO_UNAVAILABLE, IS_DEMO } from "../data/appMode";
 
 /**
  * Interactive raw serial terminal (xterm.js <-> /ws/term). Forwards keystrokes
@@ -35,6 +36,13 @@ export default function TerminalView({ dutId = DEFAULT_DUT_ID }: { dutId?: strin
     term.open(container);
     fit.fit();
     term.focus();
+
+    // The one socket not behind the data layer: a demo has no serial port to
+    // carry, and must never reach for a backend.
+    if (IS_DEMO) {
+      term.writeln(`\x1b[2m[${DEMO_UNAVAILABLE}]\x1b[0m`);
+      return () => term.dispose();
+    }
 
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
     const ws = new WebSocket(`${protocol}://${window.location.host}/ws/term?dut=${dutId}`);
