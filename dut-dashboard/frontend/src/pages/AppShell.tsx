@@ -592,18 +592,28 @@ function OfflineState() {
 
 const toMb = (kb: number) => (kb / 1024).toFixed(0);
 
-function MemoryTrendBody({ monitor }: { monitor: DutMonitorState }) {
+export function MemoryTrendBody({ monitor }: { monitor: DutMonitorState }) {
   // Prefer live /proc/meminfo parsed from the stream (updates once per snapshot,
   // like CPU); fall back to the post-analysis CSV when the DUT isn't streaming
   // memory or before the first sample arrives.
-  if (monitor.memoryLive && monitor.memoryHistory.length > 0) {
+  //
+  // Decided on the history, not on `memoryLive`: every sysMon block opens with
+  // its CPU lines and no memory yet, so `memoryLive` is null for a moment in
+  // every Test Time. Switching on it would remount the post-analysis body --
+  // and re-fetch the analyzer feed -- once per block.
+  if (monitor.memoryHistory.length > 0) {
     return <LiveMemoryBody monitor={monitor} />;
   }
   return <PostAnalysisMemoryBody />;
 }
 
 function LiveMemoryBody({ monitor }: { monitor: DutMonitorState }) {
-  const latest = monitor.memoryLive!;
+  // Until the new block's meminfo is complete, keep showing the last complete
+  // reading rather than blanking the figures.
+  const latest =
+    monitor.memoryLive && monitor.memoryLive.effectiveKb !== null
+      ? monitor.memoryLive
+      : monitor.memoryHistory[monitor.memoryHistory.length - 1];
   const effective = monitor.memoryHistory
     .map((point) => point.effectiveKb)
     .filter((value): value is number => value !== null);
@@ -643,7 +653,7 @@ function LiveMemoryBody({ monitor }: { monitor: DutMonitorState }) {
 function PostAnalysisMemoryBody() {
   const [series, setSeries] = useState<MemorySeries | null>(null);
   const [failed, setFailed] = useState(false);
-  const { role } = useAuth();
+  const { role, loading } = useAuth();
 
   const load = () => {
     setFailed(false);
@@ -651,18 +661,22 @@ function PostAnalysisMemoryBody() {
       .then(setSeries)
       .catch(() => setFailed(true));
   };
+  // The analyzer feed is engineer-gated: a guest's request can only come back
+  // 401, and every 401 makes AuthContext re-check /api/auth/me. Wait for the
+  // session check, and only ask when the answer can be data.
   useEffect(() => {
-    load();
-  }, []);
+    if (!loading && role !== "guest") {
+      load();
+    }
+  }, [loading, role]);
 
-  if (failed) {
-    // The analyzer feed is engineer-gated, so for a guest the failure is the
-    // expected 403/401 — say so instead of blaming the backend.
-    return role === "guest" ? (
+  if (!loading && role === "guest") {
+    return (
       <EmptyState icon="🔒" message="Post-analysis memory needs an engineer login" hint="Live memory still streams here while the DUT runs sysMon." />
-    ) : (
-      <EmptyState icon="🧠" message="Could not load memory data" hint="Is the backend reachable?" />
     );
+  }
+  if (failed) {
+    return <EmptyState icon="🧠" message="Could not load memory data" hint="Is the backend reachable?" />;
   }
   if (!series) {
     return <EmptyState icon="🧠" message="Loading…" />;
