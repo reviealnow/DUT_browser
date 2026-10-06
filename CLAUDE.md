@@ -94,6 +94,16 @@ where it gets recorded.
   with `git rebase --onto origin/<base> <old-base> <branch>` — onto
   `origin/<base>`, not the local ref, which may be stale or checked out in
   another worktree.
+- **Every PR you open ships with its diff as a file.** Write
+  `git diff origin/<base>...HEAD` — three dots, so it is exactly what the PR
+  shows — to `<branch-with-slashes-as-dashes>.diff` **outside the working
+  tree** (the session scratchpad, say), where it can never be staged, and hand
+  that file to the operator together with the PR link. Put the same diff in the
+  PR description too, inside a collapsed `<details>` block, so a reviewer on
+  GitHub has it without checking anything out; if that would take the
+  description past GitHub's 65,536-character limit, say so there instead.
+  After any later push to the branch, regenerate both: a diff that no longer
+  matches the branch is worse than none.
 
 ---
 
