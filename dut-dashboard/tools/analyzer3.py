@@ -83,7 +83,8 @@ SUNRECLAIM_PLOT  = f"{OUT_PREFIX}sunreclaim_plot.png"
 # ======================================================
 ts_pattern = re.compile(r"= Test Time:\s*(\d+),\s*([\d\-]+\s+[\d:]+)")
 cpu_pattern = re.compile(
-    r"CPU(\d+):\s+([\d\.]+)% usr\s+([\d\.]+)% sys\s+([\d\.]+)% nic\s+([\d\.]+)% idle\s+([\d\.]+)% io\s+([\d\.]+)% irq\s+([\d\.]+)%% sirq"
+    r"CPU(\d+):\s+([\d.]+)%\s*usr\s+([\d.]+)%\s*sys\s+([\d.]+)%\s*nic\s+"
+    r"([\d.]+)%\s*idle\s+([\d.]+)%\s*io\s+([\d.]+)%\s*irq\s+([\d.]+)%%?\s*sirq"
 )
 # allow leading spaces
 mem_pattern = re.compile(r"(MemAvailable|Slab|SUnreclaim):\s+(\d+)\s*kB")
