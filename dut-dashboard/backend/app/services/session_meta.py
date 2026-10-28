@@ -50,11 +50,6 @@ FIELDS = HEADER_FIELDS + START_FIELDS + IDENTITY_FIELDS
 
 # The header every session log has always opened with.
 _HEADER_RE = re.compile(r"^# mode=(?P<mode>\S+) source=(?P<source>.*)$")
-# The DUT's own shell prompt, `AP6_420E#`, at the start of a line. Deliberately
-# narrower than `dut_model.detect_model`: that pattern also accepts a hostname,
-# and a log carries other units' hostnames -- a mesh probe lists every member --
-# so only the prompt is evidence of the device the console is on.
-_PROMPT_RE = re.compile(r"(?m)^(AP6_\d{3}[EX]?)#")
 # What a bundle's name may carry beyond the log's own stem.
 _NAME_UNSAFE_RE = re.compile(r"[^A-Za-z0-9_.-]")
 
@@ -113,9 +108,10 @@ def read_session_meta(path: Path, limit: int = HEAD_SCAN_BYTES) -> dict:
                 meta["source"] = header.group("source").strip() or None
 
     if meta["model"] is None:
-        prompt = _PROMPT_RE.search(head)
-        if prompt:
-            meta["model"] = dut_model.detect_model(prompt.group(1))
+        # The prompt only, never a hostname: a log carries other units'
+        # hostnames -- a mesh probe lists every member -- so only the prompt is
+        # evidence of the device the console is on.
+        meta["model"] = dut_model.detect_prompt_model(head)
     return meta
 
 

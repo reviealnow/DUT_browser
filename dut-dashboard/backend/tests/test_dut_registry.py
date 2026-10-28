@@ -397,6 +397,30 @@ class DutModelDetectionTests(DutRegistryTests):
             ctx.parser.on_event({"type": "console_line", "text": line})
         self.assertEqual(ctx.model, "AP6_420E")
 
+    def test_a_prompt_naming_another_model_replaces_the_stored_one(self) -> None:
+        """The bench, 2026-10-28: an AP7_430 on the cable an AP6_420E had used
+        went on being published as the 420E -- eight VAPs a band, two cores --
+        because a known model stopped this from looking at all."""
+        self._duts_file.write_text('[{"id": "default", "model": "AP6_420E"}]')
+        reg = self._booted()
+        ctx = reg.get(DEFAULT_DUT_ID)
+        ctx.parser.on_event({"type": "console_line", "text": "AP7_430:~# "})
+        self.assertEqual(ctx.model, "AP7_430")
+        [published] = [d for d in reg.describe() if d["id"] == DEFAULT_DUT_ID]
+        self.assertEqual(published["model"], "AP7_430")
+        self.assertEqual(published["vaps_per_band"], 16)
+        self.assertEqual(published["model_cores"], 4)
+        self.assertEqual(self._booted().get(DEFAULT_DUT_ID).model, "AP7_430")
+
+    def test_another_units_hostname_does_not_replace_a_known_model(self) -> None:
+        """A mesh probe prints its members' hostnames at line starts. Those name
+        other units, so only the prompt may override what is stored."""
+        reg = self._booted()
+        ctx = reg.get(DEFAULT_DUT_ID)
+        ctx.parser.on_event({"type": "console_line", "text": "AP6_840E#"})
+        ctx.parser.on_event({"type": "console_line", "text": "AP6420-PA10054DDHWVF2D"})
+        self.assertEqual(ctx.model, "AP6_840E")
+
     def test_describe_publishes_the_model_and_the_mapping_it_implies(self) -> None:
         """A caller reading interfaces out of this API cannot work out which
         numbering applies unless the API says so."""
@@ -461,6 +485,15 @@ class DeviceIdentityTests(DutRegistryTests):
         self.assertIsNone(previous)
         self.assertTrue(reg.describe()[0]["backhaul"]["captured"])
         self.assertEqual(reg.describe()[0]["device_id"], "AP6420E-PB1005QPCFVFMA8")
+
+    def test_an_ap7_hostname_names_the_model_it_replaces(self) -> None:
+        """The connect-time `hostname` is what reaches a live serial DUT: the
+        prompt mostly streams past inside the terminal, where nothing parses it."""
+        reg = self._booted()
+        reg.record_device_id(DEFAULT_DUT_ID, "AP6420E-PB1005QPCFVFMA8")
+        previous = reg.record_device_id(DEFAULT_DUT_ID, "AP7430-123456789012345")
+        self.assertEqual(previous, "AP6420E-PB1005QPCFVFMA8")
+        self.assertEqual(reg.get(DEFAULT_DUT_ID).model, "AP7_430")
 
     def test_a_different_unit_on_the_same_console_revokes_the_reading(self) -> None:
         """Same cable, same model, same prompt, same core count: nothing else in

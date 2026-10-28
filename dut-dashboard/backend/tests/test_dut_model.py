@@ -27,6 +27,7 @@ from app.services.dut_model import (
     cores_for,
     detect_device_id,
     detect_model,
+    detect_prompt_model,
     spec_for,
     vaps_per_band,
 )
@@ -70,6 +71,36 @@ class DetectModelTests(unittest.TestCase):
             with self.subTest(line=line):
                 self.assertIsNone(detect_model(line))
 
+    def test_reads_the_next_generation_too(self) -> None:
+        """The AP7 430 bench unit, 2026-10-28: its prompt carries the working
+        directory, and its hostname drops the underscore like an AP6's does.
+        Read as AP6-only, both came back None and the cable's previous model
+        stayed on screen."""
+        self.assertEqual(detect_model("AP7_430:~# "), "AP7_430")
+        self.assertEqual(detect_model("AP7430-123456789012345"), "AP7_430")
+
+
+class DetectPromptModelTests(unittest.TestCase):
+    """Only a prompt may replace a model already stored, so only a prompt counts."""
+
+    def test_reads_both_prompt_shapes(self) -> None:
+        self.assertEqual(detect_prompt_model("AP6_420E# "), "AP6_420E")
+        self.assertEqual(detect_prompt_model("AP7_430:~# "), "AP7_430")
+        self.assertEqual(detect_prompt_model("AP7_430:/mnt/data# ls"), "AP7_430")
+
+    def test_finds_it_after_other_lines(self) -> None:
+        self.assertEqual(detect_prompt_model("Start time\nAP7_430:~# \n"), "AP7_430")
+
+    def test_a_hostname_is_not_a_prompt(self) -> None:
+        """A mesh probe lists every member by hostname; one of those is some
+        other unit, and must not rename the device this console is on."""
+        for line in ("AP6420-PA10054DDHWVF2D", "AP7430-123456789012345", "AP7_430"):
+            with self.subTest(line=line):
+                self.assertIsNone(detect_prompt_model(line))
+
+    def test_a_prompt_quoted_mid_line_is_not_one(self) -> None:
+        self.assertIsNone(detect_prompt_model("echo AP7_430:~# done"))
+
 
 # The full spec, as given. Width AND which bands exist -- they vary
 # independently, and only the E models have a 6GHz radio.
@@ -79,6 +110,7 @@ SPEC = {
     "AP6_420X": (8, ("2.4G", "5G"), 2),
     "AP6_840": (16, ("2.4G", "5G"), 4),
     "AP6_840E": (16, ("2.4G", "5G", "6G"), 4),
+    "AP7_430": (16, ("2.4G", "5G", "6G"), 4),
 }
 
 
@@ -92,8 +124,11 @@ class ModelSpecTests(unittest.TestCase):
 
     def test_only_the_E_models_have_a_6ghz_radio(self) -> None:
         """The suffix is part of the identity, not decoration: 420 and 420X are
-        the same width as 420E and a different set of bands."""
+        the same width as 420E and a different set of bands. AP6 only -- the
+        AP7 430 carries a 6GHz radio without the suffix."""
         for model, (_, bands, _cores) in SPEC.items():
+            if not model.startswith("AP6_"):
+                continue
             with self.subTest(model=model):
                 self.assertEqual("6G" in bands, model.endswith("E"))
 
@@ -226,6 +261,12 @@ class DetectDeviceIdTests(unittest.TestCase):
         # A lower-cased name compared unequal would be published as a swap.
         self.assertEqual(
             detect_device_id("ap6420e-pb1005qpcfvfma8"), "AP6420E-PB1005QPCFVFMA8"
+        )
+
+    def test_reads_an_ap7_hostname(self) -> None:
+        self.assertEqual(
+            detect_device_id("hostname\r\nAP7430-123456789012345\r\nAP7_430:~# "),
+            "AP7430-123456789012345",
         )
 
     def test_tells_the_two_bench_units_apart(self) -> None:
