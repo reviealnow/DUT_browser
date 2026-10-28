@@ -216,7 +216,7 @@ class DutContext:
     # an admin. Empty means the firmware upgrade refuses rather than guessing a
     # host to PUT an image at.
     mgmt_url: str = ""
-    # Which AP6 this is ("AP6_420E"), read from the console prompt as it streams
+    # Which AP this is ("AP6_420E"), read from the console prompt as it streams
     # past. It decides how many VAPs sit in each band, and therefore which band
     # an athN belongs to when the output states no frequency -- eight per band
     # on the 420 family, sixteen on the 840. None until a prompt has been seen;
@@ -523,17 +523,23 @@ class DutRegistry:
 
         Runs on the SerialWorker thread, inside the per-DUT ``on_event``
         closure, on every console line. Kept cheap on the hot path: once a
-        model is known this returns on an attribute read, and the regex only
-        sees lines while it is not.
+        model is known, only a line holding a ``#`` reaches a regex at all.
 
         Deliberately never *clears* a known model. A blank line or a bootloader
         prompt saying nothing about the hardware is not evidence that the
         hardware changed, and a band mapping that flickers back to the default
         mid-session would be worse than one that is merely stale.
+
+        It does *replace* one, when the device's own prompt names another. The
+        model is persisted per DUT, i.e. per cable, and this used to stop
+        looking the moment one was known: an AP7_430 on the cable an AP6_420E
+        had used went on being published as the 420E -- eight VAPs a band, two
+        cores -- with its own ``AP7_430:~#`` streaming past unread. Only the
+        prompt may do this, never a hostname, which may name some other unit.
         """
         try:
             ctx = self._duts.get(dut_id)
-            if ctx is None or ctx.model is not None:
+            if ctx is None:
                 return
             event_type = event.get("type")
             if event_type == "console_line":
@@ -542,11 +548,17 @@ class DutRegistry:
                 texts = event.get("lines") or []
             else:
                 return
+            known = ctx.model
             for text in texts:
                 if not isinstance(text, str):
                     continue
-                found = dut_model.detect_model(text)
-                if found:
+                if known is None:
+                    found = dut_model.detect_model(text)
+                elif "#" in text:
+                    found = dut_model.detect_prompt_model(text)
+                else:
+                    continue
+                if found and found != known:
                     self.record_model(dut_id, found)
                     return
         except Exception:  # noqa: BLE001 -- never let this break the stream

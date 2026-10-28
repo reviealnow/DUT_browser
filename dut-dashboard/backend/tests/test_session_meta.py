@@ -90,6 +90,15 @@ class ReadSessionMetaTests(unittest.TestCase):
         self.assertEqual(meta["model"], "AP6_840E")
         self.assertIsNone(meta["device_id"])
 
+    def test_an_ap7_prompt_names_its_model(self) -> None:
+        """The AP7 prompt carries the working directory before its `#`."""
+        path = _log(
+            self.tmp,
+            "# mode=serial source=/dev/cu.PL2303G-USBtoUART1130\n",
+            "AP7_430:~# iwconfig; echo __DUTCAP_475418__\n",
+        )
+        self.assertEqual(read_session_meta(path)["model"], "AP7_430")
+
     def test_another_units_hostname_is_not_this_units_model(self) -> None:
         """A mesh probe lists every member by hostname, one per line. Read as a
         model, the root on this desk would be named after its Pi node."""
