@@ -5,6 +5,7 @@ import ChartData from "./charts/ChartData";
 import { ImportPlan, ParsedLogFile, planImport } from "../offline/importPlan";
 import { FieldKey, LOG_FIELDS, NUMERIC_LOG_FIELDS, parseLog } from "../offline/logParser";
 import { loadOfflineDuts, OfflineDutRecord, removeOfflineDut, saveOfflineDut } from "../offline/offlineDb";
+import { randomId } from "../utils/randomId";
 
 type StoredDut = OfflineDutRecord;
 
@@ -118,7 +119,7 @@ export default function OfflineAnalyzerSection() {
       for (const file of accepted) {
         parsed.push({ name: file.name, result: parseLog(await file.text()) });
       }
-      plan = planImport(parsed, duts, { id: () => crypto.randomUUID(), now: () => Date.now() });
+      plan = planImport(parsed, duts, { id: randomId, now: () => Date.now() });
       for (const dut of plan.records) {
         await saveOfflineDut(dut);
       }

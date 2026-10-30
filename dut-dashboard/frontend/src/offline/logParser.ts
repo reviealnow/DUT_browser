@@ -99,8 +99,11 @@ function readNumber(block: string, pattern: RegExp): number | null {
 }
 
 export function parseLog(text: string): { rows: LogRow[]; missing: number } {
+  // The closing `=` is optional, as it is in the backend's `SNAPSHOT_RE`:
+  // `scripts/sysMon.sh` pads the marker out to one, other vintages of the
+  // script (`sysMonap7-2.sh` on the AP7-430) stop after the timestamp.
   const snapshotMarker = new RegExp(
-    `${LINE_START}=\\s*Test Time:\\s*(\\d+)\\s*,\\s*([^=\\r\\n]+?)\\s*=\\s*$`,
+    `${LINE_START}=\\s*Test Time:\\s*(\\d+)\\s*,\\s*([^=\\r\\n]+?)\\s*=*\\s*$`,
     "gm",
   );
   const starts: Array<{ index: number; consoleTimestamp: string | null; sourceNumber: number; testTimestamp: string }> = [];

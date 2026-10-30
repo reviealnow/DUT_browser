@@ -75,6 +75,23 @@ describe("reading a capture this repository actually produces", () => {
     expect(rows[0].memFree).toBe(371328);
   });
 
+  it("reads a marker with no closing '=', as other sysMon vintages write it", () => {
+    // `sysMonap7-2.sh` (v1.8, AP7-430) ends the marker after the timestamp. The
+    // backend's `SNAPSHOT_RE` reads the closing `=` as optional and analyzer3.py
+    // never looks for it; requiring it here turned a 3,800-snapshot capture
+    // into zero rows.
+    const unclosed = TWO_SNAPSHOTS.replace(/\s+=\n/g, "\n")
+      .split("\n")
+      .map((line) => (line ? `[2026-10-08 18:56:01.880] ${line}` : line))
+      .join("\r\n");
+
+    const { rows } = parseLog(unclosed);
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0].testTimestamp).toBe("2026-08-04 12:44:01");
+    expect(rows[1].memFree).toBe(338352);
+  });
+
   it("finds nothing in a file that is not a sysMon log", () => {
     expect(parseLog("a shopping list\nmilk\n").rows).toHaveLength(0);
     expect(parseLog("").rows).toHaveLength(0);

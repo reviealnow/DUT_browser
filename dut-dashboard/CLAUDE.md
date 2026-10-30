@@ -129,6 +129,7 @@ duplicated:
 | `frontend/src/api/rest.ts` | typed REST client, `humanizeApiError`, `imageKind`, `listQuery` |
 | `frontend/src/monitoring/authorColor.ts` | author colour tags, shared by `TagChip` / `FilesSection` / `AuthorTag` |
 | `frontend/src/utils/clipboard.ts` | `copyToClipboard` — the plain-HTTP fallback lives here, not at the call sites |
+| `frontend/src/utils/randomId.ts` | `randomId` — a UUID that works on plain HTTP, where `crypto.randomUUID` is `undefined` |
 | `frontend/src/pages/AppShell.tsx` | `downloadTextFile` |
 | `backend/app/db/workspace.py` | `_ensure_column` — the migration idiom; do not hand-write `ALTER TABLE` |
 
