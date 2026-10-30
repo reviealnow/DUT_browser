@@ -27,7 +27,7 @@ export type ParsedLogFile = {
 
 /** The two values a record needs that no decision can produce. */
 export type ImportEffects = {
-  /** A fresh record id — `crypto.randomUUID` in the browser. */
+  /** A fresh record id — `randomId` from `utils/randomId.ts` in the browser. */
   id: () => string;
   /** Now, in epoch milliseconds; records are listed in this order. */
   now: () => number;
