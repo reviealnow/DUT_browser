@@ -1,0 +1,21 @@
+frame.number	radiotap.channel.freq	radiotap.dbm_antsignal	wlan.bssid	wlan.country_info.code	wlan.ds.current_channel	wlan.ext_tag.he_operation.6ghz.primary_channel	wlan.extended_supported_rates	wlan.fixed.beacon	wlan.fixed.capabilities.privacy	wlan.fixed.capabilities.short_preamble	wlan.fixed.capabilities.short_slot_time	wlan.ht.info.chanwidth	wlan.ht.info.primarychannel	wlan.rsn.akms.type	wlan.rsn.capabilities.mfpc	wlan.rsn.capabilities.mfpr	wlan.rsn.gcs.type	wlan.rsn.pcs.type	wlan.ssid	wlan.supported_rates	wlan.tim.dtim_count	wlan.tim.dtim_period	wlan.vht.op.channelwidth	wlan_radio.channel	wlan_radio.frequency	wlan_radio.signal_dbm
+1	2437	-44	00:03:7f:00:00:01	US	6			100	False	True	True								6f70656e	0x820x840x8b0x96	0	1		6	2437	-44
+2	2437	-44	00:03:7f:00:00:02	US	6			100	True	True	True			2	False	False	4	4	7770613270736b	0x820x840x8b0x96	0	1		6	2437	-44
+3	2437	-44	00:03:7f:00:00:03	US	6			100	True	True	True			8	True	True	4	4	777061337361655f6f6b	0x820x840x8b0x96	0	1		6	2437	-44
+4	2437	-44	00:03:7f:00:00:04	US	6			100	True	True	True			8	True	False	4	4	777061337361655f6e6f6d667072	0x820x840x8b0x96	0	1		6	2437	-44
+5	2437	-44	00:03:7f:00:00:05	US	6			100	True	True	True			28	True	False	4	4	7472616e736974696f6e	0x820x840x8b0x96	0	1		6	2437	-44
+6	2437	-44	00:03:7f:00:00:06	US	6			100	True	True	True			28	False	False	4	4	7472616e735f6e6f6d667063	0x820x840x8b0x96	0	1		6	2437	-44
+7	2437	-44	00:03:7f:00:00:07	US	6			100	True	True	True			8	True	True	2	24	7361655f746b6970	0x820x840x8b0x96	0	1		6	2437	-44
+8	2437	-44	00:03:7f:00:00:08	US	6			100	True	True	True			18	True	False	4	4	6f77655f6e6f6d667072	0x820x840x8b0x96	0	1		6	2437	-44
+9	2437	-44	00:03:7f:00:00:09	US	6			100	True	True	True			2	False	False	4	4	<MISSING>	0x820x840x8b0x96	0	1		6	2437	-44
+10	2437	-44	00:03:7f:00:00:0a	US	6			100	True	True	True			2	False	False	4	4	00000000	0x820x840x8b0x96	0	1		6	2437	-44
+11	2437	-44	00:03:7f:00:00:0b	US	6			224	True	True	True			8	True	True	4	4	6f6464696e74657276616c	0x820x840x8b0x96	0	24		6	2437	-44
+12	5975	-44	00:03:7f:00:00:0c	US				100	True	True	True			2	False	False	4	4	36675f70736b	0x820x840x8b0x96	0	1		5	5975	-44
+13	5975	-44	00:03:7f:00:00:0d	US				100	True	True	True			24	True	True	4	4	36675f7361655f6f6b	0x820x840x8b0x96	0	1		5	5975	-44
+14	5180	-44	00:03:7f:00:00:0e	US				100	True	True	True			8	True	True	4	4	4150375fe4b8ade696872073700963	0x820x840x8b0x96	0	1		36	5180	-44
+15	5180	-44	00:03:7f:00:00:10	US				100	True	True	True			18	True	True	4	4	6f77655f6f6b	0x820x840x8b0x96	0	1		36	5180	-44
+16	5975	-44	00:03:7f:00:00:11	US				100	True	True	True			5	True	True	9	9	36675f656e7465727072697365	0x820x840x8b0x96	0	1		5	5975	-44
+17	2437	-44	00:03:7f:00:00:12	US	6			100	True	True	True			2	False	False	4	4	636f6d6d612c73736964	0x820x840x8b0x96	0	1		6	2437	-44
+18	2437	-44	00:03:7f:00:00:13	US	6			100	True	True	True			2	False	True	4	4	6d6670725f6e6f6d667063	0x820x840x8b0x96	0	1		6	2437	-44
+19	2437	-44	00:03:7f:00:00:0f	US	6			100	True	True	True			8	True	True	4	4	666c61707079	0x820x840x8b0x96	0	1		6	2437	-44
+20	2437	-44	00:03:7f:00:00:0f	US	6			100	True	True	True			28	True	False	4	4	666c61707079	0x820x840x8b0x96	0	1		6	2437	-44
