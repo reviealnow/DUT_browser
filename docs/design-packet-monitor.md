@@ -216,11 +216,13 @@ TestMode(
     columns=[
         Column(key="frame", label="No.", fields=["frame.number"], decoder="int"),
         Column(key="channel", label="Channel", decoder="int", fields=[
-            "wlan_radio.channel",
             "wlan.ext_tag.he_operation.6ghz.primary_channel",
             "wlan.ht.info.primarychannel",
             "wlan.ds.current_channel",
+            "wlan_radio.channel",
         ]),
+        Column(key="captured_on", label="Captured On (ch)", decoder="int",
+               fields=["wlan_radio.channel"]),
         Column(key="akm", label="RSN AKM", fields=["wlan.rsn.akms.type"], decoder="akm_list"),
         ...
     ],
@@ -232,10 +234,14 @@ TestMode(
   candidate list. Every candidate the Host's `tshark -G fields` knows is
   extracted, and for each frame the first one with a value is used. This one
   rule covers both renames between releases (`_ws.col.Protocol` in 3.x is
-  `_ws.col.protocol` in 4.x, so only one resolves) and per-frame fallbacks:
-  `wlan_radio.channel` needs a radiotap/PPI header, the HE Operation element
-  carries the 6 GHz primary channel, and HT Operation / DS Parameter Set cover
-  2.4 and 5 GHz (neither is present in a 6 GHz beacon).
+  `_ws.col.protocol` in 4.x, so only one resolves) and per-frame fallbacks.
+- **Channel is what the AP advertises.** The HE Operation element carries the
+  6 GHz primary channel; HT Operation and the DS Parameter Set cover 2.4 and
+  5 GHz (neither is present in a 6 GHz beacon). The radio header's
+  `wlan_radio.channel` comes last: it is where the *sniffer* was tuned, and on
+  2.4 GHz a beacon is routinely received one or two channels off, which would
+  otherwise read as the BSS changing channel. It is also shown on its own as
+  "Captured On".
 - **Band** comes from a frequency column (`wlan_radio.frequency`,
   `radiotap.channel.freq`) or, without a radio header, from the presence of
   the HE 6 GHz primary channel. Channel numbers overlap between bands and are
@@ -246,7 +252,23 @@ TestMode(
 - **Decode by type, not by text.** tshark 4.x declares `wlan.ssid` `FT_BYTES`
   and prints hex; 3.6 declares it `FT_STRING` and prints text. Decoders get the
   field's FT_* type from the probe, so an SSID named `cafe` is not read as two
-  bytes. A zero-length SSID prints as `<MISSING>` and decodes to `""`.
+  bytes. A zero-length SSID prints as `<MISSING>` and decodes to `""`. Bytes
+  that are not valid UTF-8 (Big5 SSIDs on legacy APs) keep their exact value as
+  `0x…` hex rather than replacement characters, which would make two different
+  SSIDs look alike.
+- **Multiple BSSID.** A beacon can carry its nontransmitted BSSes' RSN
+  elements inside a Multiple BSSID element, and tshark reports them under the
+  same field names as the beacon's own; `wlan.tag.number` lists nested elements
+  flat. Merged, an SAE-only BSS reads as PSK + SAE and an open one as SAE. An
+  element before the first Multiple BSSID element cannot be nested in one, and
+  IEEE 802.11 orders RSN ahead of it, so the RSN columns keep only that first
+  element: the AKM and pairwise lists are cut by `wlan.rsn.akms.count` /
+  `wlan.rsn.pcs.count`, and scalars already take their first occurrence. When
+  no RSN element precedes the Multiple BSSID element (an open transmitting BSS,
+  or a non-compliant element order — the flat fields cannot tell which), or the
+  counts do not match the lists, the RSN columns are dropped and the row is
+  flagged `rsn_unresolved` (§7). A proper structural split needs `-T json`;
+  this is the safe subset without it.
 - **Repeated fields** (several AKMs, several pairwise ciphers) are extracted
   with `-E occurrence=a -E aggregator=<0x1F>` — the ASCII unit separator, not a
   comma, so a comma inside an SSID or the Info column stays one value.
@@ -281,7 +303,8 @@ every frame:
 | `sae_requires_mfpc`: any SAE-family AKM and MFPC = 0 (transition mode included) | fail |
 | `mfpr_without_mfpc`: MFPR = 1 and MFPC = 0, any AKM | fail |
 | `no_legacy_cipher_with_wpa3`: SAE-family or OWE with TKIP/WEP group or pairwise | fail |
-| `six_ghz_security`: 6 GHz BSS that is open, offers a PSK-family AKM, uses TKIP/WEP, or has MFPR = 0 (WPA3-Enterprise is allowed) | fail |
+| `six_ghz_security`: 6 GHz BSS that is open, offers a PSK-family AKM or 802.1X SHA-1 (AKM 1, i.e. WPA3-Enterprise transition mode), uses TKIP/WEP, or has MFPR = 0. WPA3-Enterprise only mode, including FT-802.1X (AKM 3), is allowed | fail |
+| `rsn_not_evaluated`: a Multiple BSSID beacon whose own RSN element could not be isolated (§6); security rules were skipped for it | info |
 | PSK + SAE transition mode (MFPC = 1, MFPR = 0) | **no finding** — valid by spec; tested |
 | `bss_config_changed` (group): one BSS's SSID, channel, AKMs, ciphers, MFPR or MFPC differ between its beacons (list order ignored) | warn |
 | `hidden_ssid`: empty or all-NUL SSID | info |
