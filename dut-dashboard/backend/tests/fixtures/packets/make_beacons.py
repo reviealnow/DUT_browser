@@ -37,6 +37,17 @@ def rsn(group, pairwise, akms, mfpr, mfpc):
     return ie(48, body)
 
 
+WPA_OUI = b"\x00\x50\xf2"
+
+
+def wpa1(group, pairwise, akms):
+    """The pre-RSN WPA (v1) vendor element: OUI 00-50-F2, type 1."""
+    body = WPA_OUI + b"\x01" + struct.pack("<H", 1) + WPA_OUI + bytes([group])
+    body += struct.pack("<H", len(pairwise)) + b"".join(WPA_OUI + bytes([p]) for p in pairwise)
+    body += struct.pack("<H", len(akms)) + b"".join(WPA_OUI + bytes([a]) for a in akms)
+    return ie(221, body)
+
+
 def nontx_profile(ssid, index, rsn_ie):
     """One Nontransmitted BSSID Profile subelement of a Multiple BSSID element."""
     body = ie(83, struct.pack("<H", 0x0011)) + ie(0, ssid) + ie(85, bytes([index, 1, 0])) + rsn_ie
@@ -90,6 +101,15 @@ CASES = [
     ("00:03:7f:00:00:15", b"6g_ent_trans",  5975, 5, rsn(4, [4], [1, 5], 0, 1), 100, 1, True),
     ("00:03:7f:00:00:16", b"6g_ent_ft",     5975, 5, rsn(4, [4], [3, 5], 1, 1), 100, 1, True),
     ("00:03:7f:00:00:17", "中文".encode("big5"), 2437, 6, rsn(4, [4], [2], 0, 0), 100, 1, True),
+    # Legacy security.
+    ("00:03:7f:00:00:18", b"wep",           2437, 6, b"", 100, 1, True),
+    ("00:03:7f:00:00:19", b"wpa1_tkip",     2437, 6, wpa1(2, [2], [2]), 100, 1, True),
+    ("00:03:7f:00:00:1a", b"wpa_mixed",     2437, 6,
+     rsn(2, [2, 4], [2], 0, 0) + wpa1(2, [2, 4], [2]), 100, 1, True),
+    ("00:03:7f:00:00:1b", b"wpa2_tkip",     5180, 36, rsn(2, [4], [2], 0, 0), 100, 1, True),
+    ("00:03:7f:00:01:05", b"mb_wpa_profile", 2437, 6,
+     rsn(4, [4], [2], 0, 0)
+     + mbssid(nontx_profile(b"mb_ntx_wpa", 1, wpa1(2, [2], [2]))), 100, 1, True),
     # Multiple BSSID: the transmitting BSS's own RSN, then nontransmitted profiles.
     ("00:03:7f:00:01:01", b"mb_sae_only",   2437, 6,
      rsn(4, [4], [8], 1, 1) + mbssid(nontx_profile(b"mb_ntx_psk", 1, rsn(4, [4], [2], 0, 0))),

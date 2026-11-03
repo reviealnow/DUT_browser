@@ -35,6 +35,9 @@
  "wlan.tim.dtim_count": "FT_UINT8",
  "wlan.tim.dtim_period": "FT_UINT8",
  "wlan.vht.op.channelwidth": "FT_UINT8",
+ "wlan.wfa.ie.wpa.mcs.type": "FT_UINT8",
+ "wlan.wfa.ie.wpa.ucs.type": "FT_UINT8",
+ "wlan.wfa.ie.wpa.version": "FT_UINT16",
  "wlan_radio.channel": "FT_UINT32",
  "wlan_radio.frequency": "FT_UINT16",
  "wlan_radio.signal_dbm": "FT_INT8"

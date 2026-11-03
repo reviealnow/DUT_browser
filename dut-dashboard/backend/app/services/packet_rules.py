@@ -187,6 +187,51 @@ def six_ghz_security(row: Row):
     return None
 
 
+def legacy_security(row: Row):
+    """WEP (fail), or a WPA (v1) element or TKIP in any cipher (warn).
+
+    WEP has no element of its own: it is the Privacy capability bit with
+    neither an RSN nor a WPA element. TKIP next to a WPA3 AKM is already a
+    fail in ``no_legacy_cipher_with_wpa3`` and is not repeated here.
+    Silent when the inputs could not be attributed to the transmitting BSS
+    (a Multiple BSSID beacon, see ``packet_modes._keep_transmitting_rsn``).
+    """
+    if not _has(row, "privacy"):
+        return None
+    if _has(row, "akm", "wpa_version"):
+        if row["privacy"] is True and not row["akm"] and row["wpa_version"] is None:
+            return ("fail", "WEP: Privacy bit set with neither an RSN nor a WPA element. "
+                            "WEP is broken and must not be offered.")
+    notes = []
+    if row.get("wpa_version") is not None:
+        notes.append("advertises a WPA (v1) element (WPA/WPA2 mixed mode)")
+    if not _wpa3_akms(row.get("akm")):
+        ciphers = set(row.get("pairwise_cipher") or ()) | set(row.get("wpa_pairwise_cipher") or ())
+        for key in ("group_cipher", "wpa_group_cipher"):
+            if row.get(key) is not None:
+                ciphers.add(row[key])
+        if 2 in ciphers:
+            notes.append("offers TKIP")
+    if notes:
+        return ("warn", "Legacy security: " + "; ".join(notes) +
+                        ". WPA1 and TKIP are deprecated; offer WPA2/WPA3 with CCMP only.")
+    return None
+
+
+def open_network(row: Row):
+    """Privacy bit clear and no RSN: an open network. Info outside 6 GHz.
+
+    At 6 GHz an open BSS is already a fail in ``six_ghz_security``. An open
+    BSS that is the visible half of OWE transition mode is still reported:
+    clients without OWE do connect to it unencrypted.
+    """
+    if not _has(row, "privacy") or row["privacy"] is not False:
+        return None
+    if row.get("akm") or _band(row) == "6":
+        return None
+    return ("info", "Open network: no encryption advertised (Privacy bit clear, no RSN).")
+
+
 def hidden_ssid(row: Row):
     """Empty or all-NUL SSID: a hidden network. Information, not a fault."""
     if "ssid" not in row or row["ssid"] is None:
@@ -252,6 +297,8 @@ ROW_RULES: dict[str, RowRule] = {
     "no_legacy_cipher_with_wpa3": no_legacy_cipher_with_wpa3,
     "six_ghz_security": six_ghz_security,
     "rsn_not_evaluated": rsn_not_evaluated,
+    "legacy_security": legacy_security,
+    "open_network": open_network,
     "hidden_ssid": hidden_ssid,
     "beacon_timing": beacon_timing,
 }

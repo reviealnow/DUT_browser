@@ -122,7 +122,17 @@ _SIX_GHZ_PRIMARY = Column(
     key="six_ghz_primary", label="6 GHz Primary Channel", decoder="int", hidden=True,
     fields=["wlan.ext_tag.he_operation.6ghz.primary_channel"],
 )
+_PRIVACY = Column(key="privacy", label="Privacy", fields=["wlan.fixed.capabilities.privacy"],
+                  decoder="bool")
 _SECURITY = [
+    _PRIVACY,
+    # The pre-RSN WPA (v1) vendor element: its presence is the finding.
+    Column(key="wpa_version", label="WPA1 IE Version", fields=["wlan.wfa.ie.wpa.version"],
+           decoder="int"),
+    Column(key="wpa_group_cipher", label="WPA1 Group Cipher", fields=["wlan.wfa.ie.wpa.mcs.type"],
+           decoder="cipher"),
+    Column(key="wpa_pairwise_cipher", label="WPA1 Pairwise Ciphers",
+           fields=["wlan.wfa.ie.wpa.ucs.type"], decoder="cipher_list"),
     Column(key="group_cipher", label="RSN Group Cipher", fields=["wlan.rsn.gcs.type"], decoder="cipher"),
     Column(key="pairwise_cipher", label="RSN Pairwise Ciphers", fields=["wlan.rsn.pcs.type"], decoder="cipher_list"),
     Column(key="akm", label="RSN AKM", fields=["wlan.rsn.akms.type"], decoder="akm_list"),
@@ -158,6 +168,8 @@ MODES: tuple[TestMode, ...] = (
             "mfpr_without_mfpc",
             "no_legacy_cipher_with_wpa3",
             "six_ghz_security",
+            "legacy_security",
+            "open_network",
             "bss_config_changed",
         ],
     ),
@@ -176,10 +188,10 @@ MODES: tuple[TestMode, ...] = (
                    fields=["wlan.extended_supported_rates"], decoder="rates"),
             Column(key="signal", label="Signal (dBm)",
                    fields=["wlan_radio.signal_dbm", "radiotap.dbm_antsignal"], decoder="int"),
-            Column(key="privacy", label="Privacy", fields=["wlan.fixed.capabilities.privacy"], decoder="bool"),
+            _PRIVACY,
             *_BEACON_TIMING,
         ],
-        rules=["hidden_ssid", "beacon_timing", "bss_config_changed"],
+        rules=["open_network", "hidden_ssid", "beacon_timing", "bss_config_changed"],
     ),
     TestMode(
         id="wifi_advanced",
@@ -272,6 +284,7 @@ def extraction_fields(columns: list[ResolvedColumn]) -> list[str]:
 MBSSID_ELEMENT = 71
 RSN_ELEMENT = 48
 RSN_KEYS = ("akm", "group_cipher", "pairwise_cipher", "mfpr", "mfpc")
+WPA_KEYS = ("wpa_version", "wpa_group_cipher", "wpa_pairwise_cipher")
 #: Set on a row whose transmitting-BSS security could not be isolated.
 RSN_UNRESOLVED = "rsn_unresolved"
 
@@ -295,6 +308,13 @@ def _keep_transmitting_rsn(row: dict[str, Any]) -> None:
     """
     tags = row.pop("tag_numbers", None)
     counts = {"akm": row.pop("akm_count", None), "pairwise_cipher": row.pop("pcs_count", None)}
+    if tags and MBSSID_ELEMENT in tags:
+        # The WPA (v1) element is vendor-specific (221), the same element ID as
+        # WMM and every other vendor element, so its position cannot say whose
+        # it is. In a Multiple BSSID beacon the WPA columns are dropped rather
+        # than attributed to the transmitting BSS on a guess.
+        for key in WPA_KEYS:
+            row.pop(key, None)
     if not tags or RSN_ELEMENT not in tags:
         return
     first_rsn = tags.index(RSN_ELEMENT)

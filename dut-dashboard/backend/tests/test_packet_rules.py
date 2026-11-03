@@ -226,7 +226,7 @@ class RealTsharkOutputTests(unittest.TestCase):
         self.assertIn("AP7_中文 sp\tc", self.rows)
 
     def test_clean_configurations_have_no_findings(self):
-        for ssid in ("open", "wpa2psk", "wpa3sae_ok", "6g_sae_ok", "AP7_中文 sp\tc",
+        for ssid in ("wpa2psk", "wpa3sae_ok", "6g_sae_ok", "AP7_中文 sp\tc",
                      "owe_ok", "6g_enterprise", "comma,ssid", "6g_ent_ft", "0xa4a4a4e5",
                      "mb_sae_only", "mb_6g_two"):
             with self.subTest(ssid=ssid):
@@ -266,8 +266,42 @@ class RealTsharkOutputTests(unittest.TestCase):
     def test_mbssid_open_transmitting_bss_is_not_judged(self):
         row = self.rows["mb_open_tx"]
         self.assertFalse(set(pm.RSN_KEYS) & set(row))  # not "SAE" from the profile
-        self.assertEqual(rules_hit(row), {"rsn_not_evaluated"})
-        self.assertEqual(findings_for(row)[0].severity, "info")
+        # The Privacy bit is the transmitting BSS's own, so "open" still stands.
+        self.assertEqual(rules_hit(row), {"rsn_not_evaluated", "open_network"})
+        self.assertEqual({f.severity for f in findings_for(row)}, {"info"})
+
+    def test_mbssid_profile_wpa1_is_not_attributed(self):
+        row = self.rows["mb_wpa_profile"]
+        self.assertFalse(set(pm.WPA_KEYS) & set(row))
+        self.assertEqual(findings_for(row), [])
+
+    # --- legacy security and open networks ---
+
+    def test_wep(self):
+        findings = findings_for(self.rows["wep"])
+        self.assertEqual([(f.rule, f.severity) for f in findings], [("legacy_security", "fail")])
+
+    def test_wpa1_and_tkip_warn_regardless_of_akm(self):
+        for ssid in ("wpa1_tkip", "wpa_mixed", "wpa2_tkip"):
+            with self.subTest(ssid=ssid):
+                findings = findings_for(self.rows[ssid])
+                self.assertEqual([(f.rule, f.severity) for f in findings],
+                                 [("legacy_security", "warn")])
+        self.assertIn("WPA (v1)", findings_for(self.rows["wpa_mixed"])[0].message)
+        self.assertIn("TKIP", findings_for(self.rows["wpa2_tkip"])[0].message)
+
+    def test_tkip_with_wpa3_is_one_fail_not_also_a_warn(self):
+        self.assertEqual(rules_hit(self.rows["sae_tkip"]), {"no_legacy_cipher_with_wpa3"})
+
+    def test_open_network(self):
+        findings = findings_for(self.rows["open"])
+        self.assertEqual([(f.rule, f.severity) for f in findings], [("open_network", "info")])
+        self.assertEqual(rules_hit(self.basic["open"], "wifi_basic"), {"open_network"})
+
+    def test_open_at_6ghz_is_the_6ghz_fail_only(self):
+        row = {"frame": 1, "privacy": False, "akm": None, "mfpr": None, "freq": 5975}
+        self.assertEqual({f.rule for f in pr.evaluate([row], ["open_network", "six_ghz_security"])},
+                         {"six_ghz_security"})
 
     def test_sniffer_channel_change_is_not_a_bss_change(self):
         mode = pm.get_mode("beacon_security")
