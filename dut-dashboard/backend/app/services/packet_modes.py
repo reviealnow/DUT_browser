@@ -1,6 +1,6 @@
 """Packet Monitor Test Modes: which frames, which fields, which rules.
 
-A Test Mode is data, not code (docs/design-packet-monitor.md §6). Each column
+A Test Mode is data, not code (docs/design-packet-monitor.md §B6). Each column
 names an ordered list of candidate tshark fields. Resolving a mode against one
 Host's ``tshark -G fields`` keeps every candidate that Host knows, and decoding
 a frame takes the first candidate that has a value. One mechanism covers both
