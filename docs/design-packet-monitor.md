@@ -1,9 +1,300 @@
-# Packet Monitor — phase 1 design (file analysis on a Host)
+# Host RF check and Packet Monitor — design
 
-Status: **agreed design** (decisions in §14). Test Modes, decoders and findings
-rules are implemented in #214; the rest is not implemented yet.
+Status: **direction changed on 2026-11-03** (§A2). Part A is the new phase 1
+and is not implemented yet. Part B is the tshark Packet Monitor, reviewed
+earlier in this PR, now deferred to phase 2; its Test Modes, decoders and
+findings rules are already implemented in #214 and are reused by Part A.
 
-## 1. Goal and scope
+# Part A — Host RF check (phase 1)
+
+## A1. Goal
+
+Let an admin compare **the RF environment around a Host** — the Host is
+usually deployed next to the DUT — with what the DUT is configured to do, and
+validate the DUT against its SKU from the air. In the team's order of priority:
+
+1. **Legacy security** around the DUT and on it: WEP, WPA (v1), TKIP, open.
+2. **The DUT's country code against its SKU**: expected from the DUT,
+   observed in the DUT's own beacons.
+3. **Channel occupancy**: BSS count per channel, and the neighbours on the
+   DUT's own channel with their signal strength.
+
+Further SKU checks follow the same expected-vs-observed shape (§A7).
+
+## A2. Why the direction changed
+
+A field check on #214 ran the findings rules over a real neighbour scan from
+a bench Host: a Raspberry Pi 4, one `iw dev wlan0 scan`, 86 BSSes. The result
+was **0 fail, 0 warn, 4 info**. Every WPA3 BSS in the lab was configured
+correctly, while the scan held 1 WEP, 10 WPA/WPA2-mixed or TKIP and 2 open
+networks, and country codes from nine countries. None of those were in the
+rule set. The same check found:
+
+- **A beacon pcap needs monitor mode, and the Pi 4's built-in radio has
+  none.** It supports `IBSS, managed, AP, P2P-*` only, so the tshark path
+  would need a second adapter on every Host.
+- **A managed-mode `iw scan` already carries every column the table needs.**
+  The kernel splits Multiple BSSID into separate BSSes, and `iw` reports the
+  channel the AP advertises, so neither problem fixed in #214's review arises.
+- **This overlaps existing code.** SSID Capability already joins the DUT's
+  config (read over serial) with an over-the-air `iw` scan on BSSID
+  (`services/capability_report.py`). Building the same join again in Packet
+  Monitor would be a second way of doing one thing.
+
+Decisions (2026-11-03):
+
+- **Phase 1 extends SSID Capability.** It runs the existing scan on the
+  DUT's Host, adds country, channel and power fields, and reuses #214's
+  findings rules. The tshark Packet Monitor (Part B) moves to phase 2, for
+  per-beacon evidence.
+- **The SKU's expected values are read from the DUT console.** This needs no
+  maintenance, but it cannot catch a DUT whose own setting is wrong (§A7).
+- **The legacy-security rules go into #214**, which is done:
+  `legacy_security` and `open_network`.
+
+This also settles the question raised before Part B's transport work
+started. These checks extend the existing SSID Capability path (scan on the
+Host, more fields) and do not live in a second pipeline in Packet Monitor.
+Packet Monitor keeps only what a scan cannot give: per-beacon evidence.
+
+## A3. What already exists
+
+| Piece | Where | What it does today |
+|---|---|---|
+| Host-side scan | `services/wifi_survey.py` | `iw dev $SURVEY_WIFI_IFACE scan` **on the dashboard server**, with an `nmcli` fallback; parses BSSID, freq, signal, SSID, generation, RSN (AKM names, ciphers, PMF) and 11k/v/r |
+| DUT config | `services/wifi_clients.get_ssid_capabilities` | per-VAP config over the serial console (`capture_command`) |
+| Reconciliation | `services/capability_report.py`, `GET /api/wifi/capability-report` | joins the two on BSSID and diffs security, PMF, generation and 11k/v/r |
+| DUT-side neighbour scan | `services/site_survey.py` | `iw dev <vap> scan` **on the DUT**, using the same parser; `channel_recommendation()` scores channels |
+| DUT → Host link | `dut/registry.py` | a collector-backed DUT console records its `collector_id` |
+| Command on a Host | `collector/ssh_session.CollectorSession.run` | runs one command over the held-open session; per-call timeout; serialised by an RPC lock |
+| Findings | `services/packet_rules.py` (#214) | row rules over plain dicts; nothing in them is tshark-specific |
+
+## A4. Flow
+
+```
+GET /api/wifi/capability-report?dut=<id>
+  │
+  ├─ Source A  DUT console (existing) + country/regulatory capture (§A7)
+  │
+  ├─ Source B  scan on the DUT's Host
+  │     DUT has collector_id  → CollectorSession.run("iw dev <iface> scan", timeout=25)
+  │     no collector          → local SURVEY_WIFI_IFACE (today's behaviour)
+  │     → wifi_survey parser (extended, §A6)
+  │
+  ├─ join on BSSID (existing) + SKU checks on the DUT's own BSSes (§A7)
+  ├─ findings on every scanned BSS: packet_rules over adapted rows (§A8)
+  └─ channel occupancy (§A9)
+```
+
+Everything new in the response is **additive**; existing fields keep their
+meaning, so `SsidCapabilityCard` and the demo keep working (§A10).
+
+## A5. Scanning on the Host
+
+- **Which interface.** A new admin-set collector property,
+  `survey_iface`. It is validated as `[A-Za-z0-9_.-]{1,15}` **and** against the
+  Host's own `iw dev` list when set. It is the only variable in the command,
+  so `CollectorSession.run` is enough. That session `exec`s `sh`, so the
+  command is parsed by `sh`, never by the login shell, and Part B's base64
+  transport is not needed here.
+- **Permission.** `iw … scan` needs `CAP_NET_ADMIN`. The Host probe (run on
+  connect) tries `iw dev <iface> scan` once and reports one of `ok`,
+  `permission denied` (with the `setcap` or `sudoers` line to fix it), or
+  `no such interface`. A Host that fails is shown as such; the report falls
+  back to "Source B unavailable: <reason>", which `capability_report` already
+  supports.
+- **Errors are not scan output.** `run()` appends `2>&1`, so a failing `iw`
+  writes its message into the text that comes back. The parser runs only when
+  the exit status is 0. Any other status becomes "Source B unavailable", with
+  the first line of that output as the reason.
+- **Monitor mode is not needed** for this part. The probe still records
+  whether `iw list` shows `monitor`, since phase 2 depends on it.
+- **No background polling.** A scan runs on section entry (once) or on the
+  user's button, never on a timer: the same discipline as serial captures.
+  The Host is shared and an active scan takes its radio off-channel. Results
+  are cached per Host with their timestamp, and the UI shows the age.
+- **Lock time.** A scan takes about 3–10 s and holds the collector session's
+  RPC lock while it runs, so a console probe on the same Host waits behind it.
+  The call uses `timeout=25` rather than the default 15 s, and that wait is
+  accepted.
+- **Wi-Fi uplink warning.** If `survey_iface` is also the Host's default
+  route, scanning interrupts the Host's own traffic. The probe detects this
+  (`ip route show default`) and warns the admin when they set the interface.
+
+## A6. Parser extension (`services/wifi_survey._parse_iw_scan`)
+
+New fields per BSS. Each is `None` when the element is absent, and none of
+them raises:
+
+| Field | From the `iw scan` text |
+|---|---|
+| `privacy` | `capability:` line contains `Privacy` |
+| `wpa1` | a `WPA:` block, with its own version, group cipher, pairwise ciphers and AKMs |
+| `country`, `country_environment` | `Country: XX	Environment: …` |
+| `country_channels` | the `Channels [a - b] @ N dBm` triplets under Country |
+| `power_constraint_db` | `Power constraint: N dB` |
+| `tpc_tx_power_dbm` | `TPC report: TX power: N dBm` |
+| `beacon_interval_tu` | `beacon interval: N TUs` |
+| `dtim_period` | the `TIM:` line (`DTIM Period N`) |
+
+The exact `iw` spelling of each line is fixed against **real output captured
+from a bench Host** (a Pi 4, `iw` version recorded), committed as an
+anonymised fixture. The current fixtures are hand-written, and §A12 shows
+what that has already cost. Site Survey reuses this parser on the DUT's
+busybox `iw`, so it gains the same fields, and its tests must stay green.
+
+## A7. SKU checks (the DUT's own BSSes)
+
+The existing BSSID join already says which scanned BSSes are the DUT's. On
+those, and only those, the report compares **expected** values from the DUT
+console with **observed** values from the air. Neighbours' country codes are
+context, never findings: one bench tests several SKUs, so a US SKU in Taiwan
+advertising `US` is correct.
+
+| Check | Expected (DUT console) | Observed (DUT's beacons) | Severity |
+|---|---|---|---|
+| Country code | configured country / regulatory domain | Country element | fail |
+| Channel allowed | the DUT's own regulatory rules, if its console exposes them (e.g. `iw reg get` frequency ranges); otherwise **blocked on Q7/Q8**, because no regulatory table exists in this repository | operating channel; Country element channel triplets | fail |
+| Power within limit | regulatory max EIRP per range | Country element max power, Power Constraint, TPC | warn (the observed value is advertised, not measured) |
+| Every VAP on air | configured VAPs (existing Source A) | BSSID present in the scan (existing join) | warn, unless the band is not scannable from the Host (existing caveat) |
+| Security as configured | existing Source A security / PMF | RSN, WPA (v1), Privacy | existing diff, plus the §A8 legacy rules |
+
+**Where "expected" comes from is not settled yet.** No DUT console capture
+for country or regulatory data exists in the code today. The candidates are
+the DUT's own `iw reg get`, since busybox `iw` is present (§A3), and the
+driver's country query on the VAP. Which one the AP6/AP7 firmware actually
+answers, and in what format, can only be measured on a DUT. That is
+single-owner, shared hardware, so it is planned with the bench owner rather
+than assumed (§A13).
+
+**Known limit, accepted by the decision.** An expectation read from the DUT
+cannot catch a DUT whose own setting is wrong: if a US SKU is misconfigured
+as JP, both sides say JP. A model/SKU → regulatory table would catch it, but
+someone has to own it. It is out of phase 1, and the report says which
+source "expected" came from.
+
+## A8. Findings on every scanned BSS
+
+`services/packet_rules.py` (#214) already contains the rules the field check
+asked for: `legacy_security`, `open_network`, the WPA3/PMF rules,
+`six_ghz_security`, `hidden_ssid` and `beacon_timing`. They read plain dicts,
+so an adapter maps each parsed BSS onto the row keys the rules read:
+
+| Row key | From the scan |
+|---|---|
+| `akm` | AKM names → suite numbers (`PSK` 2, `SAE` 8, `FT/SAE` 9, `IEEE 802.1X` 1, `OWE` 18, raw `00-0f-ac:N` → N; unknown names → `None`, so rules skip) |
+| `group_cipher`, `pairwise_cipher` | cipher names → suite numbers (`TKIP` 2, `CCMP` 4, `GCMP-256` 9, …) |
+| `mfpr`, `mfpc` | `MFP-required` / `MFP-capable` |
+| `privacy`, `wpa_version`, `wpa_group_cipher`, `wpa_pairwise_cipher` | §A6 |
+| `freq`, `ssid`, `beacon_interval`, `dtim_period` | parsed fields |
+
+The adapter always emits every key above. A BSS with no RSN block gets
+`akm: None` (key present), and one with no WPA block gets
+`wpa_version: None`. The rules read "key absent" as "this source cannot see
+the field" and stay silent, so leaving keys out would make open and WEP
+networks disappear from the findings.
+
+Not applied to a scan: `bss_config_changed` (one scan is one sample per BSS)
+and `rsn_not_evaluated` (the kernel already splits Multiple BSSID).
+
+The rules move from "Packet Monitor's" to shared: the adapter imports them,
+and they stay data-agnostic. Renaming `packet_rules` to something like
+`wifi_rules` is cosmetic and is left until Part B is built.
+
+## A9. Channel occupancy
+
+`occupancy(neighbors, own_vaps)` goes into `services/site_survey.py`, next to
+`channel_recommendation()`, so the DUT-side and Host-side views share one
+implementation. Per band and channel it returns:
+
+- the BSS count;
+- the strongest neighbour (SSID, BSSID, signal);
+- whether the channel is one of the DUT's own;
+- for each DUT channel, every neighbour on it, sorted by signal.
+
+2.4 GHz overlap uses the existing `_overlap_weight_24g()` rather than a second
+weighting.
+
+## A10. API and UI
+
+- `GET /api/wifi/capability-report` gains these **additive** fields:
+  `source_b.host` (collector id and label, or `"server"`),
+  `source_b.scanned_at`, `findings` (as in Part B §B7), `sku_checks`,
+  `occupancy` and `expected_source` (`"dut-console"`). Existing callers ignore
+  them.
+- **Gating, an open question (§A13).** The route is reachable by `guest`
+  today, and SSID Capability is a guest page. Note that a guest request
+  already triggers serial captures on the DUT (`get_ssid_capabilities`),
+  since `main.py:352` mounts the route with no role dependency. Q6 covers
+  that existing behaviour as well as the new Host scan. A scan on a Host is a command on
+  a shared box. The proposal: a guest gets the last cached scan, and only
+  `engineer` and above can trigger a new one, through a separate
+  `POST /api/wifi/host-scan` mounted with `_ENGINEER`, plus route-protection
+  tests.
+- `SsidCapabilityCard`: add a findings list (fail/warn/info), an SKU-checks
+  table, and an occupancy table that highlights the DUT's channels, labelled
+  "Scanned from <Host> at <time>".
+- Demo: `demo/ssid-capability.html` must match the observable contract
+  (`demo/README_demo_kit.md`), and its `demo/verify` case gets updated.
+
+## A11. PRs
+
+1. **#214** — findings rules, including `legacy_security` / `open_network`.
+   Done; reused as-is.
+2. `fix(backend): keep iw scan RSN fields from being overwritten` — §A12,
+   on its own and first, because it changes what SSID Capability and Site
+   Survey show today. Needs a real `iw` capture as its fixture.
+3. `feat(backend): parse privacy, WPA1, country and power from iw scan` — §A6.
+4. `feat(backend): run the capability survey on the DUT's Host` — §A5,
+   including the collector `survey_iface` property and the probe.
+5. `feat(backend): findings and channel occupancy in the capability report`
+   — §A8 and §A9.
+6. `feat(backend): SKU checks from the DUT console` — §A7. Needs bench time
+   to find the console commands.
+7. `feat(frontend): SSID Capability findings, SKU checks and occupancy`, and
+   the demo page.
+
+## A12. Found while reading: the `iw scan` parser loses RSN fields
+
+`_parse_iw_scan` enters RSN mode at `RSN:` and leaves it only at an SSID line,
+a new BSS, or an unindented line, but every element block in `iw` output is
+indented. Any later block whose lines match the RSN patterns overwrites them:
+
+- `HT capabilities:` contains `Capabilities: 0x…`, which matches the RSN
+  Capabilities pattern, so **PMF becomes `disabled`**;
+- a `WPA:` block repeats `Group cipher`, `Pairwise ciphers` and
+  `Authentication suites`, so **WPA1 values replace the RSN ones**.
+
+Reproduced with synthetic text in beacon element order (RSN, then HT, then
+WPA). A WPA2/WPA3 mixed BSS with CCMP and MFP-capable parsed as
+`WPA2-Personal`, TKIP only, PMF `disabled`. The committed fixtures place RSN
+*after* the HT block, which is why the tests pass. If real `iw` output is in
+element order — which is how `iw` prints IEs — SSID Capability and Site
+Survey misreport PMF for every HT-capable BSS today. This needs confirming
+against a real capture, and is PR 2 in §A11: a pre-existing user-visible bug,
+listed on its own.
+
+## A13. Open questions
+
+- **Q6 — triggering a Host scan:** guest or engineer? The proposal is
+  engineer, with guests seeing the cached result (§A10).
+- **Q7 — the DUT console source for country and regulatory data:** measured
+  on the bench with the bench owner (§A7).
+- **Q8 — a model/SKU table:** out of phase 1; who would own it if it is
+  wanted later.
+- **Q9 — `survey_iface`:** a collector property set by an admin (proposed),
+  or detected automatically.
+
+---
+
+# Part B — Packet Monitor (phase 2, tshark)
+
+Reviewed in this PR before the direction change, and kept so its decisions
+are not lost. §B6–§B7 (Test Modes, decoders, findings) are implemented in
+#214 and used by Part A. The rest becomes phase 2 work: per-beacon evidence
+and changes over time, on Hosts that have a monitor-capable adapter.
+
+## B1. Goal and scope
 
 Help an engineer read a Wi-Fi capture without opening Wireshark: pick a capture,
 pick a **Test Mode**, and get a table of exactly the fields that mode cares about,
@@ -13,25 +304,25 @@ a per-frame detail tree, and **findings** — rules that say what is wrong
 Reference for the feature set: ATLAS One "Smart Analysis" (concepts only; UI
 follows this dashboard's own shell).
 
-| In phase 1 | Out of phase 1 |
+| In Part B | Out of Part B |
 |---|---|
-| Analyse an uploaded pcap / pcapng | Live capture from a Host interface (phase 2) |
+| Analyse an uploaded pcap / pcapng | Live capture from a Host interface (later, §B15) |
 | `tshark` runs **on a Host** (an edge collector) | `tshark` on the dashboard server |
 | Test Modes: Single Beacon Monitor, Wi-Fi Basic Settings, Wi-Fi Advanced Settings, Manual | User-defined modes saved from the UI |
 | Display filter, column chooser, frame detail, CSV export | Multiple source panels side by side, drag reorder |
 | Findings (rule engine) on extracted rows | Comparing a capture against the DUT's own config (SSID Capability tie-in) |
 
-## 2. Flow
+## B2. Flow
 
 ```
 Files workspace (existing upload, 50 MB cap)
         │  file_id
         ▼
-packets_api ── validate filter (§9) ──► 400 on a bad filter
+packets_api ── validate filter (§B9) ──► 400 on a bad filter
         │
         ▼  202 {id}
-packet_jobs (background thread, one per analysis, per-Host queue §3)
-        │ 1. stage:  pcap on stdin → <sha>.<job>.tmp → checksum → mv <sha>.pcapng   (§4)
+packet_jobs (background thread, one per analysis, per-Host queue §B3)
+        │ 1. stage:  pcap on stdin → <sha>.<job>.tmp → checksum → mv <sha>.pcapng   (§B4)
         │ 2. run:    nice -n 19 tshark -n -r <sha>.pcapng -Y <filter> -T fields -e ...
         │            stdout = TSV rows, stderr = tshark diagnostics
         ▼
@@ -43,9 +334,9 @@ findings (packet_rules) on all rows, then one-row-per-BSS display collapse
 frontend ◄── REST: status / rows (paged) / frame detail / export
 ```
 
-Every remote step is a one-shot ssh whose command is built as in §10.
+Every remote step is a one-shot ssh whose command is built as in §B10.
 
-## 3. Transport: a one-shot ssh per step, not the held-open session
+## B3. Transport: a one-shot ssh per step, not the held-open session
 
 `CollectorSession.run()` (`collector/ssh_session.py:86`) is the wrong tool:
 
@@ -70,10 +361,10 @@ currently written twice (`collector/ssh_session.py:206-240`,
 `serial/serial_worker.py:270-310`). The two existing callers are long-lived
 streams with their own stderr and tty handling, so a one-shot runner cannot
 absorb them without changing the serial path — an asymmetric-failure
-subsystem. PR 1 therefore extracts only what all three share,
+subsystem. B-PR 1 therefore extracts only what all three share,
 `pty_ssh.build_ssh_argv(...)` and `pty_ssh.spawn_and_authenticate(...)`, and
 uses them from its one new caller. Moving the two existing callers onto them is
-a later, separate refactor PR (Q5, §13 item 6). The one-shot exec loop itself
+a later, separate refactor PR (Q5, §B13 item 6). The one-shot exec loop itself
 lives in `services/tshark_runner.py`.
 
 **One-shot exec mechanics (password path).** The pty must keep being drained
@@ -86,13 +377,13 @@ reply in flight at the same time deadlock on full pipe buffers otherwise.
 the *login* shell parses first — which may be csh or fish, not sh. Wrapping in
 `sh -c '…'` is only a second layer: csh rejects a newline inside single quotes
 and fish interprets `\\` and `\'` inside them. A non-interactive ssh also does
-not load the user's interactive `PATH` (e.g. `/opt/homebrew/bin` on macOS). §10
+not load the user's interactive `PATH` (e.g. `/opt/homebrew/bin` on macOS). §B10
 says how the command is built so that none of this matters.
 
 **Limits per job.** Wall-clock timeout (default 180 s); stdout cap (default
 200 MB, then the job fails with "too many rows — narrow the filter"); at most
 **one running analysis per Host** (queue the rest), plus at most one
-short interactive tshark — a frame detail or a filter validation (§9) — in a
+short interactive tshark — a frame detail or a filter validation (§B9) — in a
 separate lane, so those do not wait minutes behind an analysis; every tshark
 runs under `nice -n 19`. A Host may also be serving DUT consoles through `socat`; a
 CPU-bound tshark there can cost console bytes at baud rate, which the queue
@@ -116,7 +407,7 @@ default. So:
   staging, the runner also closes the upload ssh, which ends the stage step
   before any tshark starts;
 - after a backend restart nobody owns the remote jobs any more, so the first
-  probe of each Host (§5) kills every `run/*.pid` it finds (same tshark guard)
+  probe of each Host (§B5) kills every `run/*.pid` it finds (same tshark guard)
   and deletes the files. Anything left in `run/` for over a day is swept too.
 
 **Job lifecycle.**
@@ -125,14 +416,14 @@ default. So:
   registry's own message ("enter it again"), never retries silently.
 - The queue is in memory. At startup, any `packet_analyses` row still in
   `queued` or `running` is marked `failed: interrupted by restart`.
-- Deleting a Files-workspace row: see §4 *Deletion* — one rule, stated once.
-- A staged copy evicted from the Host (§4) is re-staged on demand when frame
+- Deleting a Files-workspace row: see §B4 *Deletion* — one rule, stated once.
+- A staged copy evicted from the Host (§B4) is re-staged on demand when frame
   detail is requested.
 
 Host key policy is unchanged: the same `known_hosts` the collector already
 trusts; a job never adds a key.
 
-## 4. Remote workspace on the Host
+## B4. Remote workspace on the Host
 
 Directory `~/.dut-browser/` with `captures/` (staged pcaps) and `run/`
 (per-job scripts and pid files). Every remote step runs under **`umask 077`**,
@@ -164,24 +455,24 @@ each stage — but a capture referenced by a `queued` or `running` analysis on
 that Host is **pinned** and never evicted. If pinned captures alone exceed the
 limit, the limit is exceeded until they finish, and the probe reports it.
 
-**Deletion** (the single rule; §3 and §14 Q4 refer here). Deleting a
+**Deletion** (the single rule; §B3 and §B14 Q4 refer here). Deleting a
 Files-workspace row first cancels its queued and running analyses (running
-ones through the §3 remote kill), then deletes those analyses and their result
+ones through the §B3 remote kill), then deletes those analyses and their result
 files under `data/packets/`. Its staged copies are removed only when **no remaining Files
 row has the same sha256** — content shared by two rows stays until the last
 one goes. Removal happens on every connected Host at once; a Host that is
-disconnected at that moment is swept on its next probe (§5), which deletes any
+disconnected at that moment is swept on its next probe (§B5), which deletes any
 staged capture whose sha matches no Files row. Captures are customer data on a
 shared box, so the sweep is part of retention, not housekeeping.
 
-## 5. Host preflight (probe)
+## B5. Host preflight (probe)
 
 `POST /api/packets/hosts/{collector_id}/probe` runs on every connect and on
-demand. Its commands are fixed strings (no user data), still built as in §10 —
-with one bootstrap problem: §10's template needs to know whether the Host's
+demand. Its commands are fixed strings (no user data), still built as in §B10 —
+with one bootstrap problem: §B10's template needs to know whether the Host's
 `base64` decodes with `-d` or only `-D`, and that is one of the things the probe
 finds out. So the probe's own template tries both in one line,
-`… | base64 -d > F || … | base64 -D > F`, which is still inside §10's
+`… | base64 -d > F || … | base64 -D > F`, which is still inside §B10's
 character set (`||` works in sh, bash, zsh, csh and fish), and records which
 one succeeded. It checks:
 
@@ -191,17 +482,17 @@ one succeeded. It checks:
   (Q3);
 - `tshark -G fields` → field name → FT_* type, cached per **tshark version**
   under `data/packets/fields-<version>.json`, used to resolve Test Mode columns
-  (§6) and to decode by type;
+  (§B6) and to decode by type;
 - tools: checksum (`sha256sum` or `shasum`), and whether `base64 -d` or only
-  `base64 -D` (older macOS) decodes — §10 depends on it;
+  `base64 -D` (older macOS) decodes — §B10 depends on it;
 - free space in `~`;
-- the §4 sweeps (staged captures with no Files row, LRU beyond 20 unless
-  pinned, stale `*.tmp`) and the §3 `run/` sweep (orphaned tshark killed).
+- the §B4 sweeps (staged captures with no Files row, LRU beyond 20 unless
+  pinned, stale `*.tmp`) and the §B3 `run/` sweep (orphaned tshark killed).
 
 A Host without tshark is shown as "tshark not installed" with the install
 command for its OS, and is not selectable.
 
-## 6. Test Modes are data (implemented in #214)
+## B6. Test Modes are data (implemented in #214)
 
 `backend/app/services/packet_modes.py`: pydantic models validated at import
 time. A mode has a display filter, an optional `group_by` column, columns, and
@@ -248,7 +539,7 @@ TestMode(
   not used for it.
 - A column none of whose candidates resolve is **absent** from the decoded row;
   a resolved column with no value in this frame is `None`. Rules use the
-  difference (§7).
+  difference (§B7).
 - **Decode by type, not by text.** tshark 4.x declares `wlan.ssid` `FT_BYTES`
   and prints hex; 3.6 declares it `FT_STRING` and prints text. Decoders get the
   field's FT_* type from the probe, so an SSID named `cafe` is not read as two
@@ -267,7 +558,7 @@ TestMode(
   no RSN element precedes the Multiple BSSID element (an open transmitting BSS,
   or a non-compliant element order — the flat fields cannot tell which), or the
   counts do not match the lists, the RSN columns are dropped and the row is
-  flagged `rsn_unresolved` (§7). A proper structural split needs `-T json`;
+  flagged `rsn_unresolved` (§B7). A proper structural split needs `-T json`;
   this is the safe subset without it.
 - **Repeated fields** (several AKMs, several pairwise ciphers) are extracted
   with `-E occurrence=a -E aggregator=<0x1F>` — the ASCII unit separator, not a
@@ -282,7 +573,7 @@ TestMode(
   field, so a vendor suite (e.g. 00-40-96 type 8) reads as the IEEE suite with
   the same number.
 
-## 7. Findings (implemented in #214)
+## B7. Findings (implemented in #214)
 
 `backend/app/services/packet_rules.py`. A **row rule** looks at one decoded
 frame; a **group rule** looks at all frames of one `group_by` value (one BSS).
@@ -304,7 +595,7 @@ every frame:
 | `mfpr_without_mfpc`: MFPR = 1 and MFPC = 0, any AKM | fail |
 | `no_legacy_cipher_with_wpa3`: SAE-family or OWE with TKIP/WEP group or pairwise | fail |
 | `six_ghz_security`: 6 GHz BSS that is open, offers a PSK-family AKM or 802.1X SHA-1 (AKM 1, i.e. WPA3-Enterprise transition mode), uses TKIP/WEP, or has MFPR = 0. WPA3-Enterprise only mode, including FT-802.1X (AKM 3), is allowed | fail |
-| `rsn_not_evaluated`: a Multiple BSSID beacon whose own RSN element could not be isolated (§6); security rules were skipped for it | info |
+| `rsn_not_evaluated`: a Multiple BSSID beacon whose own RSN element could not be isolated (§B6); security rules were skipped for it | info |
 | PSK + SAE transition mode (MFPC = 1, MFPR = 0) | **no finding** — valid by spec; tested |
 | `bss_config_changed` (group): one BSS's SSID, channel, AKMs, ciphers, MFPR or MFPC differ between its beacons (list order ignored) | warn |
 | `hidden_ssid`: empty or all-NUL SSID | info |
@@ -321,7 +612,7 @@ against fixture rows without a Host. The test fixture is real tshark 4.4.1
 output of synthetic beacons, regenerable from
 `backend/tests/fixtures/packets/make_beacons.py`.
 
-## 8. Storage
+## B8. Storage
 
 - The capture itself stays in the **Files workspace** (`data/uploads/`,
   existing 50 MB cap and extension whitelist, which already includes
@@ -334,29 +625,29 @@ output of synthetic beacons, regenerable from
     rows_dropped, tshark_version, created_by_user_id, created_at,
     finished_at)`;
   - `packet_host_stage(collector_id, file_sha256, remote_path, staged_at,
-    last_used_at)`. "Pinned" (§4) is not a column: it is derived from
+    last_used_at)`. "Pinned" (§B4) is not a column: it is derived from
     `packet_analyses` rows in `queued`/`running` for that Host and sha, so it
     cannot drift.
 - Rows: `data/packets/<analysis_id>.jsonl` (gitignored by the existing `data/`
   rule), plus `<analysis_id>.idx` — the byte offset of every 500th row — so
   `GET rows?offset=` seeks instead of scanning a 200 MB file. Findings:
   `<analysis_id>.findings.json`. Frame details: `<analysis_id>/frames/<n>.json`
-  once fetched (§9).
+  once fetched (§B9).
 - `rows_dropped`: TSV lines with the wrong cell count (a tab inside a 3.6 text
   value) are dropped rather than misaligned, counted, and shown to the user.
 - Authorship from the session (`created_by_user_id`), never from the client.
 
-## 9. API (`backend/app/api/packets_api.py`)
+## B9. API (`backend/app/api/packets_api.py`)
 
 | Method | Path | Notes |
 |---|---|---|
 | GET  | `/api/packets/hosts` | connected collectors + tshark status/version |
-| POST | `/api/packets/hosts/{id}/probe` | §5 |
+| POST | `/api/packets/hosts/{id}/probe` | §B5 |
 | GET  | `/api/packets/modes` | Test Modes (label, columns, rules) |
 | POST | `/api/packets/filters/validate` | `{collector_id, display_filter}` → `200 {ok, error}` |
 | POST | `/api/packets/analyses` | `{file_id, collector_id, mode_id, display_filter?, extra_fields?}` → `202 {id}`, or `400` with tshark's message for a bad filter |
 | GET  | `/api/packets/analyses/{id}` | status, counts, `rows_dropped`, tshark stderr on failure, findings summary |
-| DELETE | `/api/packets/analyses/{id}` | cancel a queued/running job (remote kill, §3) |
+| DELETE | `/api/packets/analyses/{id}` | cancel a queued/running job (remote kill, §B3) |
 | GET  | `/api/packets/analyses/{id}/rows?offset=&limit=` | paged decoded rows, `limit ≤ 500` |
 | GET  | `/api/packets/analyses/{id}/frames/{n}` | detail tree, see below |
 | GET  | `/api/packets/analyses/{id}/export.csv` | |
@@ -366,7 +657,7 @@ output of synthetic beacons, regenerable from
 before it opens its input, and a valid filter over an empty capture exits 0. So
 validation runs `tshark -n -r - -Y <filter>` on the Host with a 24-byte pcap
 header on stdin — no staging, about the cost of a login. It runs in the
-**interactive lane** (§3) with a 10 s timeout, so it never queues behind an
+**interactive lane** (§B3) with a 10 s timeout, so it never queues behind an
 analysis; a timeout answers `{ok: null, error: "Host did not answer"}`, which
 the UI shows as "not checked" rather than as invalid. `POST /analyses` runs
 the same check before returning `202`, so a typo is a `400` with tshark's own
@@ -377,7 +668,7 @@ user types (debounced, 600 ms), and only for a filter that changed.
 **Frame detail.** `tshark -n -r <sha>.pcapng -c <n> -Y "frame.number==<n>"
 -T json`: `-c` counts frames *read*, so tshark stops at frame n instead of
 scanning the whole file (measured with tshark 4.4.1). Details run in the
-**interactive lane** (§3): at most one per Host, alongside — not queued behind —
+**interactive lane** (§B3): at most one per Host, alongside — not queued behind —
 a running analysis, also under `nice -n 19`. Each result is cached under
 `data/packets/<analysis_id>/frames/<n>.json`, so reopening a frame costs
 nothing. Expected latency: one login plus reading the capture up to frame n.
@@ -387,9 +678,9 @@ this is a backend REST poll, not a serial capture, so the serial RPC rule does
 not apply. No new `/ws`.
 
 Gating: `app.include_router(packets_router, dependencies=[_ENGINEER])` in
-`main.py`, plus `tests/test_route_protection.py` cases. Role decided in Q1 (§14).
+`main.py`, plus `tests/test_route_protection.py` cases. Role decided in Q1 (§B14).
 
-## 10. Command construction (security)
+## B10. Command construction (security)
 
 Every remote command is built by **one** function in
 `services/tshark_runner.py`, in two layers.
@@ -430,7 +721,7 @@ the whole script travels base64-encoded.
 - field names: must `fullmatch` `[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)*`
   (as `packet_modes.FIELD_RE` already does — `$` alone would accept a trailing
   newline) **and** be in that Host's `tshark -G fields` list;
-- display filter: length ≤ 1024; validated as in §9;
+- display filter: length ≤ 1024; validated as in §B9;
 - paths: built only from the sha256 hex digest and the job id, never from a
   filename;
 - always `-n` (no name resolution — the Host must not start DNS lookups for
@@ -446,11 +737,11 @@ the whole script travels base64-encoded.
   least `sh`, `bash`, `zsh`; `csh`/`fish` when present) and produces the same
   script file.
 
-## 11. Frontend
+## B11. Frontend
 
 Following the Wi-Fi Clients template:
 
-- `api/rest.ts`: typed functions for §9.
+- `api/rest.ts`: typed functions for §B9.
 - `monitoring/PacketAnalysisContext.tsx`: caches analyses by id, scoped to the
   selected Host; one in-flight request per key.
 - `components/PacketMonitorSection.tsx`:
@@ -474,12 +765,12 @@ Following the Wi-Fi Clients template:
 
 No chart or UI library; no CDN.
 
-## 12. Testing
+## B12. Testing
 
 - Unit (done in #214): mode resolution and per-frame fallback, decoders by
   FT_* type, every rule with a failing and a passing case, the transition-mode
   row producing **no** finding, grouping edge cases; fixture from real tshark.
-- Command builder: §10 tests.
+- Command builder: §B10 tests.
 - Transport: a fake `ssh` script (the runner takes an `ssh_binary` parameter,
   as `open_session` already does) that runs the remote command locally, so
   staging, checksum, timeout, remote kill and stdout cap are tested without a
@@ -495,11 +786,11 @@ No chart or UI library; no CDN.
 - Bench: one real Host with tshark — **needs the bench owner's go-ahead**
   (shared hardware rule).
 
-## 13. PR breakdown
+## B13. PR breakdown
 
 1. `feat(backend): tshark runner, host probe and staging` — includes the new
    `pty_ssh.build_ssh_argv` / `spawn_and_authenticate` helpers with this one
-   caller (Q5), the §10 command builder, remote kill and the §4 staging rules.
+   caller (Q5), the §B10 command builder, remote kill and the §B4 staging rules.
 2. `feat(backend): test modes, decoders and findings rules` — **#214**.
 3. `feat(backend): packets API and analysis jobs` (+ route protection tests).
 4. `feat(frontend): Packet Monitor section`.
@@ -507,33 +798,33 @@ No chart or UI library; no CDN.
 6. Later, separately: `refactor(backend): move existing ssh callers onto the
    shared pty_ssh helpers` (Q5).
 
-## 14. Decisions
+## B14. Decisions
 
-- **Q1 — who may run tshark on a Host:** `engineer`, on Hosts an `admin` has
+- **Q1 — who may run tshark on a Host** (Part B only; Part A's scan is Q6): `engineer`, on Hosts an `admin` has
   already connected. Connecting, configuring and removing Hosts stay admin-only
   in `collectors_api`. `packets_router` is mounted with `_ENGINEER`; the
   route-protection tests assert guest is refused on every route.
-- **Q2 — upload cap:** unchanged at 50 MB for phase 1.
+- **Q2 — upload cap:** unchanged at 50 MB for Part B.
 - **Q3 — tshark floor:** 3.6. The probe refuses older Hosts with the version it
   found; field candidates cover 3.6 and newer only.
 - **Q4 — retention:** analysis results in `data/packets/` are deleted after
   30 days (swept at startup and daily); each Host keeps at most 20 staged
-  captures (LRU, pinned ones excepted); deleting a Files row follows §4
+  captures (LRU, pinned ones excepted); deleting a Files row follows §B4
   *Deletion*.
 - **Q5 — existing ssh callers:** not moved in this work. The shared helpers
   land with their one new caller; moving `SerialWorker` and `open_session` onto
   them is a later, separate refactor PR.
 
-## 15. Phase 2 sketch (live capture)
+## B15. Live capture (later)
 
 Same transport and command builder, long-lived: `tshark -i <iface> -l -T fields
 ...` streaming lines on stdout, appended to the analysis's jsonl; the UI pages
-through it with an `after=` cursor; stop is the §3 remote kill. Interface names
+through it with an `after=` cursor; stop is the §B3 remote kill. Interface names
 come from `tshark -D` on the Host and are matched against that list before use.
 Monitor-mode setup and capture privileges (`dumpcap` capabilities / sudo) are a
 separate design question.
 
-## 16. Found while reading, not part of this work
+## B16. Found while reading, not part of this work
 
 - `collector/ssh_session.py:129` reports a timeout as
   `int(deadline)` "seconds", but `deadline` is a `time.monotonic()` timestamp,
