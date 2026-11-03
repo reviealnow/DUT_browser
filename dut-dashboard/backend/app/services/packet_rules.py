@@ -24,6 +24,7 @@ from typing import Any, Callable, Iterable, Literal
 from app.services.packet_decode import (
     AKM_SUITES,
     CIPHER_SUITES,
+    ENTERPRISE_SHA1,
     LEGACY_CIPHERS,
     OWE,
     PSK_FAMILY,
@@ -139,8 +140,29 @@ def no_legacy_cipher_with_wpa3(row: Row):
     return None
 
 
+def rsn_not_evaluated(row: Row):
+    """Say so when a Multiple BSSID beacon's own security could not be isolated.
+
+    Silence would read as "nothing wrong"; see
+    ``packet_modes._keep_transmitting_rsn`` for when this happens.
+    """
+    if row.get("rsn_unresolved"):
+        return ("info", "Beacon carries a Multiple BSSID element and its own RSN "
+                        "element could not be told apart from those of its "
+                        "nontransmitted BSSes; security rules were not evaluated "
+                        "for this frame.")
+    return None
+
+
 def six_ghz_security(row: Row):
-    """A 6 GHz BSS: no open network, no legacy PSK, no TKIP/WEP, MFPR = 1."""
+    """A 6 GHz BSS: no open network, no legacy PSK or 802.1X SHA-1, no TKIP/WEP, MFPR = 1.
+
+    6 GHz allows no WPA2 and no transition modes. In particular the WPA3
+    Specification (§11.2, as referenced from its Enterprise section) says an
+    AP does not operate a BSS in WPA3-Enterprise Transition Mode -- AKMs 1 + 5
+    -- in the 6 GHz band, which rules out 802.1X SHA-1 (AKM 1). FT-802.1X
+    (AKM 3) is part of WPA3-Enterprise Only Mode and stays allowed.
+    """
     if not _has(row, "akm", "mfpr") or _band(row) != "6":
         return None
     akms = row["akm"]
@@ -148,9 +170,9 @@ def six_ghz_security(row: Row):
         return ("fail", "6 GHz BSS without an RSN element (open network); "
                         "6 GHz allows only RSN with PMF, e.g. SAE or OWE.")
     problems = []
-    psk = sorted(set(akms) & PSK_FAMILY)
-    if psk:
-        problems.append(f"offers {_akm_names(psk)}")
+    legacy_akms = sorted(set(akms) & (PSK_FAMILY | ENTERPRISE_SHA1))
+    if legacy_akms:
+        problems.append(f"offers {_akm_names(legacy_akms)}")
     used = set(row.get("pairwise_cipher") or ())
     if row.get("group_cipher") is not None:
         used.add(row["group_cipher"])
@@ -229,6 +251,7 @@ ROW_RULES: dict[str, RowRule] = {
     "mfpr_without_mfpc": mfpr_without_mfpc,
     "no_legacy_cipher_with_wpa3": no_legacy_cipher_with_wpa3,
     "six_ghz_security": six_ghz_security,
+    "rsn_not_evaluated": rsn_not_evaluated,
     "hidden_ssid": hidden_ssid,
     "beacon_timing": beacon_timing,
 }

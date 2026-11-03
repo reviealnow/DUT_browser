@@ -44,6 +44,10 @@ class DecodeTests(unittest.TestCase):
     def test_ssid_bytes_are_hex_in_4x(self):
         self.assertEqual(pd.decode("text", "6f70656e", "FT_BYTES"), "open")
 
+    def test_non_utf8_ssid_keeps_its_bytes(self):
+        # Big5 "中文": no replacement characters, no guessing; exact hex instead.
+        self.assertEqual(pd.decode("text", "a4a4a4e5", "FT_BYTES"), "0xa4a4a4e5")
+
     def test_ssid_string_is_kept_verbatim_in_3x(self):
         # A 3.6 FT_STRING SSID that happens to look like hex must stay text.
         self.assertEqual(pd.decode("text", "cafe", "FT_STRING"), "cafe")
@@ -88,6 +92,7 @@ class DecodeTests(unittest.TestCase):
 
     def test_format(self):
         self.assertEqual(pd.format_value("akm_list", [2, 8]), "PSK / SAE")
+        self.assertEqual(pd.format_value("akm_list", [22, 23]), "FT-802.1X-SHA384 / 802.1X-SHA384")
         self.assertEqual(pd.format_value("cipher", 4), "CCMP-128")
         self.assertEqual(pd.format_value("cipher", 99), "Cipher 99")
         self.assertEqual(pd.format_value("bool", False), "No")
@@ -167,6 +172,33 @@ class ModeTests(unittest.TestCase):
                                       "wlan.ds.current_channel": "6"})
         self.assertEqual(row["channel"], 11)
 
+    def test_advertised_channel_beats_the_sniffer_channel(self):
+        mode = pm.get_mode("beacon_security")
+        columns = pm.resolve_columns(mode, FIELD_TYPES_441)
+        row = pm.decode_row(columns, {"wlan_radio.channel": "5", "wlan.ds.current_channel": "6"})
+        self.assertEqual((row["channel"], row["captured_on"]), (6, 5))
+        # Radio header only: it is the last resort, not nothing.
+        row = pm.decode_row(columns, {"wlan_radio.channel": "5"})
+        self.assertEqual(row["channel"], 5)
+
+    def test_structure_helpers_do_not_leak_into_rows(self):
+        mode = pm.get_mode("beacon_security")
+        columns = pm.resolve_columns(mode, FIELD_TYPES_441)
+        row = pm.decode_row(columns, {"wlan.tag.number": f"0{US}48",
+                                      "wlan.rsn.akms.count": "1", "wlan.rsn.akms.type": "8"})
+        self.assertFalse({"tag_numbers", "akm_count", "pcs_count"} & set(row))
+
+    def test_counts_that_do_not_match_the_list_are_not_trusted(self):
+        mode = pm.get_mode("beacon_security")
+        columns = pm.resolve_columns(mode, FIELD_TYPES_441)
+        row = pm.decode_row(columns, {"wlan.tag.number": f"0{US}48",
+                                      "wlan.rsn.akms.count": "1",
+                                      "wlan.rsn.akms.type": f"8{US}2",
+                                      "wlan.rsn.capabilities.mfpr": "False"})
+        self.assertNotIn("akm", row)
+        self.assertNotIn("mfpr", row)
+        self.assertIs(row[pm.RSN_UNRESOLVED], True)
+
     def test_extraction_fields_are_unique(self):
         mode = pm.get_mode("beacon_security")
         fields = pm.extraction_fields(pm.resolve_columns(mode, FIELD_TYPES_441))
@@ -195,7 +227,8 @@ class RealTsharkOutputTests(unittest.TestCase):
 
     def test_clean_configurations_have_no_findings(self):
         for ssid in ("open", "wpa2psk", "wpa3sae_ok", "6g_sae_ok", "AP7_中文 sp\tc",
-                     "owe_ok", "6g_enterprise", "comma,ssid"):
+                     "owe_ok", "6g_enterprise", "comma,ssid", "6g_ent_ft", "0xa4a4a4e5",
+                     "mb_sae_only", "mb_6g_two"):
             with self.subTest(ssid=ssid):
                 self.assertEqual(findings_for(self.rows[ssid]), [])
 
@@ -211,6 +244,37 @@ class RealTsharkOutputTests(unittest.TestCase):
 
     def test_transition_without_mfpc(self):
         self.assertEqual(rules_hit(self.rows["trans_nomfpc"]), {"sae_requires_mfpc"})
+
+    def test_six_ghz_enterprise_transition(self):
+        findings = findings_for(self.rows["6g_ent_trans"])
+        self.assertEqual({f.rule for f in findings}, {"six_ghz_security"})
+        self.assertIn("802.1X", findings[0].message)
+
+    # --- Multiple BSSID: nontransmitted profiles must not leak into the row ---
+
+    def test_mbssid_keeps_the_transmitting_bss_rsn(self):
+        row = self.rows["mb_sae_only"]
+        self.assertEqual(row["akm"], [8])  # not [8, 2] from the PSK profile
+        self.assertIs(row["mfpr"], True)
+        two = self.rows["mb_6g_two"]
+        self.assertEqual((two["akm"], two["pairwise_cipher"]), ([8, 24], [4, 8]))
+
+    def test_mbssid_does_not_hide_a_missing_mfpr(self):
+        # Merged with the PSK profile this read as transition mode and passed.
+        self.assertEqual(rules_hit(self.rows["mb_sae_nomfpr"]), {"wpa3_requires_mfpr"})
+
+    def test_mbssid_open_transmitting_bss_is_not_judged(self):
+        row = self.rows["mb_open_tx"]
+        self.assertFalse(set(pm.RSN_KEYS) & set(row))  # not "SAE" from the profile
+        self.assertEqual(rules_hit(row), {"rsn_not_evaluated"})
+        self.assertEqual(findings_for(row)[0].severity, "info")
+
+    def test_sniffer_channel_change_is_not_a_bss_change(self):
+        mode = pm.get_mode("beacon_security")
+        same_ap = [r for r in self.all_rows if r["ssid"] == "offchan"]
+        self.assertEqual(sorted(r["captured_on"] for r in same_ap), [5, 6])
+        findings = pr.evaluate(same_ap, mode.rules, mode.group_by)
+        self.assertEqual(findings, [])
 
     def test_mfpr_without_mfpc(self):
         self.assertEqual(rules_hit(self.rows["mfpr_nomfpc"]), {"mfpr_without_mfpc"})

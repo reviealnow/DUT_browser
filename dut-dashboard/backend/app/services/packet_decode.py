@@ -30,7 +30,8 @@ from typing import Any, Callable
 
 # --- IEEE 802.11 suite selectors (OUI 00-0F-AC) ------------------------------
 
-#: AKM suite types, IEEE 802.11-2020 Table 9-151 plus the 802.11be additions.
+#: AKM suite types, IEEE 802.11-2020 Table 9-151 plus the 802.11-2024 and
+#: 802.11be additions.
 AKM_SUITES: dict[int, str] = {
     1: "802.1X",
     2: "PSK",
@@ -53,6 +54,8 @@ AKM_SUITES: dict[int, str] = {
     19: "FT-PSK-SHA384",
     20: "PSK-SHA384",
     21: "PASN",
+    22: "FT-802.1X-SHA384",
+    23: "802.1X-SHA384",
     24: "SAE-EXT-KEY",
     25: "FT-SAE-EXT-KEY",
 }
@@ -79,6 +82,11 @@ SAE_FAMILY = frozenset({8, 9, 24, 25})
 OWE = 18
 #: Pre-WPA3 PSK AKMs, which a 6 GHz BSS must not offer.
 PSK_FAMILY = frozenset({2, 4, 6, 19, 20})
+#: 802.1X with SHA-1: WPA2-Enterprise, and the legacy half of WPA3-Enterprise
+#: transition mode (AKMs 1 + 5), which the WPA3 specification says an AP does
+#: not operate in the 6 GHz band. FT-802.1X (3) stays allowed: it is part of
+#: WPA3-Enterprise only mode.
+ENTERPRISE_SHA1 = frozenset({1})
 #: Ciphers that WPA3 and 6 GHz forbid.
 LEGACY_CIPHERS = frozenset({1, 2, 5})
 
@@ -145,6 +153,11 @@ def decode_text(raw: str, ftype: str | None = None) -> str | None:
 
     A repeated field (a beacon with a Multiple BSSID element carries more than
     one SSID) yields the first occurrence: the one the frame is about.
+
+    Bytes that are not valid UTF-8 -- Big5 SSIDs still turn up on legacy APs --
+    are not guessed at, nor shown as replacement characters that would make two
+    different SSIDs look alike: the value becomes ``0x`` plus the hex, which is
+    exact and still compares equal only to itself.
     """
     first = raw.split(AGGREGATOR, 1)[0]
     if first == MISSING:
@@ -152,7 +165,10 @@ def decode_text(raw: str, ftype: str | None = None) -> str | None:
     if ftype == "FT_BYTES":
         if not _HEX_RE.fullmatch(first):
             return None
-        return bytes.fromhex(first).decode("utf-8", errors="replace")
+        try:
+            return bytes.fromhex(first).decode("utf-8")
+        except UnicodeDecodeError:
+            return "0x" + first.lower()
     return first
 
 

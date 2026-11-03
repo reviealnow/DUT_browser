@@ -8,13 +8,22 @@ problems this has to absorb:
 
 * **renames between tshark releases** -- ``_ws.col.Protocol`` in 3.x is
   ``_ws.col.protocol`` in 4.x, so only one of the two resolves;
-* **per-frame fallbacks** -- a channel comes from radiotap when the capture has
-  it, else from the HT Operation element, else from the DS Parameter Set
-  (absent at 6 GHz), and all three resolve.
+* **per-frame fallbacks** -- the channel a BSS *advertises* comes from the HE
+  Operation element's 6 GHz information, else HT Operation, else the DS
+  Parameter Set, and only as a last resort from the radio header -- which is
+  the channel the *sniffer* was tuned to, and on 2.4 GHz is routinely one or
+  two channels off. The radio channel is shown separately as "Captured On".
 
 A column none of whose candidates resolve is left out of the decoded row
 altogether, which is how a rule tells "this tshark cannot see the field"
 (skip) from "this frame does not carry it" (``None``).
+
+**Multiple BSSID.** A beacon can carry the RSN elements of nontransmitted
+BSSes inside its Multiple BSSID element, and tshark reports them under the
+same field names as the transmitting BSS's own. With ``occurrence=a`` they
+would merge: an SAE-only BSS would read as PSK + SAE, an open one as SAE.
+:func:`decode_row` therefore keeps only the transmitting BSS's own RSN element
+-- see :func:`_keep_transmitting_rsn` -- and says so when it cannot tell.
 """
 
 from __future__ import annotations
@@ -92,11 +101,16 @@ _SSID = Column(key="ssid", label="SSID", fields=["wlan.ssid"], decoder="text")
 _CHANNEL = Column(
     key="channel", label="Channel", decoder="int",
     fields=[
-        "wlan_radio.channel",
         "wlan.ext_tag.he_operation.6ghz.primary_channel",
         "wlan.ht.info.primarychannel",
         "wlan.ds.current_channel",
+        "wlan_radio.channel",
     ],
+)
+#: Where the sniffer was tuned, not what the AP advertises; never used by rules.
+_CAPTURED_ON = Column(
+    key="captured_on", label="Captured On (ch)", decoder="int",
+    fields=["wlan_radio.channel"],
 )
 _FREQ = Column(
     key="freq", label="Frequency (MHz)", decoder="int",
@@ -114,6 +128,13 @@ _SECURITY = [
     Column(key="akm", label="RSN AKM", fields=["wlan.rsn.akms.type"], decoder="akm_list"),
     Column(key="mfpr", label="MFPR", fields=["wlan.rsn.capabilities.mfpr"], decoder="bool"),
     Column(key="mfpc", label="MFPC", fields=["wlan.rsn.capabilities.mfpc"], decoder="bool"),
+    # Element structure, so decode_row can keep the transmitting BSS's own RSN.
+    Column(key="tag_numbers", label="Element IDs", fields=["wlan.tag.number"],
+           decoder="int_list", hidden=True),
+    Column(key="akm_count", label="AKM Count", fields=["wlan.rsn.akms.count"],
+           decoder="int_list", hidden=True),
+    Column(key="pcs_count", label="Pairwise Cipher Count", fields=["wlan.rsn.pcs.count"],
+           decoder="int_list", hidden=True),
 ]
 _BEACON_TIMING = [
     Column(key="beacon_interval", label="Beacon Interval (TU)", fields=["wlan.fixed.beacon"], decoder="int"),
@@ -129,8 +150,9 @@ MODES: tuple[TestMode, ...] = (
         description="One row per BSS: SSID, channel and the RSN security it advertises.",
         display_filter=BEACON_FILTER,
         group_by="bssid",
-        columns=[_FRAME, _BSSID, _SSID, _CHANNEL, _FREQ, _SIX_GHZ_PRIMARY, *_SECURITY],
+        columns=[_FRAME, _BSSID, _SSID, _CHANNEL, _CAPTURED_ON, _FREQ, _SIX_GHZ_PRIMARY, *_SECURITY],
         rules=[
+            "rsn_not_evaluated",
             "wpa3_requires_mfpr",
             "sae_requires_mfpc",
             "mfpr_without_mfpc",
@@ -146,7 +168,7 @@ MODES: tuple[TestMode, ...] = (
         display_filter=BEACON_FILTER,
         group_by="bssid",
         columns=[
-            _FRAME, _BSSID, _SSID, _CHANNEL, _FREQ, _SIX_GHZ_PRIMARY,
+            _FRAME, _BSSID, _SSID, _CHANNEL, _CAPTURED_ON, _FREQ, _SIX_GHZ_PRIMARY,
             Column(key="country", label="Country", fields=["wlan.country_info.code"], decoder="text"),
             Column(key="rates", label="Supported Rates (Mbps)",
                    fields=["wlan.supported_rates"], decoder="rates"),
@@ -247,8 +269,59 @@ def extraction_fields(columns: list[ResolvedColumn]) -> list[str]:
     return list(seen)
 
 
+MBSSID_ELEMENT = 71
+RSN_ELEMENT = 48
+RSN_KEYS = ("akm", "group_cipher", "pairwise_cipher", "mfpr", "mfpc")
+#: Set on a row whose transmitting-BSS security could not be isolated.
+RSN_UNRESOLVED = "rsn_unresolved"
+
+
+def _keep_transmitting_rsn(row: dict[str, Any]) -> None:
+    """Reduce the RSN columns to the transmitting BSS's own RSN element.
+
+    ``wlan.tag.number`` lists every element in the frame in order, nested ones
+    included, but carries no nesting. What *can* be told from it: an element
+    before the first Multiple BSSID element is not inside one. IEEE 802.11
+    orders RSN ahead of Multiple BSSID in a beacon, so a compliant AP's own
+    RSN element is the first one, and its AKM and pairwise-cipher lists are the
+    first ``akms.count`` / ``pcs.count`` values. Scalars (group cipher, MFPR,
+    MFPC) already decode to their first occurrence.
+
+    When the first RSN element comes *after* a Multiple BSSID element, the
+    transmitting BSS is either open or non-compliant in its element order, and
+    the flat field list cannot say which. The RSN columns are then dropped --
+    so no rule judges another BSS's settings -- and the row is flagged.
+    The structure helper columns are removed either way.
+    """
+    tags = row.pop("tag_numbers", None)
+    counts = {"akm": row.pop("akm_count", None), "pairwise_cipher": row.pop("pcs_count", None)}
+    if not tags or RSN_ELEMENT not in tags:
+        return
+    first_rsn = tags.index(RSN_ELEMENT)
+    if MBSSID_ELEMENT in tags and tags.index(MBSSID_ELEMENT) < first_rsn:
+        for key in RSN_KEYS:
+            row.pop(key, None)
+        row[RSN_UNRESOLVED] = True
+        return
+    for key, per_element in counts.items():
+        values = row.get(key)
+        if values is None or not per_element:
+            continue
+        if sum(per_element) != len(values):
+            # The counts do not describe these lists; do not guess a split.
+            for rsn_key in RSN_KEYS:
+                row.pop(rsn_key, None)
+            row[RSN_UNRESOLVED] = True
+            return
+        row[key] = values[: per_element[0]]
+
+
 def decode_row(columns: list[ResolvedColumn], raw: Mapping[str, str | None]) -> dict[str, Any]:
-    """One frame's cells → ``{column key: value}``; first candidate with a value wins."""
+    """One frame's cells → ``{column key: value}``; first candidate with a value wins.
+
+    Rows of a mode with the RSN structure columns are then reduced to the
+    transmitting BSS's own security (:func:`_keep_transmitting_rsn`).
+    """
     row: dict[str, Any] = {}
     for column in columns:
         value = None
@@ -257,4 +330,6 @@ def decode_row(columns: list[ResolvedColumn], raw: Mapping[str, str | None]) -> 
             if value is not None:
                 break
         row[column.key] = value
+    if "tag_numbers" in row:
+        _keep_transmitting_rsn(row)
     return row

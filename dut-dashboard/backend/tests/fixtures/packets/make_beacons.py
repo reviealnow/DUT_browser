@@ -37,7 +37,20 @@ def rsn(group, pairwise, akms, mfpr, mfpc):
     return ie(48, body)
 
 
+def nontx_profile(ssid, index, rsn_ie):
+    """One Nontransmitted BSSID Profile subelement of a Multiple BSSID element."""
+    body = ie(83, struct.pack("<H", 0x0011)) + ie(0, ssid) + ie(85, bytes([index, 1, 0])) + rsn_ie
+    return bytes([0, len(body)]) + body
+
+
+def mbssid(*profiles):
+    return ie(71, bytes([3]) + b"".join(profiles))
+
+
 def beacon(bssid, ssid, freq, channel, rsn_ie=b"", interval=100, dtim=1, privacy=True):
+    # `freq` goes in the radio header (where the sniffer listened), `channel`
+    # in the DS Parameter Set (what the AP advertises); they may disagree.
+    # `rsn_ie` is appended as given, so it may carry a Multiple BSSID element.
     rt = struct.pack("<BBHI", 0, 0, 13, (1 << 3) | (1 << 5))
     rt += struct.pack("<HHb", freq, 0x00A0 if freq < 3000 else 0x0140, -44)
     mac = bytes(int(x, 16) for x in bssid.split(":"))
@@ -74,6 +87,26 @@ CASES = [
     ("00:03:7f:00:00:11", b"6g_enterprise", 5975, 5, rsn(9, [9], [5], 1, 1), 100, 1, True),
     ("00:03:7f:00:00:12", b"comma,ssid",    2437, 6, rsn(4, [4], [2], 0, 0), 100, 1, True),
     ("00:03:7f:00:00:13", b"mfpr_nomfpc",   2437, 6, rsn(4, [4], [2], 1, 0), 100, 1, True),
+    ("00:03:7f:00:00:15", b"6g_ent_trans",  5975, 5, rsn(4, [4], [1, 5], 0, 1), 100, 1, True),
+    ("00:03:7f:00:00:16", b"6g_ent_ft",     5975, 5, rsn(4, [4], [3, 5], 1, 1), 100, 1, True),
+    ("00:03:7f:00:00:17", "中文".encode("big5"), 2437, 6, rsn(4, [4], [2], 0, 0), 100, 1, True),
+    # Multiple BSSID: the transmitting BSS's own RSN, then nontransmitted profiles.
+    ("00:03:7f:00:01:01", b"mb_sae_only",   2437, 6,
+     rsn(4, [4], [8], 1, 1) + mbssid(nontx_profile(b"mb_ntx_psk", 1, rsn(4, [4], [2], 0, 0))),
+     100, 1, True),
+    ("00:03:7f:00:01:02", b"mb_sae_nomfpr", 2437, 6,
+     rsn(4, [4], [8], 0, 1) + mbssid(nontx_profile(b"mb_ntx_psk2", 1, rsn(4, [4], [2], 0, 0))),
+     100, 1, True),
+    ("00:03:7f:00:01:03", b"mb_open_tx",    2437, 6,
+     mbssid(nontx_profile(b"mb_ntx_sae", 1, rsn(4, [4], [8], 1, 1))), 100, 1, False),
+    ("00:03:7f:00:01:04", b"mb_6g_two",     5975, 5,
+     rsn(4, [4, 8], [8, 24], 1, 1)
+     + mbssid(nontx_profile(b"p1", 1, rsn(4, [4], [2], 0, 0)),
+              nontx_profile(b"p2", 2, rsn(2, [2], [2, 4], 0, 0))),
+     100, 1, True),
+    # One AP (DS channel 6) heard by a sniffer on channel 6, then on channel 5.
+    ("00:03:7f:00:00:14", b"offchan",       2437, 6, rsn(4, [4], [8], 1, 1), 100, 1, True),
+    ("00:03:7f:00:00:14", b"offchan",       2432, 6, rsn(4, [4], [8], 1, 1), 100, 1, True),
     # same BSSID twice, RSN changes between beacons
     ("00:03:7f:00:00:0f", b"flappy",        2437, 6, rsn(4, [4], [8], 1, 1), 100, 1, True),
     ("00:03:7f:00:00:0f", b"flappy",        2437, 6, rsn(4, [4], [2, 8], 0, 1), 100, 1, True),
