@@ -1130,6 +1130,41 @@ body {
   color: var(--accent);
 }
 
+/* Column divider a user drags to resize, as in Finder's list view. A hairline
+   at rest, widened into an accent bar on hover/focus/drag so it is findable. */
+.filetable th:has(> .th-resizer) {
+  position: relative;
+}
+.th-resizer {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  bottom: 0;
+  width: 9px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 2;
+}
+.th-resizer::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  bottom: 6px;
+  left: 4px;
+  width: 1px;
+  background: var(--border);
+}
+.th-resizer:hover::after,
+.th-resizer:focus-visible::after,
+.th-resizer:active::after {
+  left: 3px;
+  width: 3px;
+  background: var(--accent);
+}
+.th-resizer:focus-visible {
+  outline: none;
+}
+
 /* Wi-Fi clients table: an on-brand pale-blue header row. Alignment is left,
    inherited from `.filetable th` -- every table in the app reads left, headers
    and data alike, and a centred header over left-aligned data is the same
@@ -1186,6 +1221,18 @@ body {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   white-space: normal;
   word-break: break-all;
+}
+
+/* Shared Files: a long filename pushed Size/Uploader/SHA and the row actions
+   off the card. Cut it to one line with an ellipsis; the cell's title shows
+   the full name on hover. Its width is set inline from the header divider
+   (.th-resizer), so every row's name lines up in one column. */
+.filetable-fname {
+  display: inline-block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
 }
 
 /* Session logs and shared files grow fast: cap the list to ~5 rows and scroll

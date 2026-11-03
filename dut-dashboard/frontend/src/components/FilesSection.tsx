@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
 import {
   deleteFile,
@@ -17,7 +17,15 @@ import {
   WorkspaceFile,
 } from "../api/rest";
 import { hashHue } from "../monitoring/authorColor";
-import { useIdentity } from "../monitoring/useSettings";
+import {
+  clampFileNameWidth,
+  FILE_NAME_WIDTH_DEFAULT,
+  FILE_NAME_WIDTH_MAX,
+  FILE_NAME_WIDTH_MIN,
+  loadFileNameWidth,
+  saveFileNameWidth,
+  useIdentity,
+} from "../monitoring/useSettings";
 import AuthorTag from "./AuthorTag";
 import { TagList } from "./TagChip";
 import TagInput, { parseTags } from "./TagInput";
@@ -135,12 +143,14 @@ function SortHeader({
   sort,
   order,
   onSort,
+  children,
 }: {
   label: string;
   col: FileSortKey;
   sort: FileSortKey;
   order: SortOrder;
   onSort: (col: FileSortKey) => void;
+  children?: ReactNode;
 }) {
   const active = sort === col;
   return (
@@ -149,7 +159,70 @@ function SortHeader({
         {label}
         {active ? <span aria-hidden="true">{order === "asc" ? "▲" : "▼"}</span> : null}
       </button>
+      {children}
     </th>
+  );
+}
+
+/**
+ * Divider on a header's right edge, as in Finder's list view: drag it to
+ * resize the column, double-click to reset. Arrow keys nudge it for keyboard
+ * users. The width is saved once, when the drag ends, not on every move.
+ */
+function ColumnResizer({
+  label,
+  width,
+  onResize,
+  onCommit,
+}: {
+  label: string;
+  width: number;
+  onResize: (px: number) => void;
+  onCommit: (px: number) => void;
+}) {
+  const drag = useRef<{ x: number; w: number; last: number } | null>(null);
+  const set = (px: number, commit: boolean) => {
+    const next = clampFileNameWidth(px);
+    onResize(next);
+    if (commit) onCommit(next);
+    return next;
+  };
+  return (
+    <span
+      className="th-resizer"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={`Resize ${label} column`}
+      aria-valuenow={width}
+      aria-valuemin={FILE_NAME_WIDTH_MIN}
+      aria-valuemax={FILE_NAME_WIDTH_MAX}
+      tabIndex={0}
+      title="Drag to resize · double-click to reset"
+      onPointerDown={(e) => {
+        e.preventDefault();
+        e.currentTarget.setPointerCapture(e.pointerId);
+        drag.current = { x: e.clientX, w: width, last: width };
+      }}
+      onPointerMove={(e) => {
+        const d = drag.current;
+        if (d) d.last = set(d.w + e.clientX - d.x, false);
+      }}
+      onPointerUp={() => {
+        const d = drag.current;
+        drag.current = null;
+        if (d) onCommit(d.last);
+      }}
+      onPointerCancel={() => {
+        drag.current = null;
+      }}
+      onDoubleClick={() => set(FILE_NAME_WIDTH_DEFAULT, true)}
+      onKeyDown={(e) => {
+        if (e.key === "ArrowLeft") set(width - 16, true);
+        else if (e.key === "ArrowRight") set(width + 16, true);
+        else return;
+        e.preventDefault();
+      }}
+    />
   );
 }
 
@@ -213,6 +286,7 @@ function SharedFilesTable({
   onToggleTagEdit: (id: number | null) => void;
   onTagsSaved: () => void;
 }) {
+  const [nameWidth, setNameWidth] = useState(loadFileNameWidth);
   return (
     <>
       {rows.length > VISIBLE_FILE_ROWS ? (
@@ -222,7 +296,9 @@ function SharedFilesTable({
         <table className="filetable">
           <thead>
             <tr>
-              <SortHeader label="Filename" col="name" sort={sort} order={order} onSort={onSort} />
+              <SortHeader label="Filename" col="name" sort={sort} order={order} onSort={onSort}>
+                <ColumnResizer label="Filename" width={nameWidth} onResize={setNameWidth} onCommit={saveFileNameWidth} />
+              </SortHeader>
               <SortHeader label="Size" col="size" sort={sort} order={order} onSort={onSort} />
               <SortHeader label="Uploader" col="uploader" sort={sort} order={order} onSort={onSort} />
               <th>SHA-256</th>
@@ -235,7 +311,7 @@ function SharedFilesTable({
                 <tr>
                   <td className="filetable-name">
                     <FileTypeChip name={row.filename} />
-                    {row.filename}
+                    <span className="filetable-fname" style={{ width: nameWidth }} title={row.filename}>{row.filename}</span>
                     <TagList tags={row.tags} onTagClick={onTagClick} />
                   </td>
                   <td>{formatSize(row.size)}</td>

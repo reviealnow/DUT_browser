@@ -86,6 +86,38 @@ export function saveNavCollapsed(collapsed: boolean): void {
   }
 }
 
+const FILE_NAME_WIDTH_KEY = "dut.files.nameWidth.v1";
+export const FILE_NAME_WIDTH_DEFAULT = 220;
+export const FILE_NAME_WIDTH_MIN = 80;
+export const FILE_NAME_WIDTH_MAX = 640;
+
+/** Clamp a Filename column width (px) to the range the table can hold. */
+export function clampFileNameWidth(px: number): number {
+  return Math.round(Math.min(FILE_NAME_WIDTH_MAX, Math.max(FILE_NAME_WIDTH_MIN, px)));
+}
+
+/**
+ * Shared Files' Filename column width, dragged at its header divider. Its own
+ * key for the same reason as the nav rail: a per-viewer layout preference, not
+ * a Settings field.
+ */
+export function loadFileNameWidth(): number {
+  try {
+    const n = Number(localStorage.getItem(FILE_NAME_WIDTH_KEY));
+    return n > 0 ? clampFileNameWidth(n) : FILE_NAME_WIDTH_DEFAULT;
+  } catch {
+    return FILE_NAME_WIDTH_DEFAULT;
+  }
+}
+
+export function saveFileNameWidth(px: number): void {
+  try {
+    localStorage.setItem(FILE_NAME_WIDTH_KEY, String(px));
+  } catch {
+    // ignore (private mode / quota)
+  }
+}
+
 export function useSettings() {
   const [settings, setSettings] = useState<Settings>(loadSettings);
 
