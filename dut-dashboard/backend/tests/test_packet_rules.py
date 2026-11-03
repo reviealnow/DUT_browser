@@ -48,6 +48,12 @@ class DecodeTests(unittest.TestCase):
         # Big5 "中文": no replacement characters, no guessing; exact hex instead.
         self.assertEqual(pd.decode("text", "a4a4a4e5", "FT_BYTES"), "0xa4a4a4e5")
 
+    def test_hex_form_collision_is_the_documented_limit(self):
+        # A real UTF-8 SSID spelled "0xa4a4a4e5" reads the same; the docstring
+        # says so. If this ever stops being equal, update that docstring.
+        self.assertEqual(pd.decode("text", "30786134613461346535", "FT_BYTES"),
+                         pd.decode("text", "a4a4a4e5", "FT_BYTES"))
+
     def test_ssid_string_is_kept_verbatim_in_3x(self):
         # A 3.6 FT_STRING SSID that happens to look like hex must stay text.
         self.assertEqual(pd.decode("text", "cafe", "FT_STRING"), "cafe")
@@ -263,12 +269,37 @@ class RealTsharkOutputTests(unittest.TestCase):
         # Merged with the PSK profile this read as transition mode and passed.
         self.assertEqual(rules_hit(self.rows["mb_sae_nomfpr"]), {"wpa3_requires_mfpr"})
 
-    def test_mbssid_open_transmitting_bss_is_not_judged(self):
+    def test_mbssid_open_transmitting_bss_is_open_not_sae(self):
+        # No RSN before Multiple BSSID and Privacy = 0: the transmitting BSS is
+        # open. Its RSN columns are None (present), not the profile's SAE.
         row = self.rows["mb_open_tx"]
-        self.assertFalse(set(pm.RSN_KEYS) & set(row))  # not "SAE" from the profile
-        # The Privacy bit is the transmitting BSS's own, so "open" still stands.
-        self.assertEqual(rules_hit(row), {"rsn_not_evaluated", "open_network"})
-        self.assertEqual({f.severity for f in findings_for(row)}, {"info"})
+        self.assertEqual({k: row[k] for k in pm.RSN_KEYS}, dict.fromkeys(pm.RSN_KEYS))
+        self.assertNotIn(pm.RSN_UNRESOLVED, row)
+        self.assertEqual(rules_hit(row), {"open_network"})
+
+    def test_mbssid_open_transmitting_bss_fails_at_6ghz(self):
+        findings = findings_for(self.rows["mb_6g_open_tx"])
+        self.assertEqual([(f.rule, f.severity) for f in findings], [("six_ghz_security", "fail")])
+        self.assertIn("open network", findings[0].message)
+
+    def test_mbssid_rsn_after_with_privacy_stays_unresolved(self):
+        row = self.rows["mb_rsn_after"]
+        self.assertFalse(set(pm.RSN_KEYS) & set(row))
+        self.assertEqual(rules_hit(row), {"rsn_not_evaluated"})
+
+    def test_missing_count_fields_do_not_bring_the_merge_back(self):
+        # A tshark without akms.count / pcs.count cannot split the lists.
+        no_counts = {k: v for k, v in FIELD_TYPES_441.items() if not k.endswith(".count")}
+        columns = pm.resolve_columns(pm.get_mode("beacon_security"), no_counts)
+        raw_rows, _ = pd.rows_from_tsv(TSV_441)
+        rows = {r["ssid"]: r for r in (pm.decode_row(columns, raw) for raw in raw_rows)}
+        for ssid in ("mb_sae_only", "mb_sae_nomfpr", "mb_6g_two"):
+            with self.subTest(ssid=ssid):
+                self.assertNotIn("akm", rows[ssid])  # not [8, 2]
+                self.assertEqual(rules_hit(rows[ssid]), {"rsn_not_evaluated"})
+        # One RSN element: nothing to split, so nothing is lost.
+        self.assertEqual(rows["wpa3sae_ok"]["akm"], [8])
+        self.assertEqual(findings_for(rows["wpa3sae_ok"]), [])
 
     def test_mbssid_profile_wpa1_is_not_attributed(self):
         row = self.rows["mb_wpa_profile"]

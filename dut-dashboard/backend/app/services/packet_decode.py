@@ -155,9 +155,15 @@ def decode_text(raw: str, ftype: str | None = None) -> str | None:
     one SSID) yields the first occurrence: the one the frame is about.
 
     Bytes that are not valid UTF-8 -- Big5 SSIDs still turn up on legacy APs --
-    are not guessed at, nor shown as replacement characters that would make two
-    different SSIDs look alike: the value becomes ``0x`` plus the hex, which is
-    exact and still compares equal only to itself.
+    are not guessed at, nor shown as replacement characters that would make
+    many different SSIDs look alike: the value becomes ``0x`` plus the hex,
+    which keeps every byte.
+
+    Known limit: that form is not collision-free. A real UTF-8 SSID spelled
+    ``0xa4a4a4e5`` decodes to the same string as the Big5 bytes ``a4a4a4e5``,
+    and any text prefix chosen instead could appear in a real SSID too. Making
+    it exact needs the raw bytes kept beside the text (e.g. an ``ssid_hex``
+    field); deferred, since such an SSID is very unlikely in practice.
     """
     first = raw.split(AGGREGATOR, 1)[0]
     if first == MISSING:

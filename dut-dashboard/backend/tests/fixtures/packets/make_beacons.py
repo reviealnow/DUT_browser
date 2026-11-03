@@ -119,6 +119,13 @@ CASES = [
      100, 1, True),
     ("00:03:7f:00:01:03", b"mb_open_tx",    2437, 6,
      mbssid(nontx_profile(b"mb_ntx_sae", 1, rsn(4, [4], [8], 1, 1))), 100, 1, False),
+    ("00:03:7f:00:01:06", b"mb_6g_open_tx", 5975, 5,
+     mbssid(nontx_profile(b"mb_ntx_6g_sae", 1, rsn(4, [4], [8], 1, 1))), 100, 1, False),
+    # Privacy set but the only RSN element comes after Multiple BSSID: either a
+    # non-compliant element order or a nontransmitted profile's; cannot tell.
+    ("00:03:7f:00:01:07", b"mb_rsn_after",  2437, 6,
+     mbssid(nontx_profile(b"mb_ntx_x", 1, rsn(4, [4], [2], 0, 0))) + rsn(4, [4], [8], 1, 1),
+     100, 1, True),
     ("00:03:7f:00:01:04", b"mb_6g_two",     5975, 5,
      rsn(4, [4, 8], [8, 24], 1, 1)
      + mbssid(nontx_profile(b"p1", 1, rsn(4, [4], [2], 0, 0)),

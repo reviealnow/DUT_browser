@@ -301,9 +301,19 @@ def _keep_transmitting_rsn(row: dict[str, Any]) -> None:
     MFPC) already decode to their first occurrence.
 
     When the first RSN element comes *after* a Multiple BSSID element, the
-    transmitting BSS is either open or non-compliant in its element order, and
-    the flat field list cannot say which. The RSN columns are then dropped --
-    so no rule judges another BSS's settings -- and the row is flagged.
+    transmitting BSS is either open or non-compliant in its element order. The
+    Privacy capability bit -- a fixed field, always the transmitting BSS's own
+    -- tells the two apart: Privacy = 0 means it is open, so its RSN columns
+    are ``None`` and the open-network rules judge it (at 6 GHz, a fail).
+    Privacy = 1, or Privacy unknown, stays ambiguous.
+
+    Ambiguous rows have their RSN columns dropped -- so no rule judges another
+    BSS's settings -- and are flagged. That also happens when the frame has
+    more than one RSN element and the per-element counts are missing (an
+    older tshark without ``akms.count`` / ``pcs.count``) or do not add up to
+    the lists: without them the lists cannot be split, and a merged list is
+    exactly the wrong answer this function exists to prevent.
+
     The structure helper columns are removed either way.
     """
     tags = row.pop("tag_numbers", None)
@@ -317,21 +327,32 @@ def _keep_transmitting_rsn(row: dict[str, Any]) -> None:
             row.pop(key, None)
     if not tags or RSN_ELEMENT not in tags:
         return
-    first_rsn = tags.index(RSN_ELEMENT)
-    if MBSSID_ELEMENT in tags and tags.index(MBSSID_ELEMENT) < first_rsn:
+
+    def unresolved() -> None:
         for key in RSN_KEYS:
             row.pop(key, None)
         row[RSN_UNRESOLVED] = True
+
+    first_rsn = tags.index(RSN_ELEMENT)
+    if MBSSID_ELEMENT in tags and tags.index(MBSSID_ELEMENT) < first_rsn:
+        if row.get("privacy") is False:
+            for key in RSN_KEYS:
+                row[key] = None
+        else:
+            unresolved()
         return
+    several = tags.count(RSN_ELEMENT) > 1
     for key, per_element in counts.items():
         values = row.get(key)
-        if values is None or not per_element:
+        if values is None:
+            continue
+        if not per_element:
+            if several:
+                unresolved()
+                return
             continue
         if sum(per_element) != len(values):
-            # The counts do not describe these lists; do not guess a split.
-            for rsn_key in RSN_KEYS:
-                row.pop(rsn_key, None)
-            row[RSN_UNRESOLVED] = True
+            unresolved()
             return
         row[key] = values[: per_element[0]]
 

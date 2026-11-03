@@ -28,8 +28,10 @@ frame.number	radiotap.channel.freq	radiotap.dbm_antsignal	wlan.bssid	wlan.countr
 27	2437	-44	00:03:7f:00:01:01	US	6			100	TrueTrue	TrueFalse	TrueFalse			11	82	TrueFalse	TrueFalse	44	11	44	6d625f7361655f6f6e6c796d625f6e74785f70736b	0x820x840x8b0x96	0135748718308548	0	1					6	2437	-44
 28	2437	-44	00:03:7f:00:01:02	US	6			100	TrueTrue	TrueFalse	TrueFalse			11	82	TrueFalse	FalseFalse	44	11	44	6d625f7361655f6e6f6d6670726d625f6e74785f70736b32	0x820x840x8b0x96	0135748718308548	0	1					6	2437	-44
 29	2437	-44	00:03:7f:00:01:03	US	6			100	FalseTrue	TrueFalse	TrueFalse			1	8	True	True	4	1	4	6d625f6f70656e5f74786d625f6e74785f736165	0x820x840x8b0x96	01357718308548	0	1					6	2437	-44
-30	5975	-44	00:03:7f:00:01:04	US				100	TrueTrueTrue	TrueFalseFalse	TrueFalseFalse			212	824224	TrueFalseFalse	TrueFalseFalse	442	211	4842	6d625f36675f74776f70317032	0x820x840x8b0x96	0157487183085488308548	0	1					5	5975	-44
-31	2437	-44	00:03:7f:00:00:14	US	6			100	True	True	True			1	8	True	True	4	1	4	6f66666368616e	0x820x840x8b0x96	0135748	0	1					6	2437	-44
-32	2432	-44	00:03:7f:00:00:14	US	6			100	True	True	True			1	8	True	True	4	1	4	6f66666368616e	0x820x840x8b0x96	0135748	0	1					5	2432	-44
-33	2437	-44	00:03:7f:00:00:0f	US	6			100	True	True	True			1	8	True	True	4	1	4	666c61707079	0x820x840x8b0x96	0135748	0	1					6	2437	-44
-34	2437	-44	00:03:7f:00:00:0f	US	6			100	True	True	True			2	28	True	False	4	1	4	666c61707079	0x820x840x8b0x96	0135748	0	1					6	2437	-44
+30	5975	-44	00:03:7f:00:01:06	US				100	FalseTrue	TrueFalse	TrueFalse			1	8	True	True	4	1	4	6d625f36675f6f70656e5f74786d625f6e74785f36675f736165	0x820x840x8b0x96	0157718308548	0	1					5	5975	-44
+31	2437	-44	00:03:7f:00:01:07	US	6			100	TrueTrue	TrueFalse	TrueFalse			11	28	FalseTrue	FalseTrue	44	11	44	6d625f72736e5f61667465726d625f6e74785f78	0x820x840x8b0x96	0135771830854848	0	1					6	2437	-44
+32	5975	-44	00:03:7f:00:01:04	US				100	TrueTrueTrue	TrueFalseFalse	TrueFalseFalse			212	824224	TrueFalseFalse	TrueFalseFalse	442	211	4842	6d625f36675f74776f70317032	0x820x840x8b0x96	0157487183085488308548	0	1					5	5975	-44
+33	2437	-44	00:03:7f:00:00:14	US	6			100	True	True	True			1	8	True	True	4	1	4	6f66666368616e	0x820x840x8b0x96	0135748	0	1					6	2437	-44
+34	2432	-44	00:03:7f:00:00:14	US	6			100	True	True	True			1	8	True	True	4	1	4	6f66666368616e	0x820x840x8b0x96	0135748	0	1					5	2432	-44
+35	2437	-44	00:03:7f:00:00:0f	US	6			100	True	True	True			1	8	True	True	4	1	4	666c61707079	0x820x840x8b0x96	0135748	0	1					6	2437	-44
+36	2437	-44	00:03:7f:00:00:0f	US	6			100	True	True	True			2	28	True	False	4	1	4	666c61707079	0x820x840x8b0x96	0135748	0	1					6	2437	-44
