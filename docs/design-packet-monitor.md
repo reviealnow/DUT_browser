@@ -109,10 +109,11 @@ meaning, so `SsidCapabilityCard` and the demo keep working (§A10).
   the first line of that output as the reason.
 - **Monitor mode is not needed** for this part. The probe still records
   whether `iw list` shows `monitor`, since phase 2 depends on it.
-- **No background polling.** A scan runs on section entry (once) or on the
-  user's button, never on a timer: the same discipline as serial captures.
-  The Host is shared and an active scan takes its radio off-channel. Results
-  are cached per Host with their timestamp, and the UI shows the age.
+- **No background polling.** A scan runs only when an engineer presses
+  Refresh (§A10, Q6): never on a timer, and never just because someone opened
+  the page. This is the same discipline as serial captures. The Host is
+  shared, and an active scan takes its radio off-channel. Results are stored
+  per DUT with the Host and the time, and the UI shows how old they are.
 - **Lock time.** A scan takes about 3–10 s and holds the collector session's
   RPC lock while it runs, so a console probe on the same Host waits behind it.
   The call uses `timeout=25` rather than the default 15 s, and that wait is
@@ -222,15 +223,26 @@ weighting.
   `source_b.scanned_at`, `findings` (as in Part B §B7), `sku_checks`,
   `occupancy` and `expected_source` (`"dut-console"`). Existing callers ignore
   them.
-- **Gating, an open question (§A13).** The route is reachable by `guest`
-  today, and SSID Capability is a guest page. Note that a guest request
-  already triggers serial captures on the DUT (`get_ssid_capabilities`),
-  since `main.py:352` mounts the route with no role dependency. Q6 covers
-  that existing behaviour as well as the new Host scan. A scan on a Host is a command on
-  a shared box. The proposal: a guest gets the last cached scan, and only
-  `engineer` and above can trigger a new one, through a separate
-  `POST /api/wifi/host-scan` mounted with `_ENGINEER`, plus route-protection
-  tests.
+- **Gating (decided, Q6): only `engineer` and above trigger a capture.**
+  - A capture is any new scan on the Host or any new serial capture on the
+    DUT.
+  - Today `GET /api/wifi/capability-report` does both on every request, and
+    `main.py:352` mounts it with no role dependency, so a guest's page view
+    runs DUT serial commands. With the Host scan added, it would also run a
+    command on a shared box.
+  - **`POST /api/wifi/capability-report/refresh`**, mounted with
+    `_ENGINEER`, runs both captures and stores the result per DUT, with
+    the Host and the capture time.
+  - **`GET /api/wifi/capability-report`** stays open to `guest`, as the page
+    is, but only **returns the last stored report**. When none is stored yet,
+    it says so: "no report yet — an engineer can run one". It never captures.
+  - This **changes existing guest behaviour**. A guest can no longer cause a
+    DUT serial capture from this page. The implementation PR lists that
+    separately, as a changelog item.
+  - `tests/test_route_protection.py` asserts that guest gets 401/403 on
+    `refresh` and 200 on the read.
+  - The UI shows "Refresh" only to engineer and above, next to the age of
+    the stored report.
 - `SsidCapabilityCard`: add a findings list (fail/warn/info), an SKU-checks
   table, and an occupancy table that highlights the DUT's channels, labelled
   "Scanned from <Host> at <time>".
@@ -246,7 +258,9 @@ weighting.
    Survey show today. Needs a real `iw` capture as its fixture.
 3. `feat(backend): parse privacy, WPA1, country and power from iw scan` — §A6.
 4. `feat(backend): run the capability survey on the DUT's Host` — §A5,
-   including the collector `survey_iface` property and the probe.
+   including the collector `survey_iface` property and the probe. It also adds
+   the engineer-only `refresh` route and the stored report (§A10, Q6). The
+   change to guest behaviour is listed separately.
 5. `feat(backend): findings and channel occupancy in the capability report`
    — §A8 and §A9.
 6. `feat(backend): SKU checks from the DUT console` — §A7. Needs bench time
@@ -274,10 +288,11 @@ Survey misreport PMF for every HT-capable BSS today. This needs confirming
 against a real capture, and is PR 2 in §A11: a pre-existing user-visible bug,
 listed on its own.
 
-## A13. Open questions
+## A13. Questions
 
-- **Q6 — triggering a Host scan:** guest or engineer? The proposal is
-  engineer, with guests seeing the cached result (§A10).
+- **Q6 — decided (2026-11-03): `engineer` and above.** Only engineers trigger
+  a capture, whether a Host scan or a DUT serial capture. Guests read the last
+  stored report (§A10).
 - **Q7 — the DUT console source for country and regulatory data:** measured
   on the bench with the bench owner (§A7).
 - **Q8 — a model/SKU table:** out of phase 1; who would own it if it is
