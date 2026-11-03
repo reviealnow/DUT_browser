@@ -560,8 +560,10 @@ TestMode(
   field's FT_* type from the probe, so an SSID named `cafe` is not read as two
   bytes. A zero-length SSID prints as `<MISSING>` and decodes to `""`. Bytes
   that are not valid UTF-8 (Big5 SSIDs on legacy APs) keep their exact value as
-  `0x…` hex rather than replacement characters, which would make two different
-  SSIDs look alike.
+  `0x…` hex rather than replacement characters, which would make many
+  different SSIDs look alike. The hex form is not collision-free: a real SSID
+  spelled `0xa4a4a4e5` reads the same. An exact form (`ssid_hex` beside the
+  text) is deferred.
 - **Multiple BSSID.** A beacon can carry its nontransmitted BSSes' RSN
   elements inside a Multiple BSSID element, and tshark reports them under the
   same field names as the beacon's own; `wlan.tag.number` lists nested elements
@@ -569,12 +571,21 @@ TestMode(
   element before the first Multiple BSSID element cannot be nested in one, and
   IEEE 802.11 orders RSN ahead of it, so the RSN columns keep only that first
   element: the AKM and pairwise lists are cut by `wlan.rsn.akms.count` /
-  `wlan.rsn.pcs.count`, and scalars already take their first occurrence. When
-  no RSN element precedes the Multiple BSSID element (an open transmitting BSS,
-  or a non-compliant element order — the flat fields cannot tell which), or the
-  counts do not match the lists, the RSN columns are dropped and the row is
-  flagged `rsn_unresolved` (§B7). A proper structural split needs `-T json`;
-  this is the safe subset without it.
+  `wlan.rsn.pcs.count`, and scalars already take their first occurrence.
+  - If no RSN element precedes the Multiple BSSID element, the Privacy bit
+    decides. It is a fixed field, so it always belongs to the transmitting
+    BSS. With Privacy = 0 the transmitting BSS is **open**: its RSN columns are
+    `None` and the open-network rules judge it, which at 6 GHz is a fail.
+  - With Privacy = 1 (a non-compliant element order, or one nobody can
+    attribute), the row is ambiguous.
+  - It is also ambiguous when the counts do not match the lists, or are
+    missing on a tshark without the count fields while the frame has more
+    than one RSN element.
+  - An ambiguous row has its RSN columns dropped and is flagged
+    `rsn_unresolved` (§B7).
+
+  A proper structural split needs `-T json`; this is the safe subset without
+  it.
 - **Repeated fields** (several AKMs, several pairwise ciphers) are extracted
   with `-E occurrence=a -E aggregator=<0x1F>` — the ASCII unit separator, not a
   comma, so a comma inside an SSID or the Info column stays one value.
