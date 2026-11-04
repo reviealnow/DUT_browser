@@ -16,12 +16,25 @@ Parsed fields per BSS (iw scan, verified on iw 5.x):
   signal           : signal: -NN.NN dBm
   SSID             : SSID: <text>  (empty string = hidden; iw's \\xNN escapes
                      undone, then UTF-8, else 0x + hex)
-  capability       : Privacy bit → WEP when there is neither RSN nor WPA
+  capability       : privacy (bit 4 of the hex value; the word "Privacy" when
+                     there is no hex) and capability_names (the words iw
+                     printed). WEP when iw names Privacy and there is neither
+                     RSN nor WPA: the DUT's busybox iw names only ESS and
+                     prints no WPA element, so there WEP and WPA1 look alike
+  beacon interval  : beacon_interval_tu
+  last seen        : last_seen_ms ("N ms ago"; the boottime form is skipped)
+  DS Parameter set : advertised_channel, unless HT operation names one
+  HT operation     : primary channel → advertised_channel
+  Country          : country (two-character code only)
+  TIM              : dtim_period
   HT/VHT/HE/EHT   : capability blocks → generation
   RSN block        : Authentication suites / Pairwise ciphers / Group cipher /
-                     Capabilities (MFP-required / MFP-capable)
-  WPA block        : Authentication suites → WPA-Personal / WPA-Enterprise when
-                     there is no RSN; never overwrites the RSN fields
+                     Capabilities (MFP-required / MFP-capable → pmf; bits 6
+                     and 7 of its hex → mfpr, mfpc); rsn_present says the
+                     element was there at all
+  WPA block        : wpa1 {version, group_cipher, pairwise_cipher, akm};
+                     → WPA-Personal / WPA-Enterprise when there is no RSN;
+                     never overwrites the RSN fields
   RM capabilities  : → dot11k
   Extended caps    : BSS Transition → dot11v
   MDE / FT AKMs    : → dot11r
@@ -53,11 +66,28 @@ _BSS_RE = re.compile(r"^BSS\s+([0-9a-f:]{17})", re.I)
 # block ends -- the only reliable end, since every line of a BSS is indented.
 _ELEMENT_RE = re.compile(r"^\t(?!\t)")
 _CAPABILITY_RE = re.compile(r"^\tcapability:\s*(.*)")
+_CAPABILITY_HEX_RE = re.compile(r"\(0x([0-9a-fA-F]+)\)")
+_PRIVACY_BIT = 0x0010  # IEEE 802.11 Capability Information, bit 4
+_RSN_MFPR_BIT = 0x0040  # RSN Capabilities, bit 6
+_RSN_MFPC_BIT = 0x0080  # RSN Capabilities, bit 7
 _SSID_ESCAPE_RE = re.compile(r"\\x([0-9a-fA-F]{2})")
 _OWE_AKMS = {"OWE", "00-0F-AC:18"}
 _FREQ_RE = re.compile(r"^\s+freq:\s+(\d+)")
 _SIGNAL_RE = re.compile(r"^\s+signal:\s+(-?[\d.]+)\s+dBm")
 _SSID_RE = re.compile(r"^\s+SSID:\s*(.*?)\s*$")
+_BEACON_INTERVAL_RE = re.compile(r"^\tbeacon interval:\s*(\d+)\s*TUs")
+_LAST_SEEN_MS_RE = re.compile(r"^\tlast seen:\s*(\d+)\s*ms ago")
+_COUNTRY_RE = re.compile(r"^\tCountry:\s*([A-Za-z0-9]{2})(?:\s|$)")
+_DS_CHANNEL_RE = re.compile(r"^\tDS Parameter set:\s*channel\s+(\d+)")
+_PRIMARY_CHANNEL_RE = re.compile(r"\*\s*primary channel:\s*(\d+)")
+_DTIM_RE = re.compile(r"^\tTIM:.*\bDTIM Period\s+(\d+)")
+_VERSION_RE = re.compile(r"Version:\s*(\d+)")
+_INT_FIELDS = (
+    (_BEACON_INTERVAL_RE, "beacon_interval_tu"),
+    (_LAST_SEEN_MS_RE, "last_seen_ms"),
+    (_DS_CHANNEL_RE, "_ds_channel"),
+    (_DTIM_RE, "dtim_period"),
+)
 _AUTH_RE = re.compile(r"Authentication suites:\s*(.+)", re.I)
 _PAIRWISE_RE = re.compile(r"Pairwise ciphers:\s*(.+)", re.I)
 _GROUP_RE = re.compile(r"Group cipher:\s*(.+)", re.I)
@@ -144,17 +174,19 @@ def _classify_without_rsn(cur: dict) -> None:
     """
     if cur["security"] is not None:
         return
-    if cur["_rsn"]:
+    if cur["rsn_present"]:
         cur["security"] = "RSN (" + " ".join(cur["akm"]) + ")" if cur["akm"] else "RSN"
         cur["category"] = None
-    elif cur["_wpa_akm"]:
-        akms = [a.upper() for a in cur["_wpa_akm"]]
+    elif cur["wpa1"] and cur["wpa1"]["akm"]:
+        akms = [a.upper() for a in cur["wpa1"]["akm"]]
         if any("802.1X" in a or "EAP" in a for a in akms):
             cur["security"], cur["category"] = "WPA-Enterprise", "enterprise"
         else:
             cur["security"], cur["category"] = "WPA-Personal", "personal"
-    elif cur["_privacy"]:
-        # Same label and category the nmcli fallback already uses.
+    elif "Privacy" in cur["capability_names"]:
+        # Same label and category the nmcli fallback already uses. Only when
+        # iw names the bit: an iw that names only ESS (the DUT's) prints no
+        # WPA element either, so Privacy alone there may be WEP or WPA1.
         cur["security"], cur["category"] = "WEP", "personal"
     else:
         cur["security"], cur["category"] = "Open", None
@@ -167,12 +199,16 @@ def _parse_iw_scan(text: str) -> list[dict]:
     in_rsn = False
     in_wpa = False
     in_ext_caps = False
+    in_ht_operation = False
 
     def _commit() -> None:
         if cur is not None:
             _classify_without_rsn(cur)
-            for key in ("_privacy", "_rsn", "_wpa_akm"):
-                cur.pop(key, None)
+            # The channel the AP advertises, which a 2.4 GHz scan can hear on a
+            # neighbouring channel's frequency. HT operation names the primary
+            # channel; DS Parameter set is all a legacy AP carries.
+            ht, ds = cur.pop("_ht_primary"), cur.pop("_ds_channel")
+            cur["advertised_channel"] = ht if ht is not None else ds
             # Derive generation from capability flags (highest wins).
             if cur.pop("_eht", False):
                 cur["generation"] = "Wi-Fi 7"
@@ -209,12 +245,27 @@ def _parse_iw_scan(text: str) -> list[dict]:
                 "dot11v": False,
                 "dot11r": False,
                 "source": "iw",
+                # Raw element values, None when the element was absent. They
+                # keep what the labels above summarise away, for the rule
+                # adapter (services/scan_rows.py).
+                "privacy": None,
+                "capability_names": [],
+                "rsn_present": False,
+                "mfpr": None,
+                "mfpc": None,
+                "wpa1": None,
+                "country": None,
+                "advertised_channel": None,
+                "beacon_interval_tu": None,
+                "dtim_period": None,
+                "last_seen_ms": None,
                 "_ht": False, "_vht": False, "_he": False, "_eht": False,
-                "_privacy": None, "_rsn": False, "_wpa_akm": None,
+                "_ht_primary": None, "_ds_channel": None,
             }
             in_rsn = False
             in_wpa = False
             in_ext_caps = False
+            in_ht_operation = False
             continue
 
         if cur is None:
@@ -229,14 +280,49 @@ def _parse_iw_scan(text: str) -> list[dict]:
             in_rsn = element.startswith("RSN:")
             in_wpa = element.startswith("WPA:")
             in_ext_caps = element.startswith("Extended capabilities:")
+            in_ht_operation = element.startswith("HT operation:")
+            if in_wpa and cur["wpa1"] is None:
+                cur["wpa1"] = {"version": None, "group_cipher": None,
+                               "pairwise_cipher": [], "akm": []}
 
         if (m := _CAPABILITY_RE.match(line)):
-            cur["_privacy"] = "Privacy" in m.group(1).split()
+            # The DUT's busybox iw names only ESS / IBSS ("capability: ESS
+            # (0x0431)") and leaves Privacy to the hex value, so read the bit.
+            cur["capability_names"] = _CAPABILITY_HEX_RE.sub("", m.group(1)).split()
+            if (hx := _CAPABILITY_HEX_RE.search(m.group(1))):
+                cur["privacy"] = bool(int(hx.group(1), 16) & _PRIVACY_BIT)
+            else:
+                cur["privacy"] = "Privacy" in cur["capability_names"]
             continue
 
         if in_wpa:
+            wpa1 = cur["wpa1"]
             if (m := _AUTH_RE.search(line)):
-                cur["_wpa_akm"] = [a.strip() for a in m.group(1).split() if a.strip()]
+                wpa1["akm"] = [a.strip() for a in m.group(1).split() if a.strip()]
+            elif (m := _PAIRWISE_RE.search(line)):
+                wpa1["pairwise_cipher"] = [c.strip() for c in m.group(1).split() if c.strip()]
+            elif (m := _GROUP_RE.search(line)):
+                wpa1["group_cipher"] = m.group(1).strip()
+            elif (m := _VERSION_RE.search(line)):
+                wpa1["version"] = int(m.group(1))
+            continue
+
+        if in_ht_operation:
+            if (m := _PRIMARY_CHANNEL_RE.search(line)):
+                cur["_ht_primary"] = int(m.group(1))
+            continue
+
+        # Fixed fields and single-line elements.
+        matched = False
+        for regex, key in _INT_FIELDS:
+            if (m := regex.match(line)):
+                cur[key] = int(m.group(1))
+                matched = True
+                break
+        if matched:
+            continue
+        if (m := _COUNTRY_RE.match(line)):
+            cur["country"] = m.group(1).upper()
             continue
 
         if (m := _FREQ_RE.match(line)):
@@ -277,7 +363,7 @@ def _parse_iw_scan(text: str) -> list[dict]:
         if line.strip().startswith("RSN:"):
             in_rsn = True
             in_ext_caps = False
-            cur["_rsn"] = True
+            cur["rsn_present"] = True
             continue
 
         if in_rsn:
@@ -308,6 +394,12 @@ def _parse_iw_scan(text: str) -> list[dict]:
                 cur["group_cipher"] = m.group(1).strip()
             elif (m := _RSN_CAP_RE.search(line)):
                 caps = m.group(1)
+                # The bits, not the words: a line cut short on the serial
+                # console ("... MFP-re") has no hex and stays unknown.
+                if (hx := _CAPABILITY_HEX_RE.search(caps)):
+                    bits = int(hx.group(1), 16)
+                    cur["mfpr"] = bool(bits & _RSN_MFPR_BIT)
+                    cur["mfpc"] = bool(bits & _RSN_MFPC_BIT)
                 if _MFP_REQ_RE.search(caps):
                     cur["pmf"] = "required"
                 elif _MFP_CAP_RE.search(caps):
