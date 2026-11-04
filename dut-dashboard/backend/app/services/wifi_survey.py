@@ -26,7 +26,19 @@ Parsed fields per BSS (iw scan, verified on iw 5.x):
   last seen        : last_seen_ms ("N ms ago"; the boottime form is skipped)
   DS Parameter set : advertised_channel, unless HT operation names one
   HT operation     : primary channel → advertised_channel
-  Country          : country (two-character code only)
+  Country          : country (two-character code only); country_environment
+                     (Indoor / Outdoor / Indoor/Outdoor, None for iw's
+                     "bogus"); country_channels, a list of {first, last,
+                     max_dbm} from its "Channels [a - b] @ N dBm" sub-lines
+                     ([] when iw says no triplets; Extension ID sub-lines are
+                     skipped). iw computes `last` itself with the 2.4 GHz step
+                     whenever first <= 14, so a 6 GHz triplet starting at
+                     channels 1-13 gets a wrong `last`: a channel or power
+                     check must not trust it on 6 GHz
+  Power constraint : power_constraint_db
+  TPC report       : tpc_tx_power_dbm
+  max_dbm and tpc_tx_power_dbm are signed octets that iw prints unsigned
+  (-2 dBm prints as 254); both are converted back.
   TIM              : dtim_period
   HT/VHT/HE/EHT   : capability blocks → generation
   RSN block        : Authentication suites / Pairwise ciphers / Group cipher /
@@ -79,6 +91,13 @@ _SSID_RE = re.compile(r"^\s+SSID:\s*(.*?)\s*$")
 _BEACON_INTERVAL_RE = re.compile(r"^\tbeacon interval:\s*(\d+)\s*TUs")
 _LAST_SEEN_MS_RE = re.compile(r"^\tlast seen:\s*(\d+)\s*ms ago")
 _COUNTRY_RE = re.compile(r"^\tCountry:\s*([A-Za-z0-9]{2})(?:\s|$)")
+_COUNTRY_ENV_RE = re.compile(r"^\tCountry:.*\tEnvironment:\s*(.*?)\s*$")
+# iw's spelling of the third country-string octet ('I', 'O', ' ').
+_COUNTRY_ENVIRONMENTS = {"Indoor only": "Indoor", "Outdoor only": "Outdoor",
+                         "Indoor/Outdoor": "Indoor/Outdoor"}
+_COUNTRY_CHANNELS_RE = re.compile(r"^\t\tChannels\s*\[(\d+)\s*-\s*(\d+)\]\s*@\s*(\d+)\s*dBm")
+_POWER_CONSTRAINT_RE = re.compile(r"^\tPower constraint:\s*(\d+)\s*dB")
+_TPC_RE = re.compile(r"^\tTPC report:\s*TX power:\s*(\d+)\s*dBm")
 _DS_CHANNEL_RE = re.compile(r"^\tDS Parameter set:\s*channel\s+(\d+)")
 _PRIMARY_CHANNEL_RE = re.compile(r"\*\s*primary channel:\s*(\d+)")
 _DTIM_RE = re.compile(r"^\tTIM:.*\bDTIM Period\s+(\d+)")
@@ -88,6 +107,7 @@ _INT_FIELDS = (
     (_LAST_SEEN_MS_RE, "last_seen_ms"),
     (_DS_CHANNEL_RE, "_ds_channel"),
     (_DTIM_RE, "dtim_period"),
+    (_POWER_CONSTRAINT_RE, "power_constraint_db"),
 )
 _AUTH_RE = re.compile(r"Authentication suites:\s*(.+)", re.I)
 _PAIRWISE_RE = re.compile(r"Pairwise ciphers:\s*(.+)", re.I)
@@ -105,6 +125,11 @@ _EHT_RE = re.compile(r"^\s+EHT capabilities:", re.I)
 
 # AKM OUIs / suite-selector names that appear in `iw scan` RSN output
 _FT_AKM_RE = re.compile(r"\b(FT/PSK|FT/SAE|FT/802\.1X|00-0f-ac:3|00-0f-ac:4|00-0f-ac:9|00-0f-ac:13)\b", re.I)
+
+
+def _signed_octet(value: int) -> int:
+    """An 802.11 two's-complement octet that iw printed as 0-255."""
+    return value - 256 if value > 127 else value
 
 
 def _freq_to_band(freq_mhz: int | None) -> str | None:
@@ -202,6 +227,7 @@ def _parse_iw_scan(text: str) -> list[dict]:
     in_wpa = False
     in_ext_caps = False
     in_ht_operation = False
+    in_country = False
 
     def _commit() -> None:
         if cur is not None:
@@ -257,6 +283,10 @@ def _parse_iw_scan(text: str) -> list[dict]:
                 "mfpc": None,
                 "wpa1": None,
                 "country": None,
+                "country_environment": None,
+                "country_channels": None,
+                "power_constraint_db": None,
+                "tpc_tx_power_dbm": None,
                 "advertised_channel": None,
                 "beacon_interval_tu": None,
                 "dtim_period": None,
@@ -268,6 +298,7 @@ def _parse_iw_scan(text: str) -> list[dict]:
             in_wpa = False
             in_ext_caps = False
             in_ht_operation = False
+            in_country = False
             continue
 
         if cur is None:
@@ -283,6 +314,9 @@ def _parse_iw_scan(text: str) -> list[dict]:
             in_wpa = element.startswith("WPA:")
             in_ext_caps = element.startswith("Extended capabilities:")
             in_ht_operation = element.startswith("HT operation:")
+            in_country = element.startswith("Country:")
+            if in_country and cur["country_channels"] is None:
+                cur["country_channels"] = []
             if in_wpa and cur["wpa1"] is None:
                 cur["wpa1"] = {"version": None, "group_cipher": None,
                                "pairwise_cipher": [], "akm": []}
@@ -309,6 +343,17 @@ def _parse_iw_scan(text: str) -> list[dict]:
                 wpa1["version"] = int(m.group(1))
             continue
 
+        if in_country:
+            if (m := _COUNTRY_RE.match(line)):
+                cur["country"] = m.group(1).upper()
+            if (m := _COUNTRY_ENV_RE.match(line)):
+                cur["country_environment"] = _COUNTRY_ENVIRONMENTS.get(m.group(1))
+            elif (m := _COUNTRY_CHANNELS_RE.match(line)):
+                cur["country_channels"].append({"first": int(m.group(1)),
+                                                "last": int(m.group(2)),
+                                                "max_dbm": _signed_octet(int(m.group(3)))})
+            continue
+
         if in_ht_operation:
             if (m := _PRIMARY_CHANNEL_RE.search(line)):
                 cur["_ht_primary"] = int(m.group(1))
@@ -323,8 +368,8 @@ def _parse_iw_scan(text: str) -> list[dict]:
                 break
         if matched:
             continue
-        if (m := _COUNTRY_RE.match(line)):
-            cur["country"] = m.group(1).upper()
+        if (m := _TPC_RE.match(line)):
+            cur["tpc_tx_power_dbm"] = _signed_octet(int(m.group(1)))
             continue
 
         if (m := _FREQ_RE.match(line)):

@@ -9,7 +9,9 @@ older hand-written fixtures in test_wifi_survey.py never exercised.
 
 The synthetic blocks below cover what that excerpt cannot show: a WPA (v1)
 block whose values differ from the RSN block, and WPA-only, OWE and
-unrecognised-AKM networks.
+unrecognised-AKM networks. The excerpt carries one Country triplet per BSS,
+so several triplets, the other Environment values and Extension ID sub-lines
+are synthetic too.
 """
 
 from __future__ import annotations
@@ -234,7 +236,8 @@ class RawElementFieldTests(unittest.TestCase):
         c = self.rows["測試"]
         self.assertEqual(c["capability_names"], ["ESS", "Privacy", "SpectrumMgmt", "APSD"])
         for key in ("wpa1", "country", "advertised_channel", "beacon_interval_tu",
-                    "dtim_period", "last_seen_ms"):
+                    "dtim_period", "last_seen_ms", "country_environment",
+                    "country_channels", "power_constraint_db", "tpc_tx_power_dbm"):
             self.assertIn(key, c)
             self.assertIsNone(c[key], key)
 
@@ -265,6 +268,8 @@ class RawElementFieldTests(unittest.TestCase):
         row = by_ssid(text)["t"]
         self.assertEqual((row["last_seen_ms"], row["dtim_period"]), (640, 3))
         self.assertIsNone(row["country"])
+        self.assertIsNone(row["country_environment"])  # iw's "bogus"
+        self.assertEqual(row["country_channels"], [])
 
     def test_privacy_from_the_hex_when_iw_names_only_ess(self):
         # The DUT's busybox iw prints "capability: ESS (0x0431)": 0x0431 has
@@ -300,6 +305,80 @@ class RawElementFieldTests(unittest.TestCase):
         # The DUT's busybox iw, read over the serial console, ends lines in CRLF.
         text = PI4.replace("\n", "\r\n")
         self.assertEqual(_parse_iw_scan(text), _parse_iw_scan(PI4))
+
+
+class CountryAndPowerTests(unittest.TestCase):
+    """The rest of the Country element, Power constraint and TPC report."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.rows = by_ssid(PI4)
+
+    def test_real_5ghz_block(self):
+        a = self.rows["AP_A"]
+        self.assertEqual(a["country_environment"], "Indoor/Outdoor")
+        self.assertEqual(a["country_channels"], [{"first": 36, "last": 36, "max_dbm": 24}])
+        self.assertEqual(a["power_constraint_db"], 3)
+        self.assertEqual(a["tpc_tx_power_dbm"], 19)
+
+    def test_real_24ghz_block_without_power_elements(self):
+        b = self.rows["AP_B"]
+        self.assertEqual(b["country_environment"], "Indoor/Outdoor")
+        self.assertEqual(b["country_channels"], [{"first": 1, "last": 11, "max_dbm": 30}])
+        self.assertIsNone(b["power_constraint_db"])
+        self.assertIsNone(b["tpc_tx_power_dbm"])
+
+    def test_environments(self):
+        for printed, env in (("Indoor only", "Indoor"), ("Outdoor only", "Outdoor"),
+                             ("Indoor/Outdoor", "Indoor/Outdoor"), ("bogus", None),
+                             ("", None)):
+            with self.subTest(printed=printed):
+                row = by_ssid(bss("e", f"\tCountry: DE\tEnvironment: {printed}"))["e"]
+                self.assertEqual(row["country"], "DE")
+                self.assertEqual(row["country_environment"], env)
+
+    def test_several_triplets_in_order_extension_skipped(self):
+        text = bss("multi",
+                   "\tCountry: JP\tEnvironment: Indoor only",
+                   "\t\tChannels [36 - 48] @ 20 dBm",
+                   "\t\tChannels [52 - 64] @ 20 dBm",
+                   "\t\tExtension ID: 201 Regulatory Class: 1 Coverage class: 0 (up to 0m)",
+                   "\t\tChannels [100 - 140] @ 23 dBm",
+                   "\t\tChannels [149 - 165] @ 255 dBm",
+                   "\tPower constraint: 0 dB",
+                   # iw prints the signed octet unsigned: this is -2 dBm.
+                   "\tTPC report: TX power: 254 dBm")
+        row = by_ssid(text)["multi"]
+        self.assertEqual([(c["first"], c["last"], c["max_dbm"]) for c in row["country_channels"]],
+                         [(36, 48, 20), (52, 64, 20), (100, 140, 23), (149, 165, -1)])
+        self.assertEqual((row["power_constraint_db"], row["tpc_tx_power_dbm"]), (0, -2))
+
+    def test_tpc_power_is_a_signed_octet(self):
+        for printed, dbm in (("0", 0), ("19", 19), ("127", 127), ("128", -128), ("255", -1)):
+            with self.subTest(printed=printed):
+                row = by_ssid(bss("t", f"\tTPC report: TX power: {printed} dBm"))["t"]
+                self.assertEqual(row["tpc_tx_power_dbm"], dbm)
+
+    def test_no_triplets_is_an_empty_list(self):
+        row = by_ssid(bss("none", "\tCountry: TW\tEnvironment: Indoor/Outdoor",
+                          "\t\tNo country IE triplets present"))["none"]
+        self.assertEqual(row["country_channels"], [])
+
+    def test_channels_outside_country_are_not_read(self):
+        row = by_ssid(bss("other", "\tVendor specific: OUI 00:11:22, data: 01",
+                          "\t\tChannels [1 - 13] @ 20 dBm"))["other"]
+        self.assertIsNone(row["country_channels"])
+
+    def test_malformed_lines_do_not_raise(self):
+        row = by_ssid(bss("bad", "\tCountry:",
+                          "\t\tChannels [x - 13] @ dBm",
+                          "\tPower constraint: n/a",
+                          "\tTPC report: TX power: dBm"))["bad"]
+        self.assertIsNone(row["country"])
+        self.assertIsNone(row["country_environment"])
+        self.assertEqual(row["country_channels"], [])
+        self.assertIsNone(row["power_constraint_db"])
+        self.assertIsNone(row["tpc_tx_power_dbm"])
 
 
 if __name__ == "__main__":

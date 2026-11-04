@@ -55,6 +55,15 @@ class TestParseIwScanTextReuse(unittest.TestCase):
         neighbors = parse_iw_scan_text(_ATH0_SCAN_SAMPLE)
         self.assertEqual(len(neighbors), 3)
 
+    def test_busybox_iw_prints_no_country_or_power(self) -> None:
+        # The DUT's busybox iw has no Country, Power constraint or TPC report
+        # element, so these stay None rather than an empty list or zero.
+        for n in parse_iw_scan_text(_ATH0_SCAN_SAMPLE):
+            for key in ("country", "country_environment", "country_channels",
+                        "power_constraint_db", "tpc_tx_power_dbm"):
+                self.assertIn(key, n)
+                self.assertIsNone(n[key], (n["bssid"], key))
+
     def test_channels_and_band_derived_from_freq(self) -> None:
         by_bssid = {n["bssid"]: n for n in parse_iw_scan_text(_ATH0_SCAN_SAMPLE)}
         self.assertEqual(by_bssid["74:da:38:42:a9:d8"]["channel"], 10)
