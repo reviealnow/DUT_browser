@@ -207,5 +207,100 @@ class SsidEscapeTests(unittest.TestCase):
         self.assertEqual(list(by_ssid(text)), ["outer"])
 
 
+class RawElementFieldTests(unittest.TestCase):
+    """The raw values kept beside the labels, for the rule adapter (scan_rows)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.rows = by_ssid(PI4)
+
+    def test_real_block(self):
+        a = self.rows["AP_A"]
+        self.assertIs(a["privacy"], True)
+        self.assertIs(a["rsn_present"], True)
+        self.assertEqual((a["mfpr"], a["mfpc"]), (False, True))
+        self.assertIsNone(a["wpa1"])
+        self.assertEqual(a["country"], "AU")
+        self.assertEqual(a["advertised_channel"], 44)  # HT operation
+        self.assertEqual(a["beacon_interval_tu"], 100)
+
+    def test_no_rsn_element(self):
+        b = self.rows["AP_B"]
+        self.assertIs(b["rsn_present"], False)
+        self.assertEqual((b["mfpr"], b["mfpc"]), (None, None))
+        self.assertEqual((b["country"], b["advertised_channel"]), ("US", 1))  # DS only
+
+    def test_absent_elements_are_none(self):
+        c = self.rows["測試"]
+        self.assertEqual(c["capability_names"], ["ESS", "Privacy", "SpectrumMgmt", "APSD"])
+        for key in ("wpa1", "country", "advertised_channel", "beacon_interval_tu",
+                    "dtim_period", "last_seen_ms"):
+            self.assertIn(key, c)
+            self.assertIsNone(c[key], key)
+
+    def test_wpa1_is_kept_apart_from_rsn(self):
+        text = bss("mixed", *RSN_MIXED,
+                   "\tWPA:\t * Version: 1",
+                   "\t\t * Group cipher: TKIP",
+                   "\t\t * Pairwise ciphers: CCMP TKIP",
+                   "\t\t * Authentication suites: PSK")
+        row = by_ssid(text)["mixed"]
+        self.assertEqual(row["wpa1"], {"version": 1, "group_cipher": "TKIP",
+                                       "pairwise_cipher": ["CCMP", "TKIP"], "akm": ["PSK"]})
+        self.assertEqual(row["akm"], ["PSK", "SAE"])
+
+    def test_heard_on_one_channel_advertising_another(self):
+        # 2.4 GHz channels overlap: heard at 2432 MHz (ch 5), the AP says ch 6.
+        text = ("BSS 02:00:00:00:00:97(on wlan0)\n\tfreq: 2432.0\n\tSSID: near\n"
+                "\tDS Parameter set: channel 6\n")
+        row = by_ssid(text)["near"]
+        self.assertEqual((row["channel"], row["advertised_channel"]), (5, 6))
+
+    def test_tim_last_seen_and_odd_country(self):
+        text = bss("t",
+                   "\tlast seen: 1060638.125s [boottime]",
+                   "\tlast seen: 640 ms ago",
+                   "\tTIM: DTIM Count 0 DTIM Period 3 Bitmap Control 0x0 Bitmap[0] 0x0",
+                   "\tCountry: \x00\x00\tEnvironment: bogus")
+        row = by_ssid(text)["t"]
+        self.assertEqual((row["last_seen_ms"], row["dtim_period"]), (640, 3))
+        self.assertIsNone(row["country"])
+
+    def test_privacy_from_the_hex_when_iw_names_only_ess(self):
+        # The DUT's busybox iw prints "capability: ESS (0x0431)": 0x0431 has
+        # the Privacy bit (0x0010) set although the word is missing.
+        # That iw prints no WPA element either, so WEP and WPA1 look alike
+        # there; the bench chose "WEP" as the label for Privacy without RSN.
+        for cap, privacy, names, security in (
+                ("ESS (0x0431)", True, ["ESS"], "WEP"),
+                ("ESS (0x0421)", False, ["ESS"], "Open"),
+                ("ESS Privacy ShortSlotTime (0x0411)", True, ["ESS", "Privacy", "ShortSlotTime"], "WEP"),
+                ("ESS Privacy", True, ["ESS", "Privacy"], "WEP")):  # no hex at all
+            with self.subTest(cap=cap):
+                row = by_ssid(bss("dut-shape", capability=cap))["dut-shape"]
+                self.assertIs(row["privacy"], privacy)
+                self.assertEqual(row["capability_names"], names)
+                self.assertEqual(row["security"], security)
+
+    def test_mfp_bits_from_the_hex(self):
+        cases = (("1-PTKSA-RC 1-GTKSA-RC MFP-required MFP-capable (0x00c0)", True, True),
+                 ("16-PTKSA-RC 1-GTKSA-RC MFP-capable (0x008c)", False, True),
+                 ("1-PTKSA-RC 1-GTKSA-RC (0x0000)", False, False),
+                 # Cut short on the serial console: no hex, so unknown.
+                 ("16-PTKSA-RC 1-GTKSA-RC MFP-re", None, None))
+        for caps, mfpr, mfpc in cases:
+            with self.subTest(caps=caps):
+                text = bss("m", "\tRSN:\t * Version: 1",
+                           "\t\t * Authentication suites: SAE",
+                           f"\t\t * Capabilities: {caps}")
+                row = by_ssid(text)["m"]
+                self.assertEqual((row["mfpr"], row["mfpc"]), (mfpr, mfpc))
+
+    def test_dut_crlf_output(self):
+        # The DUT's busybox iw, read over the serial console, ends lines in CRLF.
+        text = PI4.replace("\n", "\r\n")
+        self.assertEqual(_parse_iw_scan(text), _parse_iw_scan(PI4))
+
+
 if __name__ == "__main__":
     unittest.main()

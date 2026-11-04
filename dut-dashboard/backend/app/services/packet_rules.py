@@ -232,6 +232,36 @@ def open_network(row: Row):
     return ("info", "Open network: no encryption advertised (Privacy bit clear, no RSN).")
 
 
+def country_mismatch(row: Row):
+    """The DUT's beacons advertise a country its SKU does not cover.
+
+    Only rows the caller marked with an expectation -- the DUT's own BSSes,
+    expectation read from the DUT -- are checked. A neighbour's country is
+    context, never a finding: a US SKU on a bench in Taiwan is supposed to say
+    ``US``. The expectation is either ``expected_country`` (one code) or
+    ``expected_countries`` (a SKU domain's codes, ``dut_regdomain``) with
+    ``expected_region`` naming the domain in the message.
+    """
+    allowed = row.get("expected_countries")
+    if allowed:
+        allowed = {c.upper() for c in allowed}
+        expected = row.get("expected_region") or ", ".join(sorted(allowed))
+    elif row.get("expected_country"):
+        expected = row["expected_country"]
+        allowed = {expected.upper()}
+    else:
+        return None
+    if "country" not in row:
+        return None
+    actual = row["country"]
+    if actual is None:
+        return ("warn", f"No Country element in beacons; the SKU expects {expected}.")
+    if actual.upper() not in allowed:
+        return ("fail", f"Beacons advertise country {actual}, but the DUT's SKU is "
+                        f"{expected}.")
+    return None
+
+
 def hidden_ssid(row: Row):
     """Empty or all-NUL SSID: a hidden network. Information, not a fault."""
     if "ssid" not in row or row["ssid"] is None:
@@ -299,6 +329,7 @@ ROW_RULES: dict[str, RowRule] = {
     "rsn_not_evaluated": rsn_not_evaluated,
     "legacy_security": legacy_security,
     "open_network": open_network,
+    "country_mismatch": country_mismatch,
     "hidden_ssid": hidden_ssid,
     "beacon_timing": beacon_timing,
 }
@@ -362,3 +393,45 @@ def evaluate(rows: list[Row], rule_ids: Iterable[str], group_by: str | None = No
     findings.sort(key=lambda f: (_SEVERITY_ORDER[f.severity], f.rule,
                                  "" if f.group is None else str(f.group)))
     return findings
+
+
+def channel_occupancy(rows: list[Row], dut_bssids: Iterable[str] = ()) -> dict:
+    """Per-channel BSS counts, and the neighbours sharing the DUT's channels.
+
+    Rows need ``channel`` and ``freq`` (band); ``signal`` is optional and only
+    a scan or a radio header provides it. Channels are keyed per band because
+    channel numbers repeat between 2.4, 5 and 6 GHz.
+    """
+    duts = {b.lower() for b in dut_bssids}
+    channels: dict[tuple[str, int], dict] = {}
+    for row in rows:
+        band, channel = _band(row), row.get("channel")
+        if band is None or channel is None:
+            continue
+        entry = channels.setdefault((band, channel), {
+            "band": band, "channel": channel, "bss_count": 0,
+            "dut_present": False, "strongest_neighbour_dbm": None,
+        })
+        entry["bss_count"] += 1
+        if (row.get("bssid") or "").lower() in duts:
+            entry["dut_present"] = True
+            continue
+        signal = row.get("signal")
+        best = entry["strongest_neighbour_dbm"]
+        if signal is not None and (best is None or signal > best):
+            entry["strongest_neighbour_dbm"] = signal
+
+    dut_channels = {(e["band"], e["channel"]) for e in channels.values() if e["dut_present"]}
+    neighbours = [
+        {"band": _band(row), "channel": row.get("channel"), "bssid": row.get("bssid"),
+         "ssid": row.get("ssid"), "signal": row.get("signal")}
+        for row in rows
+        if (_band(row), row.get("channel")) in dut_channels
+        and (row.get("bssid") or "").lower() not in duts
+    ]
+    neighbours.sort(key=lambda n: (n["band"], n["channel"],
+                                   -(n["signal"] if n["signal"] is not None else -999)))
+    return {
+        "channels": sorted(channels.values(), key=lambda e: (e["band"], e["channel"])),
+        "dut_channel_neighbours": neighbours,
+    }
