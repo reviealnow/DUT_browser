@@ -79,7 +79,8 @@ _FT_AKM_RE = re.compile(r"\b(FT/PSK|FT/SAE|FT/802\.1X|00-0f-ac:3|00-0f-ac:4|00-0
 def _freq_to_band(freq_mhz: int | None) -> str | None:
     if freq_mhz is None:
         return None
-    if freq_mhz >= 5945:
+    # 5935 MHz is 6 GHz channel 2, below the 5955 MHz of channel 1.
+    if freq_mhz > 5925:
         return "6GHz"
     if freq_mhz >= 4900:
         return "5GHz"
@@ -87,15 +88,19 @@ def _freq_to_band(freq_mhz: int | None) -> str | None:
 
 
 def _freq_to_channel(freq_mhz: int | None) -> int | None:
-    """Approximate channel from MHz (sufficient for display)."""
+    """Channel number from a centre frequency in MHz (IEEE 802.11 channel plans)."""
     if freq_mhz is None:
         return None
-    if 2412 <= freq_mhz <= 2484:
+    if freq_mhz == 2484:
+        return 14  # Japan's channel 14 sits 12 MHz above channel 13, off the 5 MHz grid
+    if 2412 <= freq_mhz <= 2472:
         return (freq_mhz - 2407) // 5
     if 5170 <= freq_mhz <= 5885:
         return (freq_mhz - 5000) // 5
-    if freq_mhz >= 5945:
-        return (freq_mhz - 5950) // 5 + 1
+    if freq_mhz == 5935:
+        return 2
+    if 5950 < freq_mhz <= 7125:
+        return (freq_mhz - 5950) // 5
     return None
 
 

@@ -78,6 +78,34 @@ class TestParseIwScan(unittest.TestCase):
         self.assertEqual(_parse_iw_scan(""), [])
 
 
+class TestFreqToChannel(unittest.TestCase):
+    """Centre frequency -> channel, pinned at each band's edges."""
+
+    def test_channels(self) -> None:
+        cases = {
+            2412: 1, 2472: 13, 2484: 14,
+            5180: 36, 5885: 177,
+            # 6 GHz: channel n is 5950 + 5n MHz; channel 2 is the odd one at 5935.
+            5935: 2, 5955: 1, 5975: 5, 6115: 33, 7115: 233,
+        }
+        for freq, channel in cases.items():
+            with self.subTest(freq=freq):
+                self.assertEqual(wifi_survey._freq_to_channel(freq), channel)
+
+    def test_off_plan_frequencies(self) -> None:
+        for freq in (None, 2400, 2490, 5000, 5945, 7130):
+            with self.subTest(freq=freq):
+                self.assertIsNone(wifi_survey._freq_to_channel(freq))
+
+    def test_channel_2_is_6ghz(self) -> None:
+        self.assertEqual(wifi_survey._freq_to_band(5935), "6GHz")
+        self.assertEqual(wifi_survey._freq_to_band(5885), "5GHz")
+
+    def test_parsed_6ghz_bss_gets_its_channel(self) -> None:
+        b = _parse_iw_scan(_IW_SCAN_SAMPLE)[0]
+        self.assertEqual((b["freq_mhz"], b["channel"]), (5955, 1))
+
+
 class TestParseNmcli(unittest.TestCase):
     def test_parses_two_rows(self) -> None:
         result = _parse_nmcli(_NMCLI_SAMPLE)
