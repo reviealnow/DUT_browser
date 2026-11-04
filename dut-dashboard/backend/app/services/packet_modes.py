@@ -146,6 +146,7 @@ _SECURITY = [
     Column(key="pcs_count", label="Pairwise Cipher Count", fields=["wlan.rsn.pcs.count"],
            decoder="int_list", hidden=True),
 ]
+_COUNTRY = Column(key="country", label="Country", fields=["wlan.country_info.code"], decoder="text")
 _BEACON_TIMING = [
     Column(key="beacon_interval", label="Beacon Interval (TU)", fields=["wlan.fixed.beacon"], decoder="int"),
     Column(key="dtim_period", label="DTIM Period", fields=["wlan.tim.dtim_period"], decoder="int"),
@@ -160,7 +161,8 @@ MODES: tuple[TestMode, ...] = (
         description="One row per BSS: SSID, channel and the RSN security it advertises.",
         display_filter=BEACON_FILTER,
         group_by="bssid",
-        columns=[_FRAME, _BSSID, _SSID, _CHANNEL, _CAPTURED_ON, _FREQ, _SIX_GHZ_PRIMARY, *_SECURITY],
+        columns=[_FRAME, _BSSID, _SSID, _CHANNEL, _CAPTURED_ON, _FREQ, _SIX_GHZ_PRIMARY, *_SECURITY,
+                 _COUNTRY],
         rules=[
             "rsn_not_evaluated",
             "wpa3_requires_mfpr",
@@ -170,6 +172,7 @@ MODES: tuple[TestMode, ...] = (
             "six_ghz_security",
             "legacy_security",
             "open_network",
+            "country_mismatch",
             "bss_config_changed",
         ],
     ),
@@ -181,7 +184,7 @@ MODES: tuple[TestMode, ...] = (
         group_by="bssid",
         columns=[
             _FRAME, _BSSID, _SSID, _CHANNEL, _CAPTURED_ON, _FREQ, _SIX_GHZ_PRIMARY,
-            Column(key="country", label="Country", fields=["wlan.country_info.code"], decoder="text"),
+            _COUNTRY,
             Column(key="rates", label="Supported Rates (Mbps)",
                    fields=["wlan.supported_rates"], decoder="rates"),
             Column(key="ext_rates", label="Extended Rates (Mbps)",
