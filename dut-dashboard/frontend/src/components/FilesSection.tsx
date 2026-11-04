@@ -167,7 +167,8 @@ function SortHeader({
 /**
  * Divider on a header's right edge, as in Finder's list view: drag it to
  * resize the column, double-click to reset. Arrow keys nudge it for keyboard
- * users. The width is saved once, when the drag ends, not on every move.
+ * users, and Home / End jump to the narrowest and widest. The width is saved
+ * once, when the drag ends, not on every move.
  */
 function ColumnResizer({
   label,
@@ -199,6 +200,7 @@ function ColumnResizer({
       tabIndex={0}
       title="Drag to resize · double-click to reset"
       onPointerDown={(e) => {
+        if (e.button !== 0) return; // a right-click opens the menu, it does not drag
         e.preventDefault();
         e.currentTarget.setPointerCapture(e.pointerId);
         drag.current = { x: e.clientX, w: width, last: width };
@@ -213,12 +215,18 @@ function ColumnResizer({
         if (d) onCommit(d.last);
       }}
       onPointerCancel={() => {
+        // The system took the pointer (a gesture, a lost capture): put the
+        // width back rather than keep one that was never saved.
+        const d = drag.current;
         drag.current = null;
+        if (d) onResize(d.w);
       }}
       onDoubleClick={() => set(FILE_NAME_WIDTH_DEFAULT, true)}
       onKeyDown={(e) => {
         if (e.key === "ArrowLeft") set(width - 16, true);
         else if (e.key === "ArrowRight") set(width + 16, true);
+        else if (e.key === "Home") set(FILE_NAME_WIDTH_MIN, true);
+        else if (e.key === "End") set(FILE_NAME_WIDTH_MAX, true);
         else return;
         e.preventDefault();
       }}
@@ -293,7 +301,7 @@ function SharedFilesTable({
         <div className="logscroll-note">Scroll for more ({rows.length} loaded).</div>
       ) : null}
       <div className="logscroll">
-        <table className="filetable">
+        <table className="filetable filetable-resizable">
           <thead>
             <tr>
               <SortHeader label="Filename" col="name" sort={sort} order={order} onSort={onSort}>

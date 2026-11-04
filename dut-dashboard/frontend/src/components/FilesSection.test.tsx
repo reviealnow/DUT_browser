@@ -74,5 +74,72 @@ describe("the Shared Files Filename column", () => {
 
     fireEvent.doubleClick(divider);
     expect(name.style.width).toBe("220px");
+    expect(localStorage.getItem("dut.files.nameWidth.v1")).toBe("220");
+  });
+
+  it("saves a keyboard nudge, and jumps to the limits with Home and End", async () => {
+    const name = await nameCell();
+    const divider = screen.getByRole("separator", { name: "Resize Filename column" });
+
+    fireEvent.keyDown(divider, { key: "ArrowRight" });
+    expect(name.style.width).toBe("236px");
+    expect(localStorage.getItem("dut.files.nameWidth.v1")).toBe("236");
+
+    fireEvent.keyDown(divider, { key: "End" });
+    expect(name.style.width).toBe("640px");
+    fireEvent.keyDown(divider, { key: "ArrowRight" });
+    expect(name.style.width).toBe("640px"); // the upper clamp
+    fireEvent.keyDown(divider, { key: "Home" });
+    expect(name.style.width).toBe("80px");
+    expect(localStorage.getItem("dut.files.nameWidth.v1")).toBe("80");
+  });
+
+  it("does not start a drag on a right-click", async () => {
+    const name = await nameCell();
+    const divider = screen.getByRole("separator", { name: "Resize Filename column" });
+    divider.setPointerCapture = () => {};
+
+    fireEvent.pointerDown(divider, { clientX: 300, pointerId: 1, button: 2 });
+    fireEvent.pointerMove(divider, { clientX: 400, pointerId: 1 });
+    fireEvent.pointerUp(divider, { clientX: 400, pointerId: 1 });
+
+    expect(name.style.width).toBe("220px");
+    expect(localStorage.getItem("dut.files.nameWidth.v1")).toBeNull();
+  });
+
+  it("puts the width back when the system cancels a drag", async () => {
+    const name = await nameCell();
+    const divider = screen.getByRole("separator", { name: "Resize Filename column" });
+    divider.setPointerCapture = () => {};
+
+    fireEvent.pointerDown(divider, { clientX: 300, pointerId: 1 });
+    fireEvent.pointerMove(divider, { clientX: 400, pointerId: 1 });
+    expect(name.style.width).toBe("320px");
+    fireEvent.pointerCancel(divider, { pointerId: 1 });
+
+    expect(name.style.width).toBe("220px");
+    expect(localStorage.getItem("dut.files.nameWidth.v1")).toBeNull();
+  });
+
+  it("starts from a saved width, clamped, and survives a storage that throws", async () => {
+    localStorage.setItem("dut.files.nameWidth.v1", "9999");
+    expect((await nameCell()).style.width).toBe("640px");
+    cleanup();
+
+    const get = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    const set = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    try {
+      const name = await nameCell();
+      expect(name.style.width).toBe("220px");
+      fireEvent.keyDown(screen.getByRole("separator", { name: "Resize Filename column" }), { key: "ArrowRight" });
+      expect(name.style.width).toBe("236px");
+    } finally {
+      get.mockRestore();
+      set.mockRestore();
+    }
   });
 });

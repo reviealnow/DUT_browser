@@ -1164,6 +1164,23 @@ body {
 .th-resizer:focus-visible {
   outline: none;
 }
+/* The divider has to move the column, not only the name inside it. A
+   full-width table with auto layout hands its free space to every column, so
+   on a wide card the Filename column stayed wider than the name and a drag
+   inwards moved nothing. Here the actions column takes all the free space,
+   and the Filename cell keeps its chip, name and tags on one line, so the
+   column is exactly as wide as its content and follows the drag. */
+.filetable-resizable th:last-child {
+  width: 100%;
+}
+.filetable-resizable .filetable-name {
+  white-space: nowrap;
+}
+/* A pinned header paints each later th over the one before it; lift the
+   Filename th so the half of the divider that overhangs it stays grabbable. */
+.logscroll .filetable thead th:has(> .th-resizer) {
+  z-index: 2;
+}
 
 /* Wi-Fi clients table: an on-brand pale-blue header row. Alignment is left,
    inherited from `.filetable th` -- every table in the app reads left, headers
