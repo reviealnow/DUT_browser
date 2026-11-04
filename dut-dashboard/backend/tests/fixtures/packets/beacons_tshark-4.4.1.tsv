@@ -1,0 +1,37 @@
+frame.number	radiotap.channel.freq	radiotap.dbm_antsignal	wlan.bssid	wlan.country_info.code	wlan.ds.current_channel	wlan.ext_tag.he_operation.6ghz.primary_channel	wlan.extended_supported_rates	wlan.fixed.beacon	wlan.fixed.capabilities.privacy	wlan.fixed.capabilities.short_preamble	wlan.fixed.capabilities.short_slot_time	wlan.ht.info.chanwidth	wlan.ht.info.primarychannel	wlan.rsn.akms.count	wlan.rsn.akms.type	wlan.rsn.capabilities.mfpc	wlan.rsn.capabilities.mfpr	wlan.rsn.gcs.type	wlan.rsn.pcs.count	wlan.rsn.pcs.type	wlan.ssid	wlan.supported_rates	wlan.tag.number	wlan.tim.dtim_count	wlan.tim.dtim_period	wlan.vht.op.channelwidth	wlan.wfa.ie.wpa.mcs.type	wlan.wfa.ie.wpa.ucs.type	wlan.wfa.ie.wpa.version	wlan_radio.channel	wlan_radio.frequency	wlan_radio.signal_dbm
+1	2437	-44	00:03:7f:00:00:01	US	6			100	False	True	True										6f70656e	0x820x840x8b0x96	01357	0	1					6	2437	-44
+2	2437	-44	00:03:7f:00:00:02	US	6			100	True	True	True			1	2	False	False	4	1	4	7770613270736b	0x820x840x8b0x96	0135748	0	1					6	2437	-44
+3	2437	-44	00:03:7f:00:00:03	US	6			100	True	True	True			1	8	True	True	4	1	4	777061337361655f6f6b	0x820x840x8b0x96	0135748	0	1					6	2437	-44
+4	2437	-44	00:03:7f:00:00:04	US	6			100	True	True	True			1	8	True	False	4	1	4	777061337361655f6e6f6d667072	0x820x840x8b0x96	0135748	0	1					6	2437	-44
+5	2437	-44	00:03:7f:00:00:05	US	6			100	True	True	True			2	28	True	False	4	1	4	7472616e736974696f6e	0x820x840x8b0x96	0135748	0	1					6	2437	-44
+6	2437	-44	00:03:7f:00:00:06	US	6			100	True	True	True			2	28	False	False	4	1	4	7472616e735f6e6f6d667063	0x820x840x8b0x96	0135748	0	1					6	2437	-44
+7	2437	-44	00:03:7f:00:00:07	US	6			100	True	True	True			1	8	True	True	2	2	24	7361655f746b6970	0x820x840x8b0x96	0135748	0	1					6	2437	-44
+8	2437	-44	00:03:7f:00:00:08	US	6			100	True	True	True			1	18	True	False	4	1	4	6f77655f6e6f6d667072	0x820x840x8b0x96	0135748	0	1					6	2437	-44
+9	2437	-44	00:03:7f:00:00:09	US	6			100	True	True	True			1	2	False	False	4	1	4	<MISSING>	0x820x840x8b0x96	0135748	0	1					6	2437	-44
+10	2437	-44	00:03:7f:00:00:0a	US	6			100	True	True	True			1	2	False	False	4	1	4	00000000	0x820x840x8b0x96	0135748	0	1					6	2437	-44
+11	2437	-44	00:03:7f:00:00:0b	US	6			224	True	True	True			1	8	True	True	4	1	4	6f6464696e74657276616c	0x820x840x8b0x96	0135748	0	24					6	2437	-44
+12	5975	-44	00:03:7f:00:00:0c	US				100	True	True	True			1	2	False	False	4	1	4	36675f70736b	0x820x840x8b0x96	015748	0	1					5	5975	-44
+13	5975	-44	00:03:7f:00:00:0d	US				100	True	True	True			1	24	True	True	4	1	4	36675f7361655f6f6b	0x820x840x8b0x96	015748	0	1					5	5975	-44
+14	5180	-44	00:03:7f:00:00:0e	US				100	True	True	True			1	8	True	True	4	1	4	4150375fe4b8ade696872073700963	0x820x840x8b0x96	015748	0	1					36	5180	-44
+15	5180	-44	00:03:7f:00:00:10	US				100	True	True	True			1	18	True	True	4	1	4	6f77655f6f6b	0x820x840x8b0x96	015748	0	1					36	5180	-44
+16	5975	-44	00:03:7f:00:00:11	US				100	True	True	True			1	5	True	True	9	1	9	36675f656e7465727072697365	0x820x840x8b0x96	015748	0	1					5	5975	-44
+17	2437	-44	00:03:7f:00:00:12	US	6			100	True	True	True			1	2	False	False	4	1	4	636f6d6d612c73736964	0x820x840x8b0x96	0135748	0	1					6	2437	-44
+18	2437	-44	00:03:7f:00:00:13	US	6			100	True	True	True			1	2	False	True	4	1	4	6d6670725f6e6f6d667063	0x820x840x8b0x96	0135748	0	1					6	2437	-44
+19	5975	-44	00:03:7f:00:00:15	US				100	True	True	True			2	15	True	False	4	1	4	36675f656e745f7472616e73	0x820x840x8b0x96	015748	0	1					5	5975	-44
+20	5975	-44	00:03:7f:00:00:16	US				100	True	True	True			2	35	True	True	4	1	4	36675f656e745f6674	0x820x840x8b0x96	015748	0	1					5	5975	-44
+21	2437	-44	00:03:7f:00:00:17	US	6			100	True	True	True			1	2	False	False	4	1	4	a4a4a4e5	0x820x840x8b0x96	0135748	0	1					6	2437	-44
+22	2437	-44	00:03:7f:00:00:18	US	6			100	True	True	True										776570	0x820x840x8b0x96	01357	0	1					6	2437	-44
+23	2437	-44	00:03:7f:00:00:19	US	6			100	True	True	True										777061315f746b6970	0x820x840x8b0x96	01357221	0	1		2	2	1	6	2437	-44
+24	2437	-44	00:03:7f:00:00:1a	US	6			100	True	True	True			1	2	False	False	2	2	24	7770615f6d69786564	0x820x840x8b0x96	0135748221	0	1		2	24	1	6	2437	-44
+25	5180	-44	00:03:7f:00:00:1b	US				100	True	True	True			1	2	False	False	2	1	4	777061325f746b6970	0x820x840x8b0x96	015748	0	1					36	5180	-44
+26	2437	-44	00:03:7f:00:01:05	US	6			100	TrueTrue	TrueFalse	TrueFalse			1	2	False	False	4	1	4	6d625f7770615f70726f66696c656d625f6e74785f777061	0x820x840x8b0x96	01357487183085221	0	1		2	2	1	6	2437	-44
+27	2437	-44	00:03:7f:00:01:01	US	6			100	TrueTrue	TrueFalse	TrueFalse			11	82	TrueFalse	TrueFalse	44	11	44	6d625f7361655f6f6e6c796d625f6e74785f70736b	0x820x840x8b0x96	0135748718308548	0	1					6	2437	-44
+28	2437	-44	00:03:7f:00:01:02	US	6			100	TrueTrue	TrueFalse	TrueFalse			11	82	TrueFalse	FalseFalse	44	11	44	6d625f7361655f6e6f6d6670726d625f6e74785f70736b32	0x820x840x8b0x96	0135748718308548	0	1					6	2437	-44
+29	2437	-44	00:03:7f:00:01:03	US	6			100	FalseTrue	TrueFalse	TrueFalse			1	8	True	True	4	1	4	6d625f6f70656e5f74786d625f6e74785f736165	0x820x840x8b0x96	01357718308548	0	1					6	2437	-44
+30	5975	-44	00:03:7f:00:01:06	US				100	FalseTrue	TrueFalse	TrueFalse			1	8	True	True	4	1	4	6d625f36675f6f70656e5f74786d625f6e74785f36675f736165	0x820x840x8b0x96	0157718308548	0	1					5	5975	-44
+31	2437	-44	00:03:7f:00:01:07	US	6			100	TrueTrue	TrueFalse	TrueFalse			11	28	FalseTrue	FalseTrue	44	11	44	6d625f72736e5f61667465726d625f6e74785f78	0x820x840x8b0x96	0135771830854848	0	1					6	2437	-44
+32	5975	-44	00:03:7f:00:01:04	US				100	TrueTrueTrue	TrueFalseFalse	TrueFalseFalse			212	824224	TrueFalseFalse	TrueFalseFalse	442	211	4842	6d625f36675f74776f70317032	0x820x840x8b0x96	0157487183085488308548	0	1					5	5975	-44
+33	2437	-44	00:03:7f:00:00:14	US	6			100	True	True	True			1	8	True	True	4	1	4	6f66666368616e	0x820x840x8b0x96	0135748	0	1					6	2437	-44
+34	2432	-44	00:03:7f:00:00:14	US	6			100	True	True	True			1	8	True	True	4	1	4	6f66666368616e	0x820x840x8b0x96	0135748	0	1					5	2432	-44
+35	2437	-44	00:03:7f:00:00:0f	US	6			100	True	True	True			1	8	True	True	4	1	4	666c61707079	0x820x840x8b0x96	0135748	0	1					6	2437	-44
+36	2437	-44	00:03:7f:00:00:0f	US	6			100	True	True	True			2	28	True	False	4	1	4	666c61707079	0x820x840x8b0x96	0135748	0	1					6	2437	-44
