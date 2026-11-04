@@ -344,12 +344,20 @@ class CountryAndPowerTests(unittest.TestCase):
                    "\t\tChannels [52 - 64] @ 20 dBm",
                    "\t\tExtension ID: 201 Regulatory Class: 1 Coverage class: 0 (up to 0m)",
                    "\t\tChannels [100 - 140] @ 23 dBm",
+                   "\t\tChannels [149 - 165] @ 255 dBm",
                    "\tPower constraint: 0 dB",
-                   "\tTPC report: TX power: -2 dBm")
+                   # iw prints the signed octet unsigned: this is -2 dBm.
+                   "\tTPC report: TX power: 254 dBm")
         row = by_ssid(text)["multi"]
         self.assertEqual([(c["first"], c["last"], c["max_dbm"]) for c in row["country_channels"]],
-                         [(36, 48, 20), (52, 64, 20), (100, 140, 23)])
+                         [(36, 48, 20), (52, 64, 20), (100, 140, 23), (149, 165, -1)])
         self.assertEqual((row["power_constraint_db"], row["tpc_tx_power_dbm"]), (0, -2))
+
+    def test_tpc_power_is_a_signed_octet(self):
+        for printed, dbm in (("0", 0), ("19", 19), ("127", 127), ("128", -128), ("255", -1)):
+            with self.subTest(printed=printed):
+                row = by_ssid(bss("t", f"\tTPC report: TX power: {printed} dBm"))["t"]
+                self.assertEqual(row["tpc_tx_power_dbm"], dbm)
 
     def test_no_triplets_is_an_empty_list(self):
         row = by_ssid(bss("none", "\tCountry: TW\tEnvironment: Indoor/Outdoor",
