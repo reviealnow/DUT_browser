@@ -398,6 +398,11 @@ _IW_TYPE_RE = re.compile(r"^\s+type\s+(\S+)\s*$")
 # `iwconfig` IEEE mode per interface (athN    IEEE 802.11axa  ESSID:...)
 _IWCONF_MODE_RE = re.compile(r"^(ath\d+)\s+IEEE\s+(802\.\d+\S+)")
 
+# Dumps every hostapd conf, each preceded by a sentinel line naming it.
+# Plain quotes around "$f": in a raw string a backslash before them would
+# reach the DUT shell and make the quotes part of the filename.
+_HOSTAPD_CONF_CMD = r"""for f in /etc/hostapd*.conf; do printf '====CONF====%s\n' "$f"; cat "$f"; done"""
+
 # hostapd conf dump sentinel produced by the shell loop.
 _CONF_SEP_RE = re.compile(r"^====CONF====(.+?)\s*$")
 _CONF_FIELD_RE = re.compile(r"^([a-zA-Z0-9_]+)=(.*)$")
@@ -581,9 +586,8 @@ def get_ssid_capabilities(
     iwc_modes = _parse_iwconfig_modes(iwc_text)
 
     # --- Capture 3: hostapd conf dump (security / PMF / k/v/r) ---
-    conf_cmd = r"for f in /etc/hostapd*.conf; do printf '====CONF====%s\n' \"$f\"; cat \"$f\"; done"
     try:
-        conf_text = worker.capture_command(conf_cmd, timeout=10.0)
+        conf_text = worker.capture_command(_HOSTAPD_CONF_CMD, timeout=10.0)
     except RuntimeError:
         conf_text = ""
     conf_map = _parse_hostapd_confs(conf_text)
