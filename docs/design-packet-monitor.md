@@ -154,25 +154,34 @@ advertising `US` is correct.
 
 | Check | Expected (DUT console) | Observed (DUT's beacons) | Severity |
 |---|---|---|---|
-| Country code | configured country / regulatory domain | Country element | fail |
+| Country code | the DUT's regulatory **domain**, mapped to its allowed countries | Country element | fail if the code is not one of the domain's countries |
 | Channel allowed | the DUT's own regulatory rules, if its console exposes them (e.g. `iw reg get` frequency ranges); otherwise **blocked on Q7/Q8**, because no regulatory table exists in this repository | operating channel; Country element channel triplets | fail |
 | Power within limit | regulatory max EIRP per range | Country element max power, Power Constraint, TPC | warn (the observed value is advertised, not measured) |
 | Every VAP on air | configured VAPs (existing Source A) | BSSID present in the scan (existing join) | warn, unless the band is not scannable from the Host (existing caveat) |
 | Security as configured | existing Source A security / PMF | RSN, WPA (v1), Privacy | existing diff, plus the §A8 legacy rules |
 
-**Where "expected" comes from is not settled yet.** No DUT console capture
-for country or regulatory data exists in the code today. The candidates are
-the DUT's own `iw reg get`, since busybox `iw` is present (§A3), and the
-driver's country query on the VAP. Which one the AP6/AP7 firmware actually
-answers, and in what format, can only be measured on a DUT. That is
-single-owner, shared hardware, so it is planned with the bench owner rather
-than assumed (§A13).
+**An AP6 SKU is a regulatory domain, not a country** (found in #216). An
+AP6 unit carries one of five regulatory domains, read on its console with
+`board_config get domain`, and each domain allows a list of countries. So
+"expected" is the domain, and the check asks whether the observed Country
+element is one of that domain's countries. A US-advertising unit passes
+domain 1 and fails domain 2. On the bench the EU-SKU unit (domain 2)
+advertises `US`, which is a real finding.
+
+- The domain → countries list is the published SKU country list (Sophos
+  KBA-000009623), transcribed into `dut_regdomain.py` in #216. It maps a
+  *domain* to countries; it is not a per-model SKU table, so Q8 stays out of
+  phase 1.
+- `board_config get domain` is pinned to captured AP6 console output.
+  Running it live is still a bench step, Q7.
+- AP7's domain command is not known yet. An AP7 or an unknown domain number
+  is left unchecked, not guessed.
 
 **Known limit, accepted by the decision.** An expectation read from the DUT
-cannot catch a DUT whose own setting is wrong: if a US SKU is misconfigured
-as JP, both sides say JP. A model/SKU → regulatory table would catch it, but
-someone has to own it. It is out of phase 1, and the report says which
-source "expected" came from.
+cannot catch a DUT whose own domain is set wrong: both sides follow the same
+wrong setting. A model/SKU → domain table would catch that, but someone has to
+own it. It is out of phase 1, and the report says which source "expected"
+came from.
 
 ## A8. Findings on every scanned BSS
 
@@ -253,9 +262,11 @@ weighting.
 
 1. **#214** — findings rules, including `legacy_security` / `open_network`.
    Done; reused as-is.
-2. `fix(backend): keep iw scan RSN fields from being overwritten` — §A12,
-   on its own and first, because it changes what SSID Capability and Site
-   Survey show today. Needs a real `iw` capture as its fixture.
+2. **#217** — `fix(backend): stop iw scan blocks from overwriting RSN, read
+   Privacy` (§A12). Merged; the fixture is a real Pi 4 scan.
+   - #217 also covers part of item 3: Privacy (WEP), WPA-only networks, OWE,
+     and `\xNN` SSID escapes.
+   - Country and power are still item 3's.
 3. `feat(backend): parse privacy, WPA1, country and power from iw scan` — §A6.
 4. `feat(backend): run the capability survey on the DUT's Host` — §A5,
    including the collector `survey_iface` property and the probe. It also adds
@@ -263,12 +274,21 @@ weighting.
    change to guest behaviour is listed separately.
 5. `feat(backend): findings and channel occupancy in the capability report`
    — §A8 and §A9.
-6. `feat(backend): SKU checks from the DUT console` — §A7. Needs bench time
-   to find the console commands.
+6. `feat(backend): SKU checks from the DUT console` — §A7. #216 carries the
+   domain table, the AP6 domain parser and a host-side report CLI
+   (`tools/host_scan_report.py`). The CLI is the vehicle for the Pi physical
+   verification, but it is to be rebuilt on the existing `iw` parser rather
+   than a second one.
 7. `feat(frontend): SSID Capability findings, SKU checks and occupancy`, and
    the demo page.
 
-## A12. Found while reading: the `iw scan` parser loses RSN fields
+## A12. Found while reading: the `iw scan` parser loses RSN fields — fixed in #217
+
+**Status.** Confirmed on a real Pi 4 scan (iw 6.9) and fixed in #217. On the
+bench's AP6 420E serial logs, the fix moved PMF from `disabled` to the
+correct value on hundreds of BSSes per log. Site Survey was hit harder than
+SSID Capability. The original analysis follows.
+
 
 `_parse_iw_scan` enters RSN mode at `RSN:` and leaves it only at an SSID line,
 a new BSS, or an unindented line, but every element block in `iw` output is
@@ -293,10 +313,11 @@ listed on its own.
 - **Q6 — decided (2026-11-03): `engineer` and above.** Only engineers trigger
   a capture, whether a Host scan or a DUT serial capture. Guests read the last
   stored report (§A10).
-- **Q7 — the DUT console source for country and regulatory data:** measured
-  on the bench with the bench owner (§A7).
-- **Q8 — a model/SKU table:** out of phase 1; who would own it if it is
-  wanted later.
+- **Q7 — partly answered.** AP6 reports its regulatory domain with
+  `board_config get domain` (§A7, from #216). Still open: running it live on
+  the bench (slot approved), and the AP7 command.
+- **Q8 — a model/SKU → domain table:** out of phase 1; who would own it if it
+  is wanted later.
 - **Q9 — `survey_iface`:** a collector property set by an admin (proposed),
   or detected automatically.
 
