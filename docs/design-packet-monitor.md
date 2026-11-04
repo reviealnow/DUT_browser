@@ -175,25 +175,30 @@ advertising `US` is correct.
 | Check | Expected (DUT console) | Observed (DUT's beacons) | Severity |
 |---|---|---|---|
 | Country code | the DUT's regulatory **domain**, mapped to its allowed countries | Country element | fail if the code is not one of the domain's countries |
-| Channel allowed | the DUT's own regulatory rules, if its console exposes them (e.g. `iw reg get` frequency ranges); otherwise **blocked on Q7/Q8**, because no regulatory table exists in this repository | operating channel; Country element channel triplets | fail |
+| Channel allowed | the DUT's own regulatory rules, if its console exposes them; otherwise **blocked on Q8**, because no regulatory table exists in this repository. Not `iw reg get`: on the bench AP6 it answers `country 00: DFS-UNSET` while the driver beacons `US`, so it does not reflect the SKU (Q7) | operating channel; Country element channel triplets | fail |
 | Power within limit | regulatory max EIRP per range | Country element max power, Power Constraint, TPC | warn (the observed value is advertised, not measured) |
 | Every VAP on air | configured VAPs (existing Source A) | BSSID present in the scan (existing join) | warn, unless the band is not scannable from the Host (existing caveat) |
 | Security as configured | existing Source A security / PMF | RSN, WPA (v1), Privacy | existing diff, plus the §A8 legacy rules |
 
-**An AP6 SKU is a regulatory domain, not a country** (found in #216). An
-AP6 unit carries one of five regulatory domains, read on its console with
+**An AP6 SKU is a regulatory domain, not a country** (found in #216,
+corrected in #219). An AP6 unit carries one of six regulatory domains (0 US,
+1 CA, 2 EU, 3 AU/NZ, 4 IN, 5 Rest of World), read on its console with
 `board_config get domain`, and each domain allows a list of countries. So
 "expected" is the domain, and the check asks whether the observed Country
 element is one of that domain's countries. A US-advertising unit passes
-domain 1 and fails domain 2. On the bench the EU-SKU unit (domain 2)
-advertises `US`, which is a real finding.
+domain 0 and fails domain 1 or 2. On the bench, an AP6_420 US SKU answers
+`0` and advertises `US`, which passes.
 
-- The domain → countries list is the published SKU country list (Sophos
+- The domain → countries list is the SKU country list (Sophos
   KBA-000009623), transcribed into `dut_regdomain.py` in #216. It maps a
   *domain* to countries; it is not a per-model SKU table, so Q8 stays out of
   phase 1.
-- `board_config get domain` is pinned to captured AP6 console output.
-  Running it live is still a bench step, Q7.
+- The public KBA lists US and CA as separate SKUs but prints no domain
+  numbers. US = 0 is confirmed on the bench. CA = 1 and the other numbers
+  come from the QA team's copy of the list and have not been read from a
+  unit of that SKU yet.
+- `board_config get domain` is pinned to captured AP6 console output, and
+  was read live on 2026-11-04 (Q7).
 - AP7's domain command is not known yet. An AP7 or an unknown domain number
   is left unchecked, not guessed.
 
@@ -335,9 +340,15 @@ listed on its own.
 - **Q6 — decided (2026-11-03): `engineer` and above.** Only engineers trigger
   a capture, whether a Host scan or a DUT serial capture. Guests read the last
   stored report (§A10).
-- **Q7 — partly answered.** AP6 reports its regulatory domain with
-  `board_config get domain` (§A7, from #216). Still open: running it live on
-  the bench (slot approved), and the AP7 command.
+- **Q7 — answered for AP6.** AP6 reports its regulatory domain with
+  `board_config get domain` (§A7, from #216). Read live on 2026-11-04 through
+  the dashboard's serial console, on an AP6_420 US SKU:
+  - `board_config get domain` → `0`;
+  - `iw reg get` → `country 00: DFS-UNSET`. cfg80211's regdom is unset while
+    the driver beacons `US`, so `iw reg get` cannot be the expected source
+    for channel or power checks (§A7, "Channel allowed").
+
+  Still open: the AP7 command.
 - **Q8 — a model/SKU → domain table:** out of phase 1; who would own it if it
   is wanted later.
 - **Q9 — `survey_iface`:** a collector property set by an admin (proposed),
