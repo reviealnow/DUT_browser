@@ -805,4 +805,51 @@ const report = reporter();
     pageErrors(window).length === 0, pageErrors(window).join(" | "));
 }
 
+// -------------------------------------------------------------------- files
+{
+  report.section("files.html — the Filename column is cut and resized as in the product");
+  const window = await load("files.html");
+  const document = window.document;
+  const names = () => [...document.querySelectorAll("#tbody .fname")];
+  const widths = () => new Set(names().map(el => el.style.width));
+  const divider = document.querySelector('th[data-sort="name"] [role="separator"]');
+  const key = (k) => divider.dispatchEvent(new window.KeyboardEvent("keydown", { key: k, bubbles: true }));
+  const saved = () => window.localStorage.getItem("dut.files.nameWidth.v1");
+
+  // FilesSection cuts every name to one width with an ellipsis and keeps the
+  // whole name in the title; the demo used to wrap long names instead.
+  report.ok("every name is cut to the same default width",
+    names().length > 0 && widths().size === 1 && widths().has("220px"), [...widths()].join(","));
+  report.ok("and keeps the whole name on hover",
+    names().every(el => el.getAttribute("title") === el.textContent));
+  report.ok("the Filename header has a divider", !!divider
+    && divider.getAttribute("aria-label") === "Resize Filename column");
+
+  key("ArrowLeft");
+  report.ok("an arrow key resizes every row and saves it",
+    widths().size === 1 && widths().has("204px") && saved() === "204", saved());
+  key("End");
+  key("ArrowRight");
+  report.ok("End goes to the widest, and it clamps there", widths().has("640px"));
+  key("Home");
+  report.ok("Home goes to the narrowest", widths().has("80px") && saved() === "80");
+  divider.dispatchEvent(new window.MouseEvent("dblclick", { bubbles: true }));
+  report.ok("double-click resets", widths().has("220px") && saved() === "220");
+
+  const arrow = () => document.querySelector('[data-arrow="name"]').textContent;
+  const before = arrow();
+  click(window, divider);
+  report.ok("clicking the divider does not sort", arrow() === before, JSON.stringify(arrow()));
+
+  // A re-render (search, sort) keeps the width the user chose.
+  key("ArrowRight");
+  const search = document.getElementById("search");
+  search.value = "a";
+  search.dispatchEvent(new window.Event("input", { bubbles: true }));
+  report.ok("a re-render keeps the chosen width", widths().size === 1 && widths().has("236px"));
+
+  report.ok("files.html threw nothing while all that ran",
+    pageErrors(window).length === 0, pageErrors(window).join(" | "));
+}
+
 report.finish();

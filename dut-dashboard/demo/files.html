@@ -95,6 +95,18 @@ tbody tr.file-row:hover{background:var(--accent-weak)}
 @media (max-width:720px){thead th{padding:.3rem .375rem} tbody tr:not(:has(> td[colspan])) > td{padding:.3125rem .375rem}}
 
 .nowrap{white-space:nowrap}
+/* FilesSection's resizable Filename column: the name is cut to one line at a
+   width set from the header divider (title shows it whole), and the last
+   column takes the free space so the Filename column follows the drag. */
+#fileTable th:last-child{width:100%}
+#fileTable td.fname-cell{white-space:nowrap}
+.fname{display:inline-block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:middle; font-weight:600}
+#fileTable th[data-sort="name"]{position:relative}
+.tablewrap.sticky #fileTable th[data-sort="name"]{z-index:2}
+.th-resizer{position:absolute; top:0; right:-4px; bottom:0; width:9px; cursor:col-resize; touch-action:none; z-index:2}
+.th-resizer::after{content:""; position:absolute; top:2px; bottom:6px; left:4px; width:1px; background:var(--border)}
+.th-resizer:hover::after,.th-resizer:focus-visible::after,.th-resizer:active::after{left:3px; width:3px; background:var(--accent)}
+.th-resizer:focus-visible{outline:none}
 .tag{display:inline-block; padding:1px 8px; border-radius:999px; font-size:11px; font-weight:650; margin-right:4px}
 .author{display:inline-block; padding:1px 9px; border-radius:999px; font-size:11px; font-weight:650}
 .preview{background:#f7f8fa}
@@ -203,11 +215,13 @@ tbody tr.file-row:hover{background:var(--accent-weak)}
         </div>
         <div class="card-body">
           <div class="tablewrap sticky">
-            <table>
+            <table id="fileTable">
               <!-- FilesSection's columns: filename, size and uploader sort;
-                   SHA-256 shows the first twelve characters. -->
+                   SHA-256 shows the first twelve characters. The Filename
+                   header's divider resizes the column (drag, arrows, Home /
+                   End, double-click to reset), as in the product. -->
               <thead><tr>
-                <th class="sortable" data-sort="name">Filename<span data-arrow="name"></span></th>
+                <th class="sortable" data-sort="name">Filename<span data-arrow="name"></span><span class="th-resizer" id="nameResizer" role="separator" aria-orientation="vertical" aria-label="Resize Filename column" aria-valuemin="80" aria-valuemax="640" tabindex="0" title="Drag to resize · double-click to reset"></span></th>
                 <th class="sortable" data-sort="size">Size<span data-arrow="size"></span></th>
                 <th class="sortable" data-sort="uploader">Uploader<span data-arrow="uploader"></span></th>
                 <th>SHA-256</th>
@@ -295,6 +309,14 @@ let files = DATA.files.slice();
 // other-column -> asc -> desc -> back to the default. It does not toggle forever.
 const DEFAULT_SORT = "date", DEFAULT_ORDER = "desc";
 let sortCol = DEFAULT_SORT, sortAsc = false, search = "";
+// The Filename column's width, as FilesSection keeps it (useSettings.ts):
+// 220 px by default, clamped to 80-640, remembered per browser.
+const NAME_W = { key: "dut.files.nameWidth.v1", def: 220, min: 80, max: 640 };
+const clampName = px => Math.round(Math.min(NAME_W.max, Math.max(NAME_W.min, px)));
+let nameWidth = (() => {
+  try { const n = Number(localStorage.getItem(NAME_W.key)); return n > 0 ? clampName(n) : NAME_W.def; }
+  catch { return NAME_W.def; }
+})();
 // FilesSection keeps a single expandedId and a single tagEditId — opening one
 // row closes the other, rather than letting several stay open at once.
 let expandedId = null;
@@ -349,9 +371,9 @@ function renderTable(){
     const kind = previewKind(f.name);
     return `
       <tr class="file-row">
-        <td>
-          <div style="font-weight:600">${f.name}</div>
-          <div style="margin-top:2px">${(f.tags || []).map(tagPill).join("")}</div>
+        <td class="fname-cell">
+          <span class="fname" style="width:${nameWidth}px" title="${f.name}">${f.name}</span>
+          ${(f.tags || []).map(tagPill).join("")}
           ${editing ? `<div style="margin-top:6px;display:flex;gap:6px">
               <input class="field" data-tagfield="${f.id}" maxlength="200" value="${(f.tags || []).join(", ")}" aria-label="Tags for ${f.name}">
               <button class="btn" data-tagsave="${f.id}">Save</button>
@@ -416,7 +438,8 @@ $("provenance").innerHTML =
 
 /* ---------------- table interactions ---------------- */
 document.querySelectorAll("[data-sort]").forEach(th => {
-  th.addEventListener("click", () => {
+  th.addEventListener("click", (ev) => {
+    if (ev.target.closest(".th-resizer")) return; // the divider resizes, it does not sort
     const col = th.dataset.sort;
     if (sortCol !== col){ sortCol = col; sortAsc = true; }
     else if (sortAsc){ sortAsc = false; }
@@ -426,6 +449,37 @@ document.querySelectorAll("[data-sort]").forEach(th => {
 });
 
 $("search").addEventListener("input", (ev) => { search = ev.target.value; renderTable(); });
+
+/* The Filename divider: drag, double-click to reset, arrows / Home / End. The
+   width is saved when a drag ends; a cancelled drag puts it back. */
+(() => {
+  const handle = $("nameResizer");
+  let drag = null;
+  const save = () => { try { localStorage.setItem(NAME_W.key, String(nameWidth)); } catch { /* private window */ } };
+  const set = (px, commit) => {
+    nameWidth = clampName(px);
+    handle.setAttribute("aria-valuenow", String(nameWidth));
+    document.querySelectorAll("#tbody .fname").forEach(el => { el.style.width = nameWidth + "px"; });
+    if (commit) save();
+  };
+  set(nameWidth, false);
+  handle.addEventListener("pointerdown", ev => {
+    if (ev.button !== 0) return;
+    ev.preventDefault();
+    handle.setPointerCapture?.(ev.pointerId);
+    drag = { x: ev.clientX, w: nameWidth };
+  });
+  handle.addEventListener("pointermove", ev => { if (drag) set(drag.w + ev.clientX - drag.x, false); });
+  handle.addEventListener("pointerup", () => { if (drag){ drag = null; save(); } });
+  handle.addEventListener("pointercancel", () => { if (drag){ const w = drag.w; drag = null; set(w, false); } });
+  handle.addEventListener("dblclick", () => set(NAME_W.def, true));
+  handle.addEventListener("keydown", ev => {
+    const to = { ArrowLeft: nameWidth - 16, ArrowRight: nameWidth + 16, Home: NAME_W.min, End: NAME_W.max }[ev.key];
+    if (to === undefined) return;
+    ev.preventDefault();
+    set(to, true);
+  });
+})();
 
 $("tbody").addEventListener("click", (ev) => {
   const hit = (attr) => ev.target.closest(`[data-${attr}]`);
