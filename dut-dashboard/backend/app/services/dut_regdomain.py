@@ -1,6 +1,6 @@
 """A DUT's SKU regulatory domain, and the countries its beacons may advertise.
 
-The SKU is not a country: an AP6 is built for one of five domains, and each
+The SKU is not a country: an AP6 is built for one of six domains, and each
 domain covers a list of countries. A DUT's own beacons are checked against
 that list (``packet_rules.country_mismatch``), so an EU unit advertising
 ``DE`` is fine and one advertising ``US`` is not.
@@ -12,7 +12,8 @@ The read is per model family because the command is. AP6 answers
 The table is transcribed from the per-SKU country list the QA team works from
 (Sophos KBA-000009623). Puerto Rico, Guam and the other US territories are in
 Rest of World there, not in the US domain, and are kept where the list puts
-them.
+them. The US is domain 0 and Canada domain 1: an AP6_420 US SKU answers ``0``
+(bench, 2026-11-04), so 0 is a SKU, not "never programmed".
 """
 
 from __future__ import annotations
@@ -52,7 +53,8 @@ _ROW = (
 DOMAINS: dict[int, Domain] = {
     d.number: d
     for d in (
-        Domain(1, "US/CA", frozenset({"US", "CA"})),
+        Domain(0, "US", frozenset({"US"})),
+        Domain(1, "CA", frozenset({"CA"})),
         Domain(2, "EU", frozenset(_EU.split())),
         Domain(3, "AU/NZ", frozenset({"AU", "NZ"})),
         Domain(4, "IN", frozenset({"IN"})),
