@@ -301,6 +301,16 @@ class ReportToolTests(unittest.TestCase):
         self.assertEqual([(f["group"], f["dut"]) for f in country], [("3a:00:00:00:00:01", True)])
         self.assertEqual(report["oldest_result_ms"], 900)
 
+    def test_report_checks_a_domain(self):
+        from app.services import dut_regdomain
+        is_dut = host_scan_report.dut_matcher(["00:00:00:00:00:01"])
+        us = host_scan_report.build_report(parse(SCAN), is_dut, dut_regdomain.DOMAINS[1])
+        self.assertEqual([f for f in us["findings"] if f["rule"] == "country_mismatch"], [])
+        eu = host_scan_report.build_report(parse(SCAN), is_dut, dut_regdomain.DOMAINS[2])
+        country = [f for f in eu["findings"] if f["rule"] == "country_mismatch"]
+        self.assertEqual([(f["group"], f["severity"]) for f in country],
+                         [("3a:00:00:00:00:01", "fail")])
+
     def test_security_labels(self):
         label = host_scan_report.security_label
         by = by_ssid(parse(SCAN))

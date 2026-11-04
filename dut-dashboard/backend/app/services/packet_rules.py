@@ -233,20 +233,30 @@ def open_network(row: Row):
 
 
 def country_mismatch(row: Row):
-    """The DUT's beacons advertise a country other than its SKU's.
+    """The DUT's beacons advertise a country its SKU does not cover.
 
-    Only rows the caller marked with ``expected_country`` -- the DUT's own
-    BSSes, expectation read from the DUT -- are checked. A neighbour's country
-    is context, never a finding: a US SKU on a bench in Taiwan is supposed to
-    say ``US``.
+    Only rows the caller marked with an expectation -- the DUT's own BSSes,
+    expectation read from the DUT -- are checked. A neighbour's country is
+    context, never a finding: a US SKU on a bench in Taiwan is supposed to say
+    ``US``. The expectation is either ``expected_country`` (one code) or
+    ``expected_countries`` (a SKU domain's codes, ``dut_regdomain``) with
+    ``expected_region`` naming the domain in the message.
     """
-    expected = row.get("expected_country")
-    if not expected or "country" not in row:
+    allowed = row.get("expected_countries")
+    if allowed:
+        allowed = {c.upper() for c in allowed}
+        expected = row.get("expected_region") or ", ".join(sorted(allowed))
+    elif row.get("expected_country"):
+        expected = row["expected_country"]
+        allowed = {expected.upper()}
+    else:
+        return None
+    if "country" not in row:
         return None
     actual = row["country"]
     if actual is None:
         return ("warn", f"No Country element in beacons; the SKU expects {expected}.")
-    if actual.upper() != expected.upper():
+    if actual.upper() not in allowed:
         return ("fail", f"Beacons advertise country {actual}, but the DUT's SKU is "
                         f"{expected}.")
     return None

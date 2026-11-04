@@ -8,13 +8,14 @@ and rules the dashboard uses (``services/wifi_survey._parse_iw_scan``, mapped
 by ``services/scan_rows.py`` onto ``services/packet_rules.py``):
 
 * legacy security (WEP, WPA1, TKIP) and open networks;
-* the DUT's own beacons against its SKU's country (``--expected-country``,
-  read from the DUT with ``board_config get domain``);
+* the DUT's own beacons against its SKU: ``--domain N`` (an AP6's
+  ``board_config get domain``, see ``services/dut_regdomain.py``) or a single
+  ``--expected-country``;
 * per-channel BSS counts, and the neighbours on the DUT's channels by signal.
 
     python3 tools/host_scan_report.py --file scan.txt --dut-bssid 02:11:22:33:44:55
-    python3 tools/host_scan_report.py --ssh pi@192.0.2.10 \
-        --dut-bssid 02:11:22:33:44:55 --expected-country US
+    python3 tools/host_scan_report.py --ssh pi@192.0.2.10 \\
+        --dut-bssid 02:11:22:33:44:55 --domain 2
 
 **Read-only on the Host.** ``--ssh`` runs ``iw dev <iface> scan dump``, which
 needs no root and returns the kernel's cached results; their age is printed.
@@ -38,7 +39,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
 
-from app.services import packet_rules, scan_rows  # noqa: E402
+from app.services import dut_regdomain, packet_rules, scan_rows  # noqa: E402
 from app.services.packet_decode import AKM_SUITES, band_of  # noqa: E402
 from app.services.wifi_survey import _parse_iw_scan  # noqa: E402
 
@@ -92,11 +93,18 @@ def security_label(row: dict) -> str:
     return "WEP" if "wpa_version" in row else "WEP or WPA1"
 
 
-def build_report(rows: list[dict], is_dut, expected_country: str | None) -> dict:
+def build_report(rows: list[dict], is_dut,
+                 expected: "str | dut_regdomain.Domain | None") -> dict:
+    """``expected`` is the SKU: one country code, a domain, or None (unchecked)."""
     dut_bssids = [r["bssid"] for r in rows if is_dut(r["bssid"])]
     for r in rows:
-        if expected_country and is_dut(r["bssid"]):
-            r["expected_country"] = expected_country
+        if not is_dut(r["bssid"]):
+            continue
+        if isinstance(expected, dut_regdomain.Domain):
+            r["expected_countries"] = expected.countries
+            r["expected_region"] = expected.label
+        elif expected:
+            r["expected_country"] = expected
     findings = packet_rules.evaluate(rows, RULES, group_by="bssid")
     by_bssid = {r["bssid"]: r for r in rows}
     ages = [r["last_seen_ms"] for r in rows if r.get("last_seen_ms") is not None]
@@ -152,7 +160,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--iface", default="wlan0")
     ap.add_argument("--sudo", action="store_true", help="fresh scan via `sudo -n iw ... scan`")
     ap.add_argument("--dut-bssid", action="append", default=[], help="one of the DUT's BSSIDs (repeat per radio)")
-    ap.add_argument("--expected-country", help="the DUT's SKU country, e.g. US")
+    sku = ap.add_mutually_exclusive_group()
+    sku.add_argument("--domain", type=int, choices=sorted(dut_regdomain.DOMAINS),
+                     help="the DUT's SKU domain (AP6: `board_config get domain`)")
+    sku.add_argument("--expected-country", help="the DUT's SKU country, e.g. US")
     ap.add_argument("--json", action="store_true", help="print the report as JSON")
     args = ap.parse_args(argv)
 
@@ -163,7 +174,9 @@ def main(argv: list[str] | None = None) -> int:
         print("no BSS in the scan output (is the interface up? `ip link set wlan0 up`)",
               file=sys.stderr)
         return 2
-    report = build_report(rows, dut_matcher(args.dut_bssid), args.expected_country)
+    expected = (dut_regdomain.DOMAINS[args.domain] if args.domain is not None
+                else args.expected_country)
+    report = build_report(rows, dut_matcher(args.dut_bssid), expected)
     if args.json:
         print(json.dumps(report, indent=1, ensure_ascii=False))
     else:
