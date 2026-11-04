@@ -14,13 +14,23 @@ Parsed fields per BSS (iw scan, verified on iw 5.x):
   BSS anchor       : BSS <bssid>(on ...)
   freq             : freq: NNNN
   signal           : signal: -NN.NN dBm
-  SSID             : SSID: <text>  (empty string = hidden)
+  SSID             : SSID: <text>  (empty string = hidden; iw's \\xNN escapes
+                     undone, then UTF-8, else 0x + hex)
+  capability       : Privacy bit → WEP when there is neither RSN nor WPA
   HT/VHT/HE/EHT   : capability blocks → generation
   RSN block        : Authentication suites / Pairwise ciphers / Group cipher /
                      Capabilities (MFP-required / MFP-capable)
+  WPA block        : Authentication suites → WPA-Personal / WPA-Enterprise when
+                     there is no RSN; never overwrites the RSN fields
   RM capabilities  : → dot11k
   Extended caps    : BSS Transition → dot11v
   MDE / FT AKMs    : → dot11r
+
+Every element starts on a line indented by exactly one tab, and a block (RSN,
+WPA, Extended capabilities) ends at the next such line. iw prints elements in
+beacon order, so RSN usually comes *before* HT capabilities, whose own
+"Capabilities:" line must not be read as RSN's
+(tests/test_iw_scan_parser.py, against a real iw 6.9 scan).
 """
 
 from __future__ import annotations
@@ -31,12 +41,20 @@ import subprocess
 from datetime import datetime
 
 from app.config import SURVEY_WIFI_IFACE
+from app.services import packet_decode
 
 # ---------------------------------------------------------------------------
 # iw scan parsers
 # ---------------------------------------------------------------------------
 
 _BSS_RE = re.compile(r"^BSS\s+([0-9a-f:]{17})", re.I)
+# iw prints one element per line indented by exactly one tab; its details are
+# indented further. A one-tab line is therefore where the previous element's
+# block ends -- the only reliable end, since every line of a BSS is indented.
+_ELEMENT_RE = re.compile(r"^\t(?!\t)")
+_CAPABILITY_RE = re.compile(r"^\tcapability:\s*(.*)")
+_SSID_ESCAPE_RE = re.compile(r"\\x([0-9a-fA-F]{2})")
+_OWE_AKMS = {"OWE", "00-0F-AC:18"}
 _FREQ_RE = re.compile(r"^\s+freq:\s+(\d+)")
 _SIGNAL_RE = re.compile(r"^\s+signal:\s+(-?[\d.]+)\s+dBm")
 _SSID_RE = re.compile(r"^\s+SSID:\s*(.*?)\s*$")
@@ -81,15 +99,75 @@ def _freq_to_channel(freq_mhz: int | None) -> int | None:
     return None
 
 
+def _unescape_ssid(text: str) -> str:
+    """Undo iw's SSID escaping and decode the bytes.
+
+    iw's ``print_ssid_escaped`` (util.c) prints a byte as-is only when it is
+    ``isprint`` and neither a space nor a backslash, a space as-is only when
+    it is not first or last, and every other byte as ``\\x%.2x``. Because a
+    literal backslash is itself always escaped, every ``\\x`` starts an escape
+    and the bytes can be restored exactly. They are then decoded as UTF-8,
+    falling back to ``0x`` + hex exactly as tshark-sourced SSIDs do
+    (:func:`packet_decode.decode_text`), rather than to replacement
+    characters that would make different SSIDs look alike.
+
+    An SSID of only NUL bytes is how many APs hide their name; it becomes
+    ``""``, the same "hidden" an empty SSID element gives, instead of NUL
+    characters reaching JSON and the UI.
+    """
+    if "\\x" not in text:
+        return text
+    if re.fullmatch(r"(?:\\x00)+", text):
+        return ""
+    raw = bytearray()
+    pos = 0
+    for m in _SSID_ESCAPE_RE.finditer(text):
+        raw += text[pos:m.start()].encode("utf-8")
+        raw.append(int(m.group(1), 16))
+        pos = m.end()
+    raw += text[pos:].encode("utf-8")
+    return packet_decode.decode_text(raw.hex(), "FT_BYTES")
+
+
+def _classify_without_rsn(cur: dict) -> None:
+    """Security for a BSS whose RSN block did not classify it.
+
+    An RSN block that is present but unrecognised is never reported as WEP or
+    Open: OWE, for one, sets the Privacy bit too. Without RSN, a WPA (v1)
+    block decides; without either, the Privacy capability bit tells WEP from
+    Open. No capability line at all keeps the old answer, Open.
+    """
+    if cur["security"] is not None:
+        return
+    if cur["_rsn"]:
+        cur["security"] = "RSN (" + " ".join(cur["akm"]) + ")" if cur["akm"] else "RSN"
+        cur["category"] = None
+    elif cur["_wpa_akm"]:
+        akms = [a.upper() for a in cur["_wpa_akm"]]
+        if any("802.1X" in a or "EAP" in a for a in akms):
+            cur["security"], cur["category"] = "WPA-Enterprise", "enterprise"
+        else:
+            cur["security"], cur["category"] = "WPA-Personal", "personal"
+    elif cur["_privacy"]:
+        # Same label and category the nmcli fallback already uses.
+        cur["security"], cur["category"] = "WEP", "personal"
+    else:
+        cur["security"], cur["category"] = "Open", None
+
+
 def _parse_iw_scan(text: str) -> list[dict]:
     """Parse `iw dev <iface> scan` output into ObservedBss dicts."""
     bss_list: list[dict] = []
     cur: dict | None = None
     in_rsn = False
+    in_wpa = False
     in_ext_caps = False
 
     def _commit() -> None:
         if cur is not None:
+            _classify_without_rsn(cur)
+            for key in ("_privacy", "_rsn", "_wpa_akm"):
+                cur.pop(key, None)
             # Derive generation from capability flags (highest wins).
             if cur.pop("_eht", False):
                 cur["generation"] = "Wi-Fi 7"
@@ -127,12 +205,33 @@ def _parse_iw_scan(text: str) -> list[dict]:
                 "dot11r": False,
                 "source": "iw",
                 "_ht": False, "_vht": False, "_he": False, "_eht": False,
+                "_privacy": None, "_rsn": False, "_wpa_akm": None,
             }
             in_rsn = False
+            in_wpa = False
             in_ext_caps = False
             continue
 
         if cur is None:
+            continue
+
+        # A new element ends the RSN / WPA / Extended capabilities block. Without
+        # this, a later "HT capabilities: / Capabilities: 0x..." line matched the
+        # RSN Capabilities pattern (PMF read as disabled) and a WPA block's
+        # ciphers and AKMs overwrote the RSN ones.
+        if _ELEMENT_RE.match(line):
+            element = line.strip()
+            in_rsn = element.startswith("RSN:")
+            in_wpa = element.startswith("WPA:")
+            in_ext_caps = element.startswith("Extended capabilities:")
+
+        if (m := _CAPABILITY_RE.match(line)):
+            cur["_privacy"] = "Privacy" in m.group(1).split()
+            continue
+
+        if in_wpa:
+            if (m := _AUTH_RE.search(line)):
+                cur["_wpa_akm"] = [a.strip() for a in m.group(1).split() if a.strip()]
             continue
 
         if (m := _FREQ_RE.match(line)):
@@ -149,9 +248,10 @@ def _parse_iw_scan(text: str) -> list[dict]:
             continue
 
         if (m := _SSID_RE.match(line)):
-            cur["ssid"] = m.group(1)  # empty string = hidden
-            in_rsn = False
-            in_ext_caps = False
+            # The first SSID line is the BSS's own element (it comes right
+            # after the fixed fields); a deeper one belongs to something nested.
+            if cur["ssid"] is None:
+                cur["ssid"] = _unescape_ssid(m.group(1))  # empty string = hidden
             continue
 
         # Capability header blocks.
@@ -172,6 +272,7 @@ def _parse_iw_scan(text: str) -> list[dict]:
         if line.strip().startswith("RSN:"):
             in_rsn = True
             in_ext_caps = False
+            cur["_rsn"] = True
             continue
 
         if in_rsn:
@@ -183,6 +284,7 @@ def _parse_iw_scan(text: str) -> list[dict]:
                 has_psk = any("PSK" in a and "SAE" not in a for a in akms)
                 has_eap_sb = any("SUITE-B" in a for a in akms)
                 has_eap = any("802.1X" in a or "EAP" in a for a in akms) or has_eap_sb
+                has_owe = any(a in _OWE_AKMS for a in akms)
                 if has_eap_sb:
                     cur["security"], cur["category"] = "WPA3-Enterprise-192", "enterprise"
                 elif has_eap:
@@ -193,6 +295,8 @@ def _parse_iw_scan(text: str) -> list[dict]:
                     cur["security"], cur["category"] = "WPA3-Personal", "personal"
                 elif has_psk:
                     cur["security"], cur["category"] = "WPA2-Personal", "personal"
+                elif has_owe:
+                    cur["security"], cur["category"] = "OWE", None
             elif (m := _PAIRWISE_RE.search(line)):
                 cur["pairwise_cipher"] = [c.strip() for c in m.group(1).split() if c.strip()]
             elif (m := _GROUP_RE.search(line)):
@@ -228,14 +332,7 @@ def _parse_iw_scan(text: str) -> list[dict]:
         if in_rsn and _FT_AKM_RE.search(line):
             cur["dot11r"] = True
 
-        # No RSN → treat as Open if no security yet set.
     _commit()
-
-    for bss in bss_list:
-        if bss["security"] is None:
-            bss["security"] = "Open"
-            bss["category"] = None
-
     return bss_list
 
 

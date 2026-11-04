@@ -1,0 +1,50 @@
+BSS 02:00:00:00:00:0a(on wlan0)
+	freq: 5220.0
+	beacon interval: 100 TUs
+	capability: ESS Privacy SpectrumMgmt ShortSlotTime (0x0511)
+	signal: -72.00 dBm
+	SSID: AP_A
+	Supported rates: 6.0* 9.0 12.0* 18.0 24.0* 36.0 48.0 54.0 
+	DS Parameter set: channel 44
+	Country: AU	Environment: Indoor/Outdoor
+		Channels [36 - 36] @ 24 dBm
+	Power constraint: 3 dB
+	TPC report: TX power: 19 dBm
+	RSN:	 * Version: 1
+		 * Group cipher: CCMP
+		 * Pairwise ciphers: CCMP
+		 * Authentication suites: PSK PSK/SHA-256 SAE
+		 * Capabilities: 16-PTKSA-RC 1-GTKSA-RC MFP-capable (0x008c)
+	HT capabilities:
+		Capabilities: 0x9ef
+			RX LDPC
+			HT20/HT40
+		HT TX/RX MCS rate indexes supported: 0-15
+	HT operation:
+		 * primary channel: 44
+	Extended capabilities:
+		 * BSS Transition
+	WMM:	 * Parameter version 1
+BSS 02:00:00:00:00:0b(on wlan0)
+	freq: 2412.0
+	beacon interval: 100 TUs
+	capability: ESS Privacy ShortPreamble ShortSlotTime (0x0431)
+	signal: -52.00 dBm
+	SSID: AP_B
+	Supported rates: 1.0* 2.0* 5.5* 11.0* 6.0 9.0 12.0 18.0 
+	DS Parameter set: channel 1
+	Country: US	Environment: Indoor/Outdoor
+		Channels [1 - 11] @ 30 dBm
+	ERP: <no flags>
+	Extended supported rates: 24.0 36.0 48.0 54.0 
+	WMM:	 * Parameter version 1
+BSS 02:00:00:00:00:0c(on wlan0)
+	freq: 5700.0
+	capability: ESS Privacy SpectrumMgmt APSD (0x0911)
+	signal: -57.00 dBm
+	SSID: \xe6\xb8\xac\xe8\xa9\xa6
+	RSN:	 * Version: 1
+		 * Group cipher: CCMP
+		 * Pairwise ciphers: CCMP
+		 * Authentication suites: PSK
+		 * Capabilities: 1-PTKSA-RC 1-GTKSA-RC (0x0000)
