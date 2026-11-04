@@ -96,10 +96,13 @@ tbody tr.file-row:hover{background:var(--accent-weak)}
 
 .nowrap{white-space:nowrap}
 /* FilesSection's resizable Filename column: the name is cut to one line at a
-   width set from the header divider (title shows it whole), and the last
-   column takes the free space so the Filename column follows the drag. */
+   width set from the header divider (title shows it whole), tags sit below it,
+   and the last column takes the free space so the Filename column follows the
+   drag. */
 #fileTable th:last-child{width:100%}
 #fileTable td.fname-cell{white-space:nowrap}
+/* Tags on their own line, wrapping chip by chip, so they do not widen the column. */
+.fname-tags{display:flex; flex-wrap:wrap; gap:4px 0; margin-top:2px}
 .fname{display:inline-block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; vertical-align:middle; font-weight:600}
 #fileTable th[data-sort="name"]{position:relative}
 .tablewrap.sticky #fileTable th[data-sort="name"]{z-index:2}
@@ -373,7 +376,7 @@ function renderTable(){
       <tr class="file-row">
         <td class="fname-cell">
           <span class="fname" style="width:${nameWidth}px" title="${f.name}">${f.name}</span>
-          ${(f.tags || []).map(tagPill).join("")}
+          ${(f.tags || []).length ? `<div class="fname-tags">${f.tags.map(tagPill).join("")}</div>` : ""}
           ${editing ? `<div style="margin-top:6px;display:flex;gap:6px">
               <input class="field" data-tagfield="${f.id}" maxlength="200" value="${(f.tags || []).join(", ")}" aria-label="Tags for ${f.name}">
               <button class="btn" data-tagsave="${f.id}">Save</button>
