@@ -304,7 +304,7 @@ class ReportToolTests(unittest.TestCase):
     def test_report_checks_a_domain(self):
         from app.services import dut_regdomain
         is_dut = host_scan_report.dut_matcher(["00:00:00:00:00:01"])
-        us = host_scan_report.build_report(parse(SCAN), is_dut, dut_regdomain.DOMAINS[1])
+        us = host_scan_report.build_report(parse(SCAN), is_dut, dut_regdomain.DOMAINS[0])
         self.assertEqual([f for f in us["findings"] if f["rule"] == "country_mismatch"], [])
         eu = host_scan_report.build_report(parse(SCAN), is_dut, dut_regdomain.DOMAINS[2])
         country = [f for f in eu["findings"] if f["rule"] == "country_mismatch"]
