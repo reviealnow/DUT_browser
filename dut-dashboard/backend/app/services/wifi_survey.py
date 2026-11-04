@@ -18,9 +18,10 @@ Parsed fields per BSS (iw scan, verified on iw 5.x):
                      undone, then UTF-8, else 0x + hex)
   capability       : privacy (bit 4 of the hex value; the word "Privacy" when
                      there is no hex) and capability_names (the words iw
-                     printed). WEP when iw names Privacy and there is neither
-                     RSN nor WPA: the DUT's busybox iw names only ESS and
-                     prints no WPA element, so there WEP and WPA1 look alike
+                     printed). WEP when the Privacy bit is set and there is
+                     neither RSN nor WPA. The DUT's busybox iw names only ESS
+                     and prints no WPA element, so a WPA1 BSS is labelled WEP
+                     there too: that is the bench's decision for the label
   beacon interval  : beacon_interval_tu
   last seen        : last_seen_ms ("N ms ago"; the boottime form is skipped)
   DS Parameter set : advertised_channel, unless HT operation names one
@@ -170,7 +171,10 @@ def _classify_without_rsn(cur: dict) -> None:
     An RSN block that is present but unrecognised is never reported as WEP or
     Open: OWE, for one, sets the Privacy bit too. Without RSN, a WPA (v1)
     block decides; without either, the Privacy capability bit tells WEP from
-    Open. No capability line at all keeps the old answer, Open.
+    Open -- read from the hex value, so an iw that names only ESS (the
+    DUT's) labels it too. That iw prints no WPA element, so a WPA1 BSS reads
+    as WEP there; WEP is the label the bench chose for "Privacy, no RSN".
+    No capability line at all keeps the old answer, Open.
     """
     if cur["security"] is not None:
         return
@@ -183,10 +187,8 @@ def _classify_without_rsn(cur: dict) -> None:
             cur["security"], cur["category"] = "WPA-Enterprise", "enterprise"
         else:
             cur["security"], cur["category"] = "WPA-Personal", "personal"
-    elif "Privacy" in cur["capability_names"]:
-        # Same label and category the nmcli fallback already uses. Only when
-        # iw names the bit: an iw that names only ESS (the DUT's) prints no
-        # WPA element either, so Privacy alone there may be WEP or WPA1.
+    elif cur["privacy"]:
+        # Same label and category the nmcli fallback already uses.
         cur["security"], cur["category"] = "WEP", "personal"
     else:
         cur["security"], cur["category"] = "Open", None

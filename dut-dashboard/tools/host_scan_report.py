@@ -88,9 +88,9 @@ def security_label(row: dict) -> str:
         return "WPA1"
     if row.get("privacy") is False:
         return "Open"
-    # No WPA key: this iw shows no WPA element (scan_rows), so Privacy alone
-    # may be either.
-    return "WEP" if "wpa_version" in row else "WEP or WPA1"
+    # Privacy without RSN or WPA, Site Survey's label -- also where this iw
+    # shows no WPA element (scan_rows), so a WPA1 BSS reads as WEP there.
+    return "WEP"
 
 
 def build_report(rows: list[dict], is_dut,

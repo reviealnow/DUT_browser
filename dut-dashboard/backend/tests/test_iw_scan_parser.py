@@ -269,10 +269,10 @@ class RawElementFieldTests(unittest.TestCase):
     def test_privacy_from_the_hex_when_iw_names_only_ess(self):
         # The DUT's busybox iw prints "capability: ESS (0x0431)": 0x0431 has
         # the Privacy bit (0x0010) set although the word is missing.
-        # That iw prints no WPA element either, so the label cannot tell WEP
-        # from WPA1 there and stays as it was; the raw bit is still exact.
+        # That iw prints no WPA element either, so WEP and WPA1 look alike
+        # there; the bench chose "WEP" as the label for Privacy without RSN.
         for cap, privacy, names, security in (
-                ("ESS (0x0431)", True, ["ESS"], "Open"),
+                ("ESS (0x0431)", True, ["ESS"], "WEP"),
                 ("ESS (0x0421)", False, ["ESS"], "Open"),
                 ("ESS Privacy ShortSlotTime (0x0411)", True, ["ESS", "Privacy", "ShortSlotTime"], "WEP"),
                 ("ESS Privacy", True, ["ESS", "Privacy"], "WEP")):  # no hex at all

@@ -316,7 +316,7 @@ class ReportToolTests(unittest.TestCase):
         by = by_ssid(parse(SCAN))
         self.assertEqual(label(by["wep"]), "WEP")
         self.assertEqual(label(by["guest"]), "Open")
-        self.assertEqual(label(parse(DUT_SHAPED)[0]), "WEP or WPA1")
+        self.assertEqual(label(parse(DUT_SHAPED)[0]), "WEP")
 
     def test_ssh_target_guard(self):
         for bad in ("host", "a@b;id", "-oProxyCommand=x@h", "-oX@h", "a@b c"):
