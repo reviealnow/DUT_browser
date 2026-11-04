@@ -129,7 +129,7 @@ them raises:
 
 | Field | From the `iw scan` text |
 |---|---|
-| `privacy` | `capability:` line contains `Privacy` |
+| `privacy` | bit 4 of the `capability:` hex value; the word `Privacy` only when there is no hex |
 | `wpa1` | a `WPA:` block, with its own version, group cipher, pairwise ciphers and AKMs |
 | `country`, `country_environment` | `Country: XX	Environment: …` |
 | `country_channels` | the `Channels [a - b] @ N dBm` triplets under Country |
@@ -143,6 +143,26 @@ from a bench Host** (a Pi 4, `iw` version recorded), committed as an
 anonymised fixture. The current fixtures are hand-written, and §A12 shows
 what that has already cost. Site Survey reuses this parser on the DUT's
 busybox `iw`, so it gains the same fields, and its tests must stay green.
+
+**Status.** #216 (merged) added `privacy`, `wpa1`, `country`, the advertised
+channel, beacon interval, DTIM and scan age. Still open: `country_environment`,
+`country_channels`, `power_constraint_db` and `tpc_tx_power_dbm`.
+
+**The DUT's busybox `iw` names only `ESS`** on the capability line
+(`capability: ESS (0x0431)`) and prints no WPA element. That is why `privacy`
+comes from the hex value. It also means WEP and WPA1 look alike there.
+Decided in #216:
+
+- Site Survey labels "Privacy, no RSN" as `WEP` on every `iw`, the DUT's
+  included. A WPA1 BSS seen by the DUT is therefore labelled `WEP`; that is
+  accepted over a `WEP or WPA1` hedge. Before #216 the DUT showed these as
+  `Open`.
+- The `legacy_security` WEP *fail* stays silent where `iw` cannot show WPA:
+  `services/scan_rows.py` leaves the WPA keys out of the row, so the rule reads
+  them as "this source cannot see the field".
+
+#216 also fixed `_freq_to_channel`: every 6 GHz channel was one too high, and
+2484 MHz gave 15 instead of 14. Site Survey shows these numbers.
 
 ## A7. SKU checks (the DUT's own BSSes)
 
@@ -268,17 +288,19 @@ weighting.
      and `\xNN` SSID escapes.
    - Country and power are still item 3's.
 3. `feat(backend): parse privacy, WPA1, country and power from iw scan` — §A6.
+   Mostly done in #216; country environment, channel triplets and power
+   remain.
 4. `feat(backend): run the capability survey on the DUT's Host` — §A5,
    including the collector `survey_iface` property and the probe. It also adds
    the engineer-only `refresh` route and the stored report (§A10, Q6). The
    change to guest behaviour is listed separately.
 5. `feat(backend): findings and channel occupancy in the capability report`
    — §A8 and §A9.
-6. `feat(backend): SKU checks from the DUT console` — §A7. #216 carries the
-   domain table, the AP6 domain parser and a host-side report CLI
-   (`tools/host_scan_report.py`). The CLI is the vehicle for the Pi physical
-   verification, but it is to be rebuilt on the existing `iw` parser rather
-   than a second one.
+6. `feat(backend): SKU checks from the DUT console` — §A7. #216 (merged)
+   carries the domain table, the AP6 domain parser, `country_mismatch`,
+   `channel_occupancy`, the `services/scan_rows.py` adapter and a host-side
+   report CLI (`tools/host_scan_report.py`), all on the existing `iw` parser.
+   The CLI is the vehicle for the Pi physical verification.
 7. `feat(frontend): SSID Capability findings, SKU checks and occupancy`, and
    the demo page.
 
