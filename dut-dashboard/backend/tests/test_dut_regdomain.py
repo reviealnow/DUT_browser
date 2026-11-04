@@ -34,6 +34,12 @@ class CommandAndParseTests(unittest.TestCase):
         self.assertIsNone(rd.command_for("AP7_430"))  # command not recorded yet
         self.assertIsNone(rd.command_for(None))
 
+    def test_parse_captured_ap6_output(self):
+        # Verbatim from an AP6_420E EU SKU's console, 2026-11-03.
+        captured = "AP6_420E# board_config get domain\n2\nAP6_420E#"
+        self.assertEqual(rd.parse_domain(captured), rd.DOMAINS[2])
+        self.assertEqual(rd.parse_domain(captured.replace("\n", "\r\n")), rd.DOMAINS[2])
+
     def test_parse(self):
         self.assertEqual(rd.parse_domain("board_config get domain\n2\nAP6_420E# ").number, 2)
         self.assertEqual(rd.parse_domain("domain=5\n").number, 5)
