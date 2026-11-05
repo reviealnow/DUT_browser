@@ -76,6 +76,10 @@ def build_capability_report(
                 if field in ("dot11k", "dot11v", "dot11r"):
                     val_a = _norm_bool(val_a)
                     val_b = _norm_bool(val_b)
+                # Unknown config security / PMF (no hostapd conf read) cannot
+                # disagree with the beacons, so it is not reported as a diff.
+                if field in ("security", "pmf") and val_a is None:
+                    continue
                 if val_a != val_b and not (val_a is None and val_b is None):
                     diffs.append({"field": field, "label": label, "config": val_a, "observed": val_b})
 
