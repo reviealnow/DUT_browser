@@ -600,7 +600,13 @@ def get_ssid_capabilities(
 
         akm_list: list[str] = conf.get("wpa_key_mgmt", [])
         ieee80211w: int = conf.get("ieee80211w", 0)
-        security, category, pmf = _classify_security(akm_list, ieee80211w)
+        if conf:
+            security, category, pmf = _classify_security(akm_list, ieee80211w)
+        else:
+            # No hostapd conf was read for this VAP (the dump failed, or no
+            # file names the interface). Its security is unknown, not Open:
+            # "Open" is a claim about the DUT that nothing here supports.
+            security = category = pmf = None
 
         gen = _derive_generation(ieee_token, freq_mhz) if ieee_token else None
 

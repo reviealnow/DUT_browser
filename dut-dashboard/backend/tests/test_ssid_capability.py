@@ -11,8 +11,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from app.serial.serial_worker import SerialWorker
+from app.services.capability_report import build_capability_report
 from app.services.wifi_clients import (
     _HOSTAPD_CONF_CMD,
+    get_ssid_capabilities,
     _band_from_freq,
     _classify_security,
     _derive_generation,
@@ -244,3 +247,74 @@ class TestBandFromFreq(unittest.TestCase):
 
     def test_none(self) -> None:
         self.assertIsNone(_band_from_freq(None))
+
+
+class _StubParser:
+    def reset(self) -> None:
+        pass
+
+    def flush(self) -> None:
+        pass
+
+    def feed(self, line: str) -> None:
+        pass
+
+
+class _CannedWorker(SerialWorker):
+    """capture_command double: the samples above, with a chosen conf dump."""
+
+    def __init__(self, conf_dump: str) -> None:
+        super().__init__(_StubParser())
+        self._conf_dump = conf_dump
+
+    def capture_command(self, cmd: str, timeout: float = 6.0) -> str:
+        if cmd == "iw dev":
+            return _IW_DEV_SAMPLE
+        if cmd == "iwconfig":
+            return _IWCONFIG_SAMPLE
+        if cmd == _HOSTAPD_CONF_CMD:
+            return self._conf_dump
+        raise AssertionError(f"unexpected command {cmd!r}")
+
+
+class TestSecurityWithoutConf(unittest.TestCase):
+    """A VAP whose hostapd conf was not read is unknown, never Open (#223)."""
+
+    def caps(self, conf_dump: str) -> dict[str, dict]:
+        return {c["iface"]: c for c in get_ssid_capabilities(_CannedWorker(conf_dump))}
+
+    def test_vap_without_a_conf_is_unknown(self) -> None:
+        # The dump names ath8 and ath16 but not ath0.
+        caps = self.caps(_HOSTAPD_CONF_DUMP)
+        self.assertEqual((caps["ath8"]["security"], caps["ath8"]["pmf"]), ("WPA3-Personal", "required"))
+        self.assertEqual(caps["ath16"]["category"], "personal")
+        for key in ("security", "category", "pmf"):
+            self.assertIsNone(caps["ath0"][key], key)
+
+    def test_failed_dump_leaves_every_vap_unknown(self) -> None:
+        # What the bench AP6_420 returned before #222: every cat failed.
+        failed = ('====CONF===="/etc/hostapd1.conf"\n'
+                  "cat: can't open '\"/etc/hostapd1.conf\"': No such file or directory\n")
+        for c in self.caps(failed).values():
+            self.assertIsNone(c["security"], c["iface"])
+            self.assertIsNone(c["pmf"], c["iface"])
+
+    def test_a_read_conf_without_wpa_is_still_open(self) -> None:
+        caps = self.caps("====CONF====/etc/hostapd1.conf\ninterface=ath0\nssid=guest\n")
+        self.assertEqual((caps["ath0"]["security"], caps["ath0"]["pmf"]), ("Open", "disabled"))
+
+
+class TestUnknownConfigIsNotADiff(unittest.TestCase):
+    def report(self, security, pmf) -> list[dict]:
+        ssids = [{"iface": "ath0", "bssid": "02:00:00:00:00:01", "band": "5GHz",
+                  "security": security, "pmf": pmf, "generation": "Wi-Fi 6"}]
+        survey = {"available": True, "scannable_bands": ["5GHz"],
+                  "bss": [{"bssid": "02:00:00:00:00:01", "security": "WPA2-Personal",
+                           "pmf": "optional", "generation": "Wi-Fi 6"}]}
+        return build_capability_report(ssids, survey)["rows"][0]["diffs"]
+
+    def test_unknown_security_and_pmf_are_not_diffs(self) -> None:
+        self.assertEqual(self.report(None, None), [])
+
+    def test_a_known_mismatch_is_still_a_diff(self) -> None:
+        self.assertEqual([d["field"] for d in self.report("Open", "disabled")], ["security", "pmf"])
