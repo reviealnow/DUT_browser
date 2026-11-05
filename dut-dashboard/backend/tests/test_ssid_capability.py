@@ -5,9 +5,14 @@ Real AP6 840E sample data used as fixtures — command format verified 2026-06.
 
 from __future__ import annotations
 
+import shutil
+import subprocess
+import tempfile
 import unittest
+from pathlib import Path
 
 from app.services.wifi_clients import (
+    _HOSTAPD_CONF_CMD,
     _band_from_freq,
     _classify_security,
     _derive_generation,
@@ -157,6 +162,25 @@ class TestParseHostapdConfs(unittest.TestCase):
         dump = "====CONF====/etc/hostapd1.conf\ninterface=ath0\n#wpa_key_mgmt=WPA-PSK\nwpa_key_mgmt=SAE\n"
         r = _parse_hostapd_confs(dump)
         self.assertEqual(r["ath0"]["wpa_key_mgmt"], ["SAE"])
+
+
+@unittest.skipIf(shutil.which("sh") is None, "needs a POSIX sh")
+class TestHostapdConfCommand(unittest.TestCase):
+    """Run the dump command through a real shell. The parser tests above feed
+    `_parse_hostapd_confs` its input directly and never see the command, so
+    they passed while the DUT shell was asked to cat '"/etc/hostapd1.conf"'."""
+
+    def test_dump_reads_every_conf(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "hostapd1.conf").write_text("interface=ath0\nwpa_key_mgmt=SAE\nieee80211w=2\n")
+            Path(tmp, "hostapd2.conf").write_text("interface=ath1\nwpa_key_mgmt=WPA-PSK\n")
+            cmd = _HOSTAPD_CONF_CMD.replace("/etc/", tmp + "/")
+            out = subprocess.run(["sh", "-c", cmd], capture_output=True, text=True, check=False)
+        self.assertEqual(out.stderr, "")
+        r = _parse_hostapd_confs(out.stdout)
+        self.assertEqual(set(r), {"ath0", "ath1"})
+        self.assertEqual(r["ath0"]["wpa_key_mgmt"], ["SAE"])
+        self.assertEqual(r["ath0"]["ieee80211w"], 2)
 
 
 class TestDeriveGeneration(unittest.TestCase):
