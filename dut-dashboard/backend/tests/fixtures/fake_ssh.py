@@ -15,7 +15,7 @@ Three behaviours are modelled, and each one is load-bearing:
 
 Driven by the environment so one script covers every case:
 
-  FAKE_SSH_MODE      ok | denied | hostkey | echo | silent | unreachable
+  FAKE_SSH_MODE      ok | denied | hostkey | echo | silent | unreachable | key
                      (default: ok)
   FAKE_SSH_PASSWORD  what counts as correct        (default: correct)
   FAKE_SSH_DENIAL    the refusal line to print     (default: ssh's usual one)
@@ -49,6 +49,14 @@ def main() -> int:
         sys.stderr.write("ssh: connect to host 10.0.0.9 port 22: No route to host\n")
         sys.stderr.flush()
         return 255
+
+    if MODE == "key":
+        # A key login (BatchMode=yes): no terminal at all, straight to the
+        # remote command. This is also the closer model of a remote process
+        # for tests that kill the local ssh: on a real Host the command runs
+        # under sshd, not in the session of the pty this side typed into, so
+        # nothing sends it a SIGHUP when the local ssh goes away.
+        os.execvp("/bin/sh", ["sh", "-c", sys.argv[-1]])
 
     if MODE == "silent":
         # Reachable, alive, and never says anything -- a box that accepted the
