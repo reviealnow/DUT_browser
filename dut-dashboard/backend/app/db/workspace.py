@@ -178,6 +178,45 @@ CREATE TABLE IF NOT EXISTS fleet_profiles (
 );
 """
 
+# Packet Monitor (docs/design-packet-monitor.md §B8). No foreign key to `files`:
+# deleting a Files row has its own ordered rule (§B4 *Deletion*) that cancels
+# remote work first, and a cascade would delete these rows before that ran.
+PACKET_ANALYSES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS packet_analyses (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  file_id INTEGER NOT NULL,
+  file_sha256 TEXT NOT NULL,
+  collector_id TEXT NOT NULL,
+  mode_id TEXT NOT NULL,
+  display_filter TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'queued'
+    CHECK(status IN ('queued','running','done','failed','cancelled')),
+  error TEXT,
+  frames_total INTEGER,
+  frames_shown INTEGER,
+  rows_dropped INTEGER,
+  tshark_version TEXT,
+  created_by_user_id INTEGER,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  finished_at TIMESTAMP
+);
+"""
+
+# One row per capture staged on a Host. "Pinned" is deliberately not a column:
+# it is derived from `packet_analyses` rows in queued/running, so it cannot
+# drift. `size_bytes` is what the per-Host byte budget (§B4) is counted in.
+PACKET_HOST_STAGE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS packet_host_stage (
+  collector_id TEXT NOT NULL,
+  file_sha256 TEXT NOT NULL,
+  remote_path TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  staged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  last_used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (collector_id, file_sha256)
+);
+"""
+
 
 def _db_path() -> Path:
     return WORKSPACE_DB
@@ -223,6 +262,8 @@ def init_db() -> None:
         conn.execute(AUTH_TOKENS_SCHEMA)
         conn.execute(ROLE_CHANGES_SCHEMA)
         conn.execute(FLEET_PROFILES_SCHEMA)
+        conn.execute(PACKET_ANALYSES_SCHEMA)
+        conn.execute(PACKET_HOST_STAGE_SCHEMA)
         _ensure_column(conn, "users", "updated_at")
         _ensure_column(conn, "users", "last_seen_at")
         # Verified authorship (P71d). Nullable with no backfill on purpose: a
