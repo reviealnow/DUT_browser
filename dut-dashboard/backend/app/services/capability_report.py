@@ -21,6 +21,9 @@ _DIFF_FIELDS = (
     ("dot11r", "802.11r"),
 )
 
+# Config fields that are None only when no hostapd conf was read for the VAP.
+_UNKNOWABLE_FIELDS = ("security", "pmf")
+
 
 def _norm_bool(v: Any) -> bool | None:
     """Normalise truthy/None/False to bool|None for consistent diff."""
@@ -66,6 +69,11 @@ def build_capability_report(
         b = bss_index.get(bssid_a) if bssid_a else None
         match = b is not None
 
+        # Config fields that are unknown (no hostapd conf read) and so were
+        # never compared. Without this, a row whose only comparable fields
+        # agree would read as a clean match although security was skipped.
+        unknown: list[str] = [f for f in _UNKNOWABLE_FIELDS if a.get(f) is None]
+
         diffs: list[dict] = []
         if match and b is not None:
             for field, label in _DIFF_FIELDS:
@@ -78,7 +86,7 @@ def build_capability_report(
                     val_b = _norm_bool(val_b)
                 # Unknown config security / PMF (no hostapd conf read) cannot
                 # disagree with the beacons, so it is not reported as a diff.
-                if field in ("security", "pmf") and val_a is None:
+                if field in unknown:
                     continue
                 if val_a != val_b and not (val_a is None and val_b is None):
                     diffs.append({"field": field, "label": label, "config": val_a, "observed": val_b})
@@ -114,6 +122,7 @@ def build_capability_report(
             # Reconciliation.
             "match": match,
             "diffs": diffs,
+            "unknown": unknown,
             "caveat": caveat,
         })
 

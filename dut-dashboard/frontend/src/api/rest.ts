@@ -1340,6 +1340,8 @@ export type CapabilityRow = {
   observed_signal_dbm: number | null;
   match: boolean;
   diffs: CapabilityDiff[];
+  /** Config fields unknown (no hostapd conf read), so never compared. Absent in older snapshots. */
+  unknown?: string[];
   caveat: string | null;
 };
 

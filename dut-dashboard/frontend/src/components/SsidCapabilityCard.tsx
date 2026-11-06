@@ -14,11 +14,24 @@ function fmtStr(v: string | null | undefined): string {
   return v ?? "—";
 }
 
+/** A matched row with no diffs where some config fields were never compared. */
+function isUnknownMatch(row: CapabilityRow): boolean {
+  return row.match && row.diffs.length === 0 && (row.unknown ?? []).length > 0;
+}
+
 /** A compact row showing config vs observed for one SSID. */
 function CapabilityRowView({ row }: { row: CapabilityRow }) {
   const [expanded, setExpanded] = useState(false);
   const hasDiffs = row.diffs.length > 0;
-  const rowClass = hasDiffs ? "cap-row cap-row--diff" : row.match ? "cap-row cap-row--ok" : "cap-row cap-row--miss";
+  const unknownMatch = isUnknownMatch(row);
+  const unknownNote = `Config ${(row.unknown ?? []).join(" / ")} unknown (no hostapd conf read), so not compared with the scan`;
+  const rowClass = hasDiffs
+    ? "cap-row cap-row--diff"
+    : unknownMatch
+      ? "cap-row"
+      : row.match
+        ? "cap-row cap-row--ok"
+        : "cap-row cap-row--miss";
 
   return (
     <>
@@ -47,6 +60,8 @@ function CapabilityRowView({ row }: { row: CapabilityRow }) {
           {row.match ? (
             hasDiffs ? (
               <span className="pill warn">⚠ {row.diffs.length} diff{row.diffs.length > 1 ? "s" : ""}</span>
+            ) : unknownMatch ? (
+              <span className="pill idle" title={unknownNote}>? config unknown</span>
             ) : (
               <span className="pill ok">✓ match</span>
             )
@@ -77,6 +92,9 @@ function CapabilityRowView({ row }: { row: CapabilityRow }) {
                       <div className="stat-row"><dt>Signal (host)</dt><dd>{row.observed_signal_dbm} dBm</dd></div>
                     ) : null}
                   </>
+                ) : null}
+                {row.match && (row.unknown ?? []).length > 0 ? (
+                  <div className="stat-row"><dt>Not compared</dt><dd style={{ color: "var(--warn)" }}>{unknownNote}</dd></div>
                 ) : null}
                 {row.caveat ? (
                   <div className="stat-row"><dt>Note</dt><dd style={{ color: "var(--warn)" }}>{row.caveat}</dd></div>
@@ -170,7 +188,8 @@ export default function SsidCapabilityCard({ dutId = DEFAULT_DUT_ID }: { dutId?:
 }
 
 function CapabilityReportBody({ report }: { report: CapabilityReport }) {
-  const matchCount = report.rows.filter((r) => r.match && r.diffs.length === 0).length;
+  const unknownCount = report.rows.filter(isUnknownMatch).length;
+  const matchCount = report.rows.filter((r) => r.match && r.diffs.length === 0).length - unknownCount;
   const diffCount = report.rows.filter((r) => r.match && r.diffs.length > 0).length;
   const missCount = report.rows.filter((r) => !r.match).length;
 
@@ -179,6 +198,7 @@ function CapabilityReportBody({ report }: { report: CapabilityReport }) {
       <div className="cap-summary">
         <span className="pill ok">✓ {matchCount} match</span>
         {diffCount > 0 ? <span className="pill warn">⚠ {diffCount} diff</span> : null}
+        {unknownCount > 0 ? <span className="pill idle">? {unknownCount} config unknown</span> : null}
         {missCount > 0 ? <span className="pill danger">✗ {missCount} miss</span> : null}
         {!report.available_b ? (
           <span className="pill idle" title="Set SURVEY_WIFI_IFACE on the host to enable Source B">

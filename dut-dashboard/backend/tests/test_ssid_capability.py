@@ -305,13 +305,28 @@ class TestSecurityWithoutConf(unittest.TestCase):
 
 
 class TestUnknownConfigIsNotADiff(unittest.TestCase):
-    def report(self, security, pmf) -> list[dict]:
+    def row(self, security, pmf) -> dict:
         ssids = [{"iface": "ath0", "bssid": "02:00:00:00:00:01", "band": "5GHz",
                   "security": security, "pmf": pmf, "generation": "Wi-Fi 6"}]
         survey = {"available": True, "scannable_bands": ["5GHz"],
                   "bss": [{"bssid": "02:00:00:00:00:01", "security": "WPA2-Personal",
                            "pmf": "optional", "generation": "Wi-Fi 6"}]}
-        return build_capability_report(ssids, survey)["rows"][0]["diffs"]
+        return build_capability_report(ssids, survey)["rows"][0]
+
+    def report(self, security, pmf) -> list[dict]:
+        return self.row(security, pmf)["diffs"]
+
+    def test_unknown_fields_are_named_on_the_row(self) -> None:
+        # The card must not show a clean match for a row whose security was
+        # never compared; `unknown` is what lets it tell the two apart.
+        row = self.row(None, None)
+        self.assertTrue(row["match"])
+        self.assertEqual(row["diffs"], [])
+        self.assertEqual(row["unknown"], ["security", "pmf"])
+
+    def test_a_known_config_has_nothing_unknown(self) -> None:
+        self.assertEqual(self.row("WPA2-Personal", "optional")["unknown"], [])
+        self.assertEqual(self.row("Open", "disabled")["unknown"], [])
 
     def test_unknown_security_and_pmf_are_not_diffs(self) -> None:
         self.assertEqual(self.report(None, None), [])
