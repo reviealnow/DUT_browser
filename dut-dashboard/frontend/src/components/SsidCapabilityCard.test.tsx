@@ -81,6 +81,19 @@ describe("SsidCapabilityCard status pill", () => {
     expect(screen.getAllByText("✓ match")).toHaveLength(1);
   });
 
+  it("names the unknown fields by label, without blaming a missing conf", async () => {
+    // #223 bench: the conf was read, but 802.11k/v are set by the driver.
+    getCapabilityReport.mockResolvedValue(report([
+      row({ observed_dot11k: true, observed_dot11v: true, unknown: ["dot11k", "dot11v"] }),
+    ]));
+    render(<SsidCapabilityCard dutId="dut-d" />);
+
+    const pill = await screen.findByText("? config unknown");
+    expect(pill.getAttribute("title")).toBe(
+      "802.11k / 802.11v not known from the DUT's hostapd conf, so not compared with the scan",
+    );
+  });
+
   it("still shows a match when nothing was unknown, including older snapshots", async () => {
     const legacy = row({ iface: "ath9" });
     delete legacy.unknown;
