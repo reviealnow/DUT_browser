@@ -48,6 +48,11 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: dut-dashboard/backend/requirements.txt
+      # Packet Monitor sends one command string to a Host's login shell, which
+      # may be any of these (docs/design-packet-monitor.md §B10). The runner
+      # image has sh and bash only; tests/test_tshark_runner.py runs the string
+      # through every shell it finds, so these two are what make it a matrix.
+      - run: sudo apt-get update -q && sudo apt-get install -y -q zsh csh
       - run: pip install -r requirements.txt
       - run: python -m pytest -q
 
