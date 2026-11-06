@@ -48,6 +48,8 @@ CONTEXT_BUNDLE_DIR = LOG_DIR / "context-bundles"
 DATA_DIR = BASE_DIR / "data"
 WORKSPACE_DB = DATA_DIR / "workspace.db"
 UPLOAD_DIR = DATA_DIR / "uploads"
+# Packet Monitor results and per-tshark-version field tables (docs/design-packet-monitor.md §B8).
+PACKETS_DIR = DATA_DIR / "packets"
 # HMAC key for session cookies; generated on first use, never committed.
 SESSION_SECRET_FILE = DATA_DIR / "session_secret"
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB

@@ -206,6 +206,117 @@ def password_auth_options() -> list[str]:
     ]
 
 
+def build_ssh_argv(
+    *,
+    user: str,
+    host: str,
+    remote_command: str,
+    port: int = 22,
+    key_path: str | None = None,
+    connect_timeout: int = 8,
+    ssh_binary: str = "ssh",
+) -> list[str]:
+    """The ssh command line for one login, by either of the two ways in.
+
+    A key means ``BatchMode=yes``: ssh will never stop to ask anyone anything.
+    No key means a password typed at a terminal, with the options that make
+    that password the only thing that can succeed (`password_auth_options`).
+    Host-key checking stays at ssh's default in both, so an unknown host is
+    refused rather than trusted.
+
+    `collector.ssh_session.open_session` and `SerialWorker._open_ssh` still
+    build their own; moving them here is a separate change (design doc §B14
+    Q5), because the serial path is not one to touch in passing.
+    """
+    common = [
+        "-o", f"ConnectTimeout={int(connect_timeout)}",
+        "-o", "ConnectionAttempts=1",
+        "-p", str(int(port)),
+        f"{user}@{host}",
+        remote_command,
+    ]
+    if key_path:
+        return [ssh_binary, "-o", "BatchMode=yes", "-i", key_path, *common]
+    return [ssh_binary, *password_auth_options(), *common]
+
+
+class SshChild:
+    """One authenticated ssh child and the terminal, if any, that logged it in.
+
+    stdin, stdout and stderr are the child's plain pipes. When the login was a
+    password, the pty is drained for as long as this object is open: a child
+    whose controlling terminal goes unread cannot finish exiting (`TtyDrain`).
+    """
+
+    def __init__(
+        self,
+        process: subprocess.Popen[bytes],
+        master_fd: int | None = None,
+        slave_fd: int | None = None,
+        drain: TtyDrain | None = None,
+    ) -> None:
+        self.process = process
+        self._master_fd = master_fd
+        self._slave_fd = slave_fd
+        self._drain = drain
+
+    def close(self) -> None:
+        """Stop the child if it is still running and release everything it held."""
+        if self.process.poll() is None:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait(timeout=3)
+        if self._drain is not None:
+            self._drain.stop()
+            self._drain = None
+        close_tty(self._master_fd, self._slave_fd)
+        self._master_fd = self._slave_fd = None
+        for stream in (self.process.stdin, self.process.stdout, self.process.stderr):
+            if stream is not None:
+                try:
+                    stream.close()
+                except OSError:
+                    pass
+
+
+def spawn_and_authenticate(
+    argv: list[str], *, password: str = "", timeout: float = PROMPT_TIMEOUT_SEC
+) -> SshChild:
+    """Start `argv` and get it past the login, by key or by password.
+
+    With no password the child is started on plain pipes (the argv carries
+    ``BatchMode=yes``). With one, the child gets a controlling terminal, the
+    password is typed at its prompt once, and the terminal is drained from
+    then on. A login refused *after* the prompt is not detected here: ssh exits
+    and says why on stderr, which the caller reads like any other failure.
+
+    Raises :class:`PtySshError`, never with the password in it.
+    """
+    if not password:
+        try:
+            process = subprocess.Popen(
+                argv,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                bufsize=0,
+            )
+        except (OSError, ValueError) as exc:
+            raise PtySshError(f"Could not start ssh: {exc}") from exc
+        return SshChild(process)
+
+    process, master_fd, slave_fd = spawn_with_tty(argv)
+    try:
+        answer_password_prompt(master_fd, password, process, timeout=timeout)
+    except BaseException:
+        SshChild(process, master_fd, slave_fd).close()
+        raise
+    return SshChild(process, master_fd, slave_fd, TtyDrain(master_fd))
+
+
 def _drain_loop(master_fd: int, stop: threading.Event) -> None:
     while not stop.is_set():
         try:

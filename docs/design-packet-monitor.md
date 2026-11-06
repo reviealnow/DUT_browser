@@ -519,10 +519,19 @@ nullable for legacy rows: compute and store it on first use, and require
   the upload one step, so the same 50 MB is not sent twice concurrently. The
   `test -f` on the Host is an optimisation inside that lock, not the guard.
 
-**Eviction.** At most 20 captures per Host, least recently used first, after
-each stage — but a capture referenced by a `queued` or `running` analysis on
-that Host is **pinned** and never evicted. If pinned captures alone exceed the
-limit, the limit is exceeded until they finish, and the probe reports it.
+**Eviction.** The captures staged on one Host total at most **200 MB**
+(`packet_hosts.STAGE_BUDGET_BYTES`), least recently used evicted first, after
+each stage and after each probe — but a capture referenced by a `queued` or
+`running` analysis on that Host is **pinned** and never evicted, and the
+capture just staged is protected during its own stage. If pinned captures alone
+exceed the budget, it is exceeded until they finish, and the probe reports it.
+The budget is in bytes rather than a count because the Host is often a
+Raspberry Pi serving DUT consoles from an SD card: twenty 50 MB captures would
+be a gigabyte on a card that must not fill (Q11).
+
+**Free space.** A stage also refuses, before writing a byte, when the Host
+would be left with less than 200 MB free once the capture is on it — the same
+floor the probe applies (§B5, Q10).
 
 **Deletion** (the single rule; §B3 and §B14 Q4 refer here). Deleting a
 Files-workspace row first cancels its queued and running analyses (running
@@ -554,12 +563,22 @@ one succeeded. It checks:
   (§B6) and to decode by type;
 - tools: checksum (`sha256sum` or `shasum`), and whether `base64 -d` or only
   `base64 -D` (older macOS) decodes — §B10 depends on it;
-- free space in `~`;
-- the §B4 sweeps (staged captures with no Files row, LRU beyond 20 unless
-  pinned, stale `*.tmp`) and the §B3 `run/` sweep (orphaned tshark killed).
+- free space in `~`: a Host with less than **200 MB** free is not selectable,
+  and the probe says how much it found (Q10);
+- the §B4 sweeps (staged captures with no Files row, LRU beyond the 200 MB
+  budget unless pinned, stale `*.tmp`) and the §B3 `run/` sweep (orphaned
+  tshark killed). The Files digests to keep go to the probe script on stdin, so
+  the §B10 16 KB script limit does not bound how many files the workspace holds.
+  Jobs this backend is still running are passed in by id; their pid files and
+  their processes survive the sweep, so an on-demand probe never kills a live
+  analysis.
 
 A Host without tshark is shown as "tshark not installed" with the install
 command for its OS, and is not selectable.
+
+Probe results are held **in memory**, per collector (Q12): the Host is probed
+on every connect, so a stored result could only ever be a stale one. The field
+table is the exception — it is a file per tshark *version*, not per Host.
 
 ## B6. Test Modes are data (implemented in #214)
 
@@ -704,10 +723,12 @@ output of synthetic beacons, regenerable from
     display_filter, status, error, frames_total, frames_shown,
     rows_dropped, tshark_version, created_by_user_id, created_at,
     finished_at)`;
-  - `packet_host_stage(collector_id, file_sha256, remote_path, staged_at,
-    last_used_at)`. "Pinned" (§B4) is not a column: it is derived from
+  - `packet_host_stage(collector_id, file_sha256, remote_path, size_bytes,
+    staged_at, last_used_at)`. "Pinned" (§B4) is not a column: it is derived from
     `packet_analyses` rows in `queued`/`running` for that Host and sha, so it
-    cannot drift.
+    cannot drift. `size_bytes` is what the §B4 byte budget is counted in.
+  - Both tables land with B-PR 1, because staging and eviction need them
+    (Q13).
 - Rows: `data/packets/<analysis_id>.jsonl` (gitignored by the existing `data/`
   rule), plus `<analysis_id>.idx` — the byte offset of every 500th row — so
   `GET rows?offset=` seeks instead of scanning a 200 MB file. Findings:
@@ -870,7 +891,9 @@ No chart or UI library; no CDN.
 
 1. `feat(backend): tshark runner, host probe and staging` — includes the new
    `pty_ssh.build_ssh_argv` / `spawn_and_authenticate` helpers with this one
-   caller (Q5), the §B10 command builder, remote kill and the §B4 staging rules.
+   caller (Q5), the §B10 command builder, remote kill, the §B5 probe, the §B4
+   staging rules and the §B8 tables (Q13). No routes: the probe route and the
+   per-Host queue arrive with item 3.
 2. `feat(backend): test modes, decoders and findings rules` — **#214**.
 3. `feat(backend): packets API and analysis jobs` (+ route protection tests).
 4. `feat(frontend): Packet Monitor section`.
@@ -888,12 +911,22 @@ No chart or UI library; no CDN.
 - **Q3 — tshark floor:** 3.6. The probe refuses older Hosts with the version it
   found; field candidates cover 3.6 and newer only.
 - **Q4 — retention:** analysis results in `data/packets/` are deleted after
-  30 days (swept at startup and daily); each Host keeps at most 20 staged
-  captures (LRU, pinned ones excepted); deleting a Files row follows §B4
-  *Deletion*.
+  30 days (swept at startup and daily); the captures staged on each Host total
+  at most 200 MB (LRU, pinned ones excepted — Q11 replaced "at most 20
+  captures"); deleting a Files row follows §B4 *Deletion*.
 - **Q5 — existing ssh callers:** not moved in this work. The shared helpers
   land with their one new caller; moving `SerialWorker` and `open_session` onto
   them is a later, separate refactor PR.
+- **Q10 — free-space floor (decided 2026-11-06):** 200 MB. Below it the probe
+  marks the Host not selectable, and a stage refuses when the capture would
+  leave less than that free.
+- **Q11 — staged-capture budget (decided 2026-11-06):** 200 MB in total per
+  Host, replacing Q4's "at most 20 captures". A Pi's SD card filling up stops
+  the DUT consoles it serves; twenty 50 MB captures would have been 1 GB.
+- **Q12 — where probe results live (decided 2026-11-06):** in memory, per
+  collector; re-probed on every connect.
+- **Q13 — when the §B8 tables land (decided 2026-11-06):** with B-PR 1, since
+  staging, eviction and pinning are built and tested against them there.
 
 ## B15. Live capture (later)
 
