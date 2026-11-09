@@ -53,6 +53,23 @@ exec "{python}" -c 'import json, sys; print(json.dumps(sys.argv[1:]))' "$@"
 """
 
 
+FAKE_IONICE = """#!/bin/sh
+# Stand-in for ionice: record what it was asked to run, then run it.
+{refuse}
+echo "$*" >> "$HOME/ionice-calls"
+shift
+exec "$@"
+"""
+
+
+def install_fake_ionice(bin_dir: Path, *, works: bool) -> Path:
+    """An `ionice` on PATH that either works or refuses, like one without rights."""
+    path = bin_dir / "ionice"
+    path.write_text(FAKE_IONICE.format(refuse="" if works else "exit 1"))
+    path.chmod(0o755)
+    return path
+
+
 def _installed_shells() -> list[str]:
     return [path for path in (shutil.which(name) for name in SHELLS) if path]
 
@@ -292,6 +309,25 @@ class AnalysisScriptTest(_HostSandbox):
         )
         result = tr.run_remote(self.target, script, job_id=tr.new_job_id(), base64_flag=self.base64_flag, timeout=20)
         self.assertNotIn("-Y", json.loads(result.stdout))
+
+    def _analyse(self) -> tr.RemoteResult:
+        script = tr.analysis_script(
+            job_id=tr.new_job_id(), sha256=SHA, tshark_path=str(self.tshark),
+            fields=["wlan.ssid"], available=InnerScriptTest.AVAILABLE,
+        )
+        return tr.run_remote(self.target, script, job_id=tr.new_job_id(), base64_flag=self.base64_flag, timeout=20)
+
+    def test_tshark_runs_in_the_idle_io_class_where_ionice_works(self) -> None:
+        install_fake_ionice(self.bin, works=True)
+        result = self._analyse()
+        self.assertTrue(result.ok, result.error_message())
+        self.assertIn("-c3 nice -n 19 " + str(self.tshark), (self.home / "ionice-calls").read_text())
+
+    def test_an_ionice_that_refuses_the_idle_class_does_not_fail_the_step(self) -> None:
+        install_fake_ionice(self.bin, works=False)
+        result = self._analyse()
+        self.assertTrue(result.ok, result.error_message())
+        self.assertEqual(json.loads(result.stdout)[:2], ["-n", "-r"])
 
 
 class RunRemoteTest(_HostSandbox):

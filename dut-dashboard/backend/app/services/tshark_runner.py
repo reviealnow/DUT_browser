@@ -185,6 +185,15 @@ def _script(body: Iterable[str], tshark_path: str | None = None) -> str:
         lines.append(
             f"PATH={shlex.quote(posixpath.dirname(tshark_path))}:$PATH; export PATH"
         )
+    lines += [
+        # `$low` prefixes everything that reads or writes captures. `nice` only
+        # lowers CPU priority; on a Pi the shared resource is more often the SD
+        # card, so the idle I/O class is added where `ionice` exists and works
+        # (Linux). Tried rather than looked up: an ionice that refuses the idle
+        # class must not fail the step.
+        'low="nice -n 19"',
+        'if ionice -c3 true >/dev/null 2>&1; then low="ionice -c3 nice -n 19"; fi',
+    ]
     lines.extend(body)
     return "\n".join(lines) + "\n"
 
@@ -230,7 +239,7 @@ def _exec_tshark(job_id: str | None, tshark_path: str, args: list[str]) -> list[
         # `$$` is this shell; after `exec` it is tshark's pid, so the file names
         # the process a kill must reach (§B3).
         lines.append(f"echo $$ > run/{job_id}.pid")
-    lines.append(f"exec nice -n 19 {_argv([tshark_path, *args])}")
+    lines.append(f"exec $low {_argv([tshark_path, *args])}")
     return lines
 
 
@@ -321,8 +330,8 @@ def stage_script(*, job_id: str, sha256: str, size_bytes: int, checksum_tool: st
         f'  echo "dut-browser: only $free KB free on this Host; staging needs {need_kb} KB" >&2',
         f"  exit {EXIT_LOW_SPACE}",
         "fi",
-        f'cat > {tmp} || {{ rm -f {tmp}; exit {EXIT_UPLOAD_FAILED}; }}',
-        f"got=$({CHECKSUM_COMMANDS[checksum_tool]} {tmp} | awk '{{print $1}}')",
+        f'$low cat > {tmp} || {{ rm -f {tmp}; exit {EXIT_UPLOAD_FAILED}; }}',
+        f"got=$($low {CHECKSUM_COMMANDS[checksum_tool]} {tmp} | awk '{{print $1}}')",
         f'if [ "$got" != "{sha256}" ]; then',
         f"  rm -f {tmp}",
         '  echo "dut-browser: checksum mismatch after upload" >&2',
@@ -408,7 +417,7 @@ def probe_script(*, job_id: str, active_jobs: Iterable[str] = ()) -> str:
         "else echo base64=; fi",
         "echo \"free_kb=$(df -Pk . | awk 'NR==2 {print $4}')\"",
         f"cat > {keep}",
-        "find captures -type f -name '*.tmp' -mmin +60 -exec rm -f {} + 2>/dev/null",
+        "$low find captures -type f -name '*.tmp' -mmin +60 -exec rm -f {} + 2>/dev/null",
         "for f in captures/*.pcapng; do",
         '  [ -f "$f" ] || continue',
         '  s=${f#captures/}; s=${s%.pcapng}',

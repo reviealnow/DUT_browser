@@ -23,7 +23,7 @@ from app.services import packet_hosts as ph
 from app.services import tshark_runner as tr
 
 sys.path.insert(0, str(Path(__file__).parent))
-from test_tshark_runner import FAKE_SSH, PASSWORD  # noqa: E402
+from test_tshark_runner import FAKE_SSH, PASSWORD, install_fake_ionice  # noqa: E402
 
 PROBE_TSHARK = """#!/bin/sh
 # Stand-in for tshark on a Host: a version, a field list, nothing else.
@@ -255,6 +255,15 @@ class StagingTest(_Bench):
         staged.write_bytes(b"marker")
         ph.stage_capture(self.target, self.ready, sha256=sha, source=path)
         self.assertEqual(staged.read_bytes(), b"marker")
+
+    def test_upload_and_checksum_run_in_the_idle_io_class(self) -> None:
+        install_fake_ionice(self.bin, works=True)
+        path, sha = self.source("a.pcapng", os.urandom(10_000))
+        ph.stage_capture(self.target, self.ready, sha256=sha, source=path)
+        calls = (self.home / "ionice-calls").read_text()
+        self.assertIn("-c3 nice -n 19 cat", calls)
+        self.assertIn(f"-c3 nice -n 19 {tr.CHECKSUM_COMMANDS[self.ready.checksum_tool]}", calls)
+        self.assertEqual((self.captures / f"{sha}.pcapng").read_bytes(), path.read_bytes())
 
     def test_a_checksum_mismatch_fails_and_leaves_nothing(self) -> None:
         path, _ = self.source("a.pcapng", b"what was uploaded")
