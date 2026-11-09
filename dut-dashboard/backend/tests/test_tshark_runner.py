@@ -170,8 +170,20 @@ class OuterCommandTest(unittest.TestCase):
     def test_the_probe_bootstrap_tries_both_decode_spellings(self) -> None:
         command = self._command("x", None)
         self.assertIn("base64 -d", command)
-        self.assertIn("|| printf %s", command)
+        self.assertIn("|| cat ", command)
         self.assertIn("base64 -D", command)
+
+    def test_no_word_is_longer_than_bsd_csh_accepts(self) -> None:
+        # BSD csh (Debian/Ubuntu `csh`) fails a long word with "Word too long";
+        # a 16 KB script is 22 KB of base64, so it must go up in pieces.
+        command = tr.build_remote_command("#" * tr.MAX_SCRIPT_BYTES, tr.new_job_id(), "-d")
+        longest = max(len(word) for word in command.split())
+        self.assertLessEqual(longest, tr.MAX_OUTER_WORD)
+        self.assertLessEqual(tr.MAX_OUTER_WORD, 1000)
+
+    def test_the_encoded_script_is_removed_before_it_runs(self) -> None:
+        command = self._command("x")
+        self.assertRegex(command, r"rm -f ~/\.dut-browser/run/[0-9a-f]+\.b64; sh ")
 
 
 class InnerScriptTest(unittest.TestCase):

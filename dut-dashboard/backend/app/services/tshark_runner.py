@@ -9,11 +9,15 @@ and is shared with the console probe.
 **Command construction (§B10).** The login shell on the Host is not ours: it
 may be csh or fish, and it parses the command string before anything else
 does. So the string it sees is a fixed template whose only variable parts are a
-hex job id and a base64 blob::
+hex job id and a base64 blob, written in pieces of at most `MAX_OUTER_WORD`
+characters because BSD csh refuses longer words::
 
-    umask 077; mkdir -p ~/.dut-browser/run; printf %s <B64> | base64 -d > ~/.dut-browser/run/<job>.sh; sh ~/.dut-browser/run/<job>.sh
+    umask 077; mkdir -p ~/.dut-browser/run;
+    printf %s <B64 part 1> > ~/.dut-browser/run/<job>.b64; printf %s <part 2> >> ...;
+    cat ~/.dut-browser/run/<job>.b64 | base64 -d > ~/.dut-browser/run/<job>.sh;
+    rm -f ~/.dut-browser/run/<job>.b64; sh ~/.dut-browser/run/<job>.sh
 
-Every character in it is in ``[A-Za-z0-9 ~/._;|>%=+-]``, which means the same
+(one line in reality). Every character in it is in ``[A-Za-z0-9 ~/._;|>%=+-]``, which means the same
 thing in sh, bash, zsh, csh and fish. The blob is the real script, always run
 by ``sh``; user data (display filter, field names) lives only inside it, quoted
 with ``shlex.quote``, and never reaches the login shell. The script deletes
@@ -48,9 +52,13 @@ from app.services import packet_decode, packet_modes
 #: The workspace on the Host, relative to the login user's home (§B4).
 REMOTE_DIR = "~/.dut-browser"
 
-#: The whole script travels as one argument word. csh accepted 85 KB in a test,
-#: but `ARG_MAX` and older shells are not ours to know (§B10).
+#: The whole script travels in one ssh argument. `ARG_MAX` and older shells are
+#: not ours to know, so it is kept small (§B10).
 MAX_SCRIPT_BYTES = 16 * 1024
+#: The longest single word the login shell is handed. BSD csh rejects a word
+#: past its buffer with "Word too long" (seen on the Ubuntu CI runner), so the
+#: base64 blob is written in pieces no longer than this.
+MAX_OUTER_WORD = 1000
 MAX_FILTER_CHARS = 1024
 
 DEFAULT_TIMEOUT_SEC = 180
@@ -131,16 +139,28 @@ def build_remote_command(script: str, job_id: str, base64_flag: str | None) -> s
     # newline here is exactly what csh rejects.
     blob = base64.b64encode(raw).decode("ascii")
     target = f"{REMOTE_DIR}/run/{job_id}.sh"
+    encoded = f"{REMOTE_DIR}/run/{job_id}.b64"
     if base64_flag is None:
         decode = (
-            f"printf %s {blob} | base64 -d > {target} || "
-            f"printf %s {blob} | base64 -D > {target}"
+            f"cat {encoded} | base64 -d > {target} || "
+            f"cat {encoded} | base64 -D > {target}"
         )
     elif base64_flag in BASE64_FLAGS:
-        decode = f"printf %s {blob} | base64 {base64_flag} > {target}"
+        decode = f"cat {encoded} | base64 {base64_flag} > {target}"
     else:
         raise CommandError(f"Unknown base64 decode flag: {base64_flag!r}")
-    command = f"umask 077; mkdir -p {REMOTE_DIR}/run; {decode}; sh {target}"
+    # BSD csh -- `csh` on Debian and Ubuntu, unlike macOS where it is tcsh --
+    # refuses any single word longer than its buffer ("Word too long"), so the
+    # blob goes up in pieces appended to a file rather than as one word.
+    chunks = [blob[i:i + MAX_OUTER_WORD] for i in range(0, len(blob), MAX_OUTER_WORD)]
+    writes = "; ".join(
+        f"printf %s {chunk} {'>' if index == 0 else '>>'} {encoded}"
+        for index, chunk in enumerate(chunks)
+    )
+    command = (
+        f"umask 077; mkdir -p {REMOTE_DIR}/run; {writes}; {decode}; "
+        f"rm -f {encoded}; sh {target}"
+    )
     # Holds by construction; checked anyway, because the day it stops holding
     # is the day a filter reaches a csh.
     if not OUTER_RE.fullmatch(command):
