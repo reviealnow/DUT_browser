@@ -70,6 +70,32 @@ def install_fake_ionice(bin_dir: Path, *, works: bool) -> Path:
     return path
 
 
+SLEEPER_SCRIPT = """#!/bin/sh
+# A stand-in tshark that never finishes. Linux names a script's process after
+# the script, so `ps -o comm=` reports `tshark`.
+while :; do sleep 1; done
+"""
+
+
+def tshark_named_sleeper(directory: Path) -> Path:
+    """An executable ``directory/tshark`` that waits forever, seen by ps as ``tshark``.
+
+    A symlink to `sleep` does that where `sleep` is a binary of its own (macOS,
+    GNU coreutils). Where it is a multicall binary that picks its applet from
+    argv[0] -- the Rust coreutils on the ubuntu-26.04 runner -- a link named
+    `tshark` exits at once, so a shell script named `tshark` is used instead.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    link = directory / "tshark"
+    link.symlink_to(shutil.which("sleep"))
+    if subprocess.run([str(link), "0"], capture_output=True, timeout=10).returncode == 0:
+        return link
+    link.unlink()
+    link.write_text(SLEEPER_SCRIPT)
+    link.chmod(0o755)
+    return link
+
+
 def _installed_shells() -> list[str]:
     return [path for path in (shutil.which(name) for name in SHELLS) if path]
 
@@ -121,11 +147,9 @@ class _HostSandbox(unittest.TestCase):
         )
 
     def fake_tshark_process(self, *args: str) -> subprocess.Popen:
-        """A long-lived process whose command name is `tshark` (a renamed sleep)."""
-        link = self.bin / "sleepers" / f"{len(self._children)}" / "tshark"
-        link.parent.mkdir(parents=True)
-        link.symlink_to(shutil.which("sleep"))
-        child = subprocess.Popen([str(link), *(args or ("60",))])
+        """A long-lived process whose command name is `tshark`."""
+        sleeper = tshark_named_sleeper(self.bin / "sleepers" / f"{len(self._children)}")
+        child = subprocess.Popen([str(sleeper), *(args or ("60",))])
         self._children.append(child)
         return child
 
@@ -464,9 +488,8 @@ class RemoteKillTest(_HostSandbox):
 
     def _sleeping_tshark_script(self, job: str) -> str:
         link = self.bin / "tshark-sleep" / "tshark"
-        link.parent.mkdir(parents=True, exist_ok=True)
         if not link.exists():
-            link.symlink_to(shutil.which("sleep"))
+            tshark_named_sleeper(link.parent)
         # What `analysis_script` does, with a tshark that never finishes.
         return tr._script([f"echo $$ > run/{job}.pid", "echo $$ > seen.pid", f"exec {link} 60"])
 

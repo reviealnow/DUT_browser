@@ -23,7 +23,12 @@ from app.services import packet_hosts as ph
 from app.services import tshark_runner as tr
 
 sys.path.insert(0, str(Path(__file__).parent))
-from test_tshark_runner import FAKE_SSH, PASSWORD, install_fake_ionice  # noqa: E402
+from test_tshark_runner import (  # noqa: E402
+    FAKE_SSH,
+    PASSWORD,
+    install_fake_ionice,
+    tshark_named_sleeper,
+)
 
 PROBE_TSHARK = """#!/bin/sh
 # Stand-in for tshark on a Host: a version, a field list, nothing else.
@@ -94,11 +99,12 @@ class _Bench(unittest.TestCase):
         )
 
     def spawn(self, name: str) -> subprocess.Popen:
-        """A long-lived process whose command name is ``name`` (a renamed sleep)."""
-        link = self.root / "procs" / str(len(self._children)) / name
-        link.parent.mkdir(parents=True)
-        link.symlink_to(shutil.which("sleep"))
-        child = subprocess.Popen([str(link), "60"])
+        """A long-lived process whose command name is ``name`` (tshark or sleep)."""
+        if name == "tshark":
+            command = str(tshark_named_sleeper(self.root / "procs" / str(len(self._children))))
+        else:
+            command = shutil.which(name)
+        child = subprocess.Popen([command, "60"])
         self._children.append(child)
         return child
 
