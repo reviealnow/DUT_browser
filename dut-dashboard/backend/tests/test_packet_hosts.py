@@ -348,6 +348,14 @@ class SchemaTest(_Bench):
                 " VALUES (1, 'x', 'c1', 'm', 'bogus')"
             )
 
+    def test_an_analysis_can_record_a_warning(self) -> None:
+        analysis_id = workspace.execute(
+            "INSERT INTO packet_analyses (file_id, file_sha256, collector_id, mode_id, status, warning)"
+            " VALUES (1, 'x', 'c1', 'm', 'done', 'capture truncated')"
+        )
+        row = workspace.query_one("SELECT status, warning FROM packet_analyses WHERE id = ?", (analysis_id,))
+        self.assertEqual((row["status"], row["warning"]), ("done", "capture truncated"))
+
     def test_one_stage_row_per_host_and_capture(self) -> None:
         insert = (
             "INSERT INTO packet_host_stage (collector_id, file_sha256, remote_path, size_bytes)"

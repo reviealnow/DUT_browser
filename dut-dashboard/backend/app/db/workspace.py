@@ -192,6 +192,9 @@ CREATE TABLE IF NOT EXISTS packet_analyses (
   status TEXT NOT NULL DEFAULT 'queued'
     CHECK(status IN ('queued','running','done','failed','cancelled')),
   error TEXT,
+  -- A finished analysis the operator should still be told about, e.g.
+  -- "capture truncated; N frames analysed" (tshark_runner.RemoteResult.warning).
+  warning TEXT,
   frames_total INTEGER,
   frames_shown INTEGER,
   rows_dropped INTEGER,

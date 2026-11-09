@@ -330,6 +330,66 @@ class AnalysisScriptTest(_HostSandbox):
         self.assertEqual(json.loads(result.stdout)[:2], ["-n", "-r"])
 
 
+#: tshark 4.4.19's words for a capture whose last record is cut off (#228).
+CUT_SHORT = (
+    'tshark: The file "captures/{sha}.pcapng" appears to have been cut short '
+    "in the middle of a packet."
+)
+
+TRUNCATED_TSHARK = """#!/bin/sh
+# Stand-in for tshark reading a capture whose last record is cut off: every
+# complete frame is printed, then the complaint, then exit 2.
+printf 'frame.number\\twlan.ssid\\n1\\t6f70656e\\n2\\t6f70656e\\n'
+echo '{message}' >&2
+exit 2
+"""
+
+
+class TruncatedCaptureTest(_HostSandbox):
+    def _analyse_truncated(self) -> tr.RemoteResult:
+        tshark = self.bin / "truncated" / "tshark"
+        tshark.parent.mkdir()
+        tshark.write_text(TRUNCATED_TSHARK.format(message=CUT_SHORT.format(sha=SHA)))
+        tshark.chmod(0o755)
+        script = tr.analysis_script(
+            job_id=tr.new_job_id(), sha256=SHA, tshark_path=str(tshark),
+            fields=["frame.number", "wlan.ssid"], available=InnerScriptTest.AVAILABLE,
+        )
+        return tr.run_remote(self.target, script, job_id=tr.new_job_id(), base64_flag=self.base64_flag, timeout=20)
+
+    def test_a_cut_off_last_record_keeps_every_row_and_warns(self) -> None:
+        result = self._analyse_truncated()
+        self.assertEqual(result.returncode, 2)
+        self.assertTrue(result.capture_truncated)
+        self.assertTrue(result.ok)
+        self.assertIn("cut short", result.warning)
+        rows, dropped = packet_decode.rows_from_tsv(result.stdout.decode())
+        self.assertEqual((len(rows), dropped), (2, 0))
+
+    def _result(self, **kwargs) -> tr.RemoteResult:
+        fields = {"returncode": 2, "stdout": b"rows", "stderr": CUT_SHORT.format(sha=SHA)}
+        fields.update(kwargs)
+        return tr.RemoteResult(**fields)
+
+    def test_only_that_exact_failure_is_tolerated(self) -> None:
+        self.assertTrue(self._result().ok)
+        cases = {
+            "another error with rc 2": {"stderr": "tshark: The file doesn't exist."},
+            "the message with another rc": {"returncode": 1},
+            "timed out": {"timed_out": True},
+            "cancelled": {"cancelled": True},
+            "over the stdout cap": {"stdout_capped": True},
+        }
+        for name, change in cases.items():
+            with self.subTest(name):
+                result = self._result(**change)
+                self.assertFalse(result.ok)
+                self.assertIsNone(result.warning)
+
+    def test_a_clean_run_has_no_warning(self) -> None:
+        self.assertIsNone(tr.RemoteResult(returncode=0, stdout=b"", stderr="").warning)
+
+
 class RunRemoteTest(_HostSandbox):
     def run_script(self, script: str, **kwargs) -> tr.RemoteResult:
         kwargs.setdefault("timeout", 20)

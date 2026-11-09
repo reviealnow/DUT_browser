@@ -91,6 +91,11 @@ EXIT_UPLOAD_FAILED = 74
 EXIT_LOW_SPACE = 75
 EXIT_CHECKSUM = 76
 
+#: How tshark ends a read of a capture whose last record is cut short, after it
+#: has printed every complete frame (`RemoteResult.capture_truncated`).
+TSHARK_EXIT_READ_ERROR = 2
+TRUNCATED_RE = re.compile(r"appears to have been cut short in the middle of a packet")
+
 #: Raised for a login that did not happen; the message is meant for the operator.
 RemoteError = pty_ssh.PtySshError
 
@@ -496,8 +501,39 @@ class RemoteResult:
     timeout_sec: float = 0.0
 
     @property
+    def stopped(self) -> bool:
+        """Ended by this side -- timeout, cancel or the stdout cap -- not by itself."""
+        return self.timed_out or self.cancelled or self.stdout_capped
+
+    @property
+    def capture_truncated(self) -> bool:
+        """tshark read every complete frame of a capture whose last one is cut off.
+
+        Routine for a capture copied while the sniffer was still writing.
+        tshark prints all the rows it could, then exits 2 with this message
+        (tshark 4.4.19 on the bench, #228); Wireshark opens such a file with a
+        warning, and so does Packet Monitor. Only this exact combination counts:
+        any other failure, or a step stopped from this side, is still a failure.
+        """
+        return (
+            self.returncode == TSHARK_EXIT_READ_ERROR
+            and not self.stopped
+            and TRUNCATED_RE.search(self.stderr) is not None
+        )
+
+    @property
     def ok(self) -> bool:
-        return self.returncode == 0 and not (self.timed_out or self.cancelled or self.stdout_capped)
+        return not self.stopped and (self.returncode == 0 or self.capture_truncated)
+
+    @property
+    def warning(self) -> str | None:
+        """Something a successful step wants the operator to know, or None."""
+        if self.capture_truncated:
+            return (
+                "The capture is cut short in the middle of a packet; every "
+                "complete frame before that was analysed."
+            )
+        return None
 
     def error_message(self) -> str:
         if self.cancelled:
