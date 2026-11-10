@@ -1649,3 +1649,172 @@ export async function redeemInvite(
     display_name: displayName,
   });
 }
+
+// --- Packet Monitor (docs/design-packet-monitor.md §B9) -------------------------
+
+/** What the Host probe found (§B5). `problems` empty means the Host is usable. */
+export type PacketHostProbe = {
+  collector_id: string;
+  probed_at: number;
+  os_name: string | null;
+  tshark_path: string | null;
+  tshark_version: string | null;
+  checksum_tool: string | null;
+  base64_flag: string | null;
+  free_bytes: number | null;
+  staged: Record<string, number>;
+  swept: string[];
+  killed: string[];
+  problems: string[];
+  install_hint: string | null;
+  over_budget: boolean;
+  selectable: boolean;
+};
+
+export type PacketHost = {
+  id: string;
+  label: string;
+  connected: boolean;
+  /** Null until the Host has been probed since this backend started. */
+  probe: PacketHostProbe | null;
+  selectable: boolean;
+};
+
+export type PacketColumn = { key: string; label: string; decoder: string; hidden: boolean };
+
+export type PacketMode = {
+  id: string;
+  label: string;
+  description: string;
+  display_filter: string;
+  group_by: string | null;
+  columns: PacketColumn[];
+  rules: string[];
+};
+
+export type PacketAnalysisStatus = "queued" | "running" | "done" | "failed" | "cancelled";
+
+export type PacketSeverity = "fail" | "warn" | "info";
+
+export type PacketAnalysis = {
+  id: number;
+  file_id: number;
+  file_sha256: string;
+  collector_id: string;
+  mode_id: string;
+  display_filter: string;
+  extra_fields: string[];
+  status: PacketAnalysisStatus;
+  error: string | null;
+  /** Set on a finished analysis the operator should still hear about, e.g. a truncated capture. */
+  warning: string | null;
+  frames_total: number | null;
+  frames_shown: number | null;
+  rows_dropped: number | null;
+  tshark_version: string | null;
+  created_by_user_id: number | null;
+  created_at: string;
+  finished_at: string | null;
+  findings_summary: Record<PacketSeverity, number>;
+  /** The columns this Host's tshark resolved; null until the analysis is done. */
+  columns: PacketColumn[] | null;
+};
+
+export type PacketAnalysisSummary = Pick<
+  PacketAnalysis,
+  | "id" | "file_id" | "collector_id" | "mode_id" | "display_filter" | "status" | "error"
+  | "warning" | "frames_shown" | "rows_dropped" | "created_by_user_id" | "created_at" | "finished_at"
+>;
+
+/** A decoded frame: column key → value. A column the Host could not resolve is absent. */
+export type PacketRow = Record<string, unknown>;
+
+export type PacketRowsPage = {
+  offset: number;
+  limit: number;
+  total: number;
+  rows: PacketRow[];
+  /** The same rows as the table shows them, formatted by the backend. */
+  display: Record<string, string>[];
+};
+
+export type PacketFinding = {
+  rule: string;
+  severity: PacketSeverity;
+  message: string;
+  group: unknown;
+  frames: number[];
+};
+
+export type PacketGroup = { group: unknown; frames: number; row: PacketRow; display: Record<string, string> };
+
+export type PacketFilterCheck = { ok: boolean | null; error: string | null };
+
+export type PacketAnalysisRequest = {
+  file_id: number;
+  collector_id: string;
+  mode_id: string;
+  display_filter?: string;
+  extra_fields?: string[];
+};
+
+const PACKETS = "/api/packets";
+
+export async function getPacketHosts(): Promise<PacketHost[]> {
+  return (await get<{ hosts: PacketHost[] }>(`${PACKETS}/hosts`)).hosts;
+}
+
+export async function probePacketHost(collectorId: string): Promise<PacketHostProbe> {
+  return post<PacketHostProbe>(`${PACKETS}/hosts/${encodeURIComponent(collectorId)}/probe`, {});
+}
+
+export async function getPacketModes(): Promise<PacketMode[]> {
+  return (await get<{ modes: PacketMode[] }>(`${PACKETS}/modes`)).modes;
+}
+
+export async function validatePacketFilter(
+  collectorId: string,
+  displayFilter: string,
+): Promise<PacketFilterCheck> {
+  return post<PacketFilterCheck>(`${PACKETS}/filters/validate`, {
+    collector_id: collectorId,
+    display_filter: displayFilter,
+  });
+}
+
+export async function listPacketAnalyses(limit = 50): Promise<PacketAnalysisSummary[]> {
+  return (await get<{ analyses: PacketAnalysisSummary[] }>(`${PACKETS}/analyses${listQuery({ limit })}`)).analyses;
+}
+
+export async function createPacketAnalysis(request: PacketAnalysisRequest): Promise<number> {
+  return (await post<{ id: number }>(`${PACKETS}/analyses`, request)).id;
+}
+
+export async function getPacketAnalysis(id: number): Promise<PacketAnalysis> {
+  return get<PacketAnalysis>(`${PACKETS}/analyses/${id}`);
+}
+
+export async function cancelPacketAnalysis(id: number): Promise<void> {
+  await del<{ ok: boolean }>(`${PACKETS}/analyses/${id}`);
+}
+
+export async function getPacketRows(id: number, offset: number, limit: number): Promise<PacketRowsPage> {
+  return get<PacketRowsPage>(`${PACKETS}/analyses/${id}/rows${listQuery({ offset, limit })}`);
+}
+
+export async function getPacketGroups(id: number): Promise<PacketGroup[]> {
+  return (await get<{ groups: PacketGroup[] }>(`${PACKETS}/analyses/${id}/groups`)).groups;
+}
+
+export async function getPacketFindings(id: number): Promise<PacketFinding[]> {
+  return (await get<{ findings: PacketFinding[] }>(`${PACKETS}/analyses/${id}/findings`)).findings;
+}
+
+/** One frame's tshark dissection tree (`-T json`), as tshark prints it. */
+export async function getPacketFrame(id: number, frame: number): Promise<unknown> {
+  return (await get<{ frame: unknown }>(`${PACKETS}/analyses/${id}/frames/${frame}`)).frame;
+}
+
+export function getPacketExportUrl(id: number): string {
+  return `${PACKETS}/analyses/${id}/export.csv`;
+}
