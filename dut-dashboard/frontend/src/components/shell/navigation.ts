@@ -14,6 +14,7 @@ export type SectionId =
   | "console"
   | "downloads"
   | "offline"
+  | "packets"
   | "files"
   | "bulletin"
   | "settings"
@@ -51,6 +52,10 @@ export const NAV_ITEMS: NavItem[] = [
   { id: "console", label: "Serial Console", icon: "⌨", title: "Serial Console", subtitle: "DUT serial / replay console", group: "Monitoring", minRole: "engineer" },
   { id: "downloads", label: "Downloads", icon: "⬇", title: "Downloads", subtitle: "Log bundles and analyzer artifacts", group: "Monitoring", minRole: "engineer" },
   { id: "offline", label: "Offline Analyzer", icon: "⌁", title: "Offline Analyzer", subtitle: "Local log comparison and charts", group: "Monitoring", minRole: "guest" },
+  // Engineer (docs/design-packet-monitor.md Q1): it runs tshark on a Host an
+  // admin has connected. Monitoring rather than Fleet, whose other entries are
+  // admin-only and would leave an engineer looking at a lone item there.
+  { id: "packets", label: "Packet Monitor", icon: "📦", title: "Packet Monitor", subtitle: "802.11 captures analysed with tshark on a Host", group: "Monitoring", minRole: "engineer" },
   // P69 folded the fleet into an Overview strip and dropped this entry, because
   // the cards then held three numbers and a nav slot was too much for them.
   // What a card holds now is a mesh backhaul measured in both directions, per
