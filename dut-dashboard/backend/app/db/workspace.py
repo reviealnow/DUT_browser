@@ -284,6 +284,10 @@ def init_db() -> None:
         # upgrade page accepts only names ending `tar.gz.sig`. Nullable: rows
         # predating this fall back to `filename`, which is today's behaviour.
         _ensure_column(conn, "files", "original_name", "TEXT")
+        # Packet Monitor (B-PR 3): the extra tshark fields a user added to an
+        # analysis, as a JSON list. A column of its own rather than in the
+        # CREATE TABLE so a database made with B-PR 1's table gains it too.
+        _ensure_column(conn, "packet_analyses", "extra_fields", "TEXT")
         _ensure_column(conn, "bulletin_posts", "author_user_id", "INTEGER")
         _ensure_column(conn, "bulletin_comments", "author_user_id", "INTEGER")
         _ensure_column(conn, "bulletin_posts", "edited_at")
