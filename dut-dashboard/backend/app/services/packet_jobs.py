@@ -542,11 +542,29 @@ class PacketJobs:
                     if not line:
                         break
                     page.append(json.loads(line))
-        return {"offset": offset, "limit": limit, "total": total, "rows": page}
+        return {
+            "offset": offset, "limit": limit, "total": total,
+            "rows": page, "display": self._display(analysis_id, page),
+        }
+
+    def _display(self, analysis_id: int, rows: list[dict]) -> list[dict[str, str]]:
+        """Each row as the table shows it -- `[2, 8]` → ``PSK / SAE`` -- beside the raw values.
+
+        Formatted here, by the same `packet_decode.format_value` the CSV export
+        uses, so the browser never carries a second copy of the suite names.
+        A column the Host's tshark could not resolve is absent, not "—".
+        """
+        columns = self._read_json(analysis_id, "columns") or []
+        return [
+            {c["key"]: pd.format_value(c["decoder"], row.get(c["key"])) for c in columns if c["key"] in row}
+            for row in rows
+        ]
 
     def groups(self, analysis_id: int) -> list[dict]:
         self._require_done(analysis_id)
-        return self._read_json(analysis_id, "groups") or []
+        groups = self._read_json(analysis_id, "groups") or []
+        shown = self._display(analysis_id, [g["row"] for g in groups])
+        return [{**group, "display": text} for group, text in zip(groups, shown)]
 
     def findings(self, analysis_id: int) -> list[dict]:
         self._require_done(analysis_id)
