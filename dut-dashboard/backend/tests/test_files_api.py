@@ -9,6 +9,7 @@ import unittest
 from contextlib import ExitStack
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi import HTTPException, UploadFile
@@ -53,7 +54,8 @@ class WorkspaceFilesTests(unittest.TestCase):
         self.assertEqual(Path(response.path).read_bytes(), b"hello pdf")
         self.assertEqual(response.filename, "report.pdf")
 
-        result = files_api.delete_file(created["id"])
+        no_packet_jobs = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
+        result = files_api.delete_file(created["id"], no_packet_jobs)
         self.assertTrue(result["ok"])
         self.assertEqual(files_api.list_files()["files"], [])
         self.assertFalse(Path(response.path).exists())

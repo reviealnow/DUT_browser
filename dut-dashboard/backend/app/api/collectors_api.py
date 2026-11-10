@@ -188,6 +188,12 @@ def connect_collector(collector_id: str, request: Request, _admin: dict = _ADMIN
         # 502, matching `read_mesh` next door: the dashboard did its part and
         # the machine upstream refused, was unreachable, or is unidentified.
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    # Packet Monitor probes a Host on every connect (docs/design-packet-monitor.md
+    # §B5). In the background: a slow or failing probe never delays or fails
+    # the connect.
+    packet_jobs = getattr(request.app.state, "packet_jobs", None)
+    if packet_jobs is not None:
+        packet_jobs.probe_async(collector_id)
     return {"ok": True, **registry.status(collector_id), **result}
 
 
