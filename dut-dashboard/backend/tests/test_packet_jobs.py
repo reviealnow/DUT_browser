@@ -485,6 +485,144 @@ class ConcurrentStagingTest(_JobsBench):
         self.assertEqual(len(uploads), 1)
 
 
+def _job_threads_alive() -> bool:
+    return any(t.name.startswith("packet-jobs-") and t.is_alive() for t in threading.enumerate())
+
+
+class ReviewFixesTest(_JobsBench):
+    """The edge cases edisqa-git found reviewing #230, one test each."""
+
+    def _staged_sha(self) -> tuple[dict, str]:
+        analysis = self.run_analysis(mode_id="manual")
+        return analysis, analysis["file_sha256"]
+
+    def _wait_for_tshark(self) -> None:
+        deadline = time.monotonic() + 10
+        while not self.tshark_calls() and time.monotonic() < deadline:
+            time.sleep(0.05)
+
+    def test_1_removal_waits_for_a_stage_and_keeps_a_capture_pinned_meanwhile(self) -> None:
+        """A remove that passed its pinned check must not pull a capture a new job just found."""
+        analysis, sha = self._staged_sha()
+        staged = self.home / ".dut-browser" / "captures" / f"{sha}.pcapng"
+        lock = ph._stage_lock("pi", sha)
+        lock.acquire()  # another job is inside stage_capture for this capture
+        outcome: list[BaseException | dict] = []
+
+        def remove() -> None:
+            try:
+                outcome.append(self.jobs.delete_staged("pi", sha))
+            except BaseException as exc:  # noqa: BLE001 - recorded for the assertion
+                outcome.append(exc)
+
+        remover = threading.Thread(target=remove)
+        remover.start()
+        try:
+            time.sleep(0.5)
+            self.assertTrue(remover.is_alive(), "the removal did not wait for the stage lock")
+            self.assertTrue(staged.exists())
+            # The other job's analysis is queued while the remover waits.
+            workspace.execute(
+                "INSERT INTO packet_analyses (file_id, file_sha256, collector_id, mode_id, status)"
+                " VALUES (?, ?, 'pi', 'manual', 'queued')",
+                (analysis["file_id"], sha),
+            )
+        finally:
+            lock.release()
+        remover.join(30)
+        self.assertIsInstance(outcome[0], pj.Conflict)
+        self.assertTrue(staged.exists())
+
+    def test_1_an_unpinned_staged_copy_is_removed(self) -> None:
+        _, sha = self._staged_sha()
+        self.assertEqual(self.jobs.delete_staged("pi", sha), {"ok": True})
+        self.assertFalse((self.home / ".dut-browser" / "captures" / f"{sha}.pcapng").exists())
+        self.assertEqual(workspace.query_all("SELECT * FROM packet_host_stage"), [])
+
+    def test_2_stop_waits_for_a_cancelled_job_to_finish(self) -> None:
+        os.environ["FAKE_TSHARK_SLEEP"] = "20"
+        analysis_id = self.jobs.create(file_id=self.add_file(), collector_id="pi", mode_id="manual")
+        self._wait_for_tshark()
+        self.assertTrue(self.jobs.stop())
+        self.assertFalse(_job_threads_alive(), "stop() returned while a job was still running")
+        self.assertEqual(self.jobs.get(analysis_id)["status"], "cancelled")
+
+    def test_3_a_frame_restage_does_not_hold_the_interactive_lane(self) -> None:
+        analysis, sha = self._staged_sha()
+        (self.home / ".dut-browser" / "captures" / f"{sha}.pcapng").unlink()
+        real_stage = ph.stage_capture
+
+        def slow_stage(*args, **kwargs):
+            time.sleep(3)  # a 50 MB re-upload, compressed
+            return real_stage(*args, **kwargs)
+
+        with patch.object(pj.ph, "stage_capture", slow_stage):
+            fetch = threading.Thread(target=lambda: self.jobs.frame(analysis["id"], 1))
+            fetch.start()
+            time.sleep(0.5)
+            started = time.monotonic()
+            check = self.jobs.validate_filter("pi", "wlan.ssid")
+            elapsed = time.monotonic() - started
+            fetch.join(30)
+        self.assertIs(check["ok"], True)
+        self.assertLess(elapsed, 2, "the filter check waited behind a re-stage")
+
+    def test_4_a_cancelled_queued_job_leaves_no_bookkeeping(self) -> None:
+        os.environ["FAKE_TSHARK_SLEEP"] = "3"
+        file_id, other_file = self.add_file("a.pcapng"), self.add_file("b.pcapng")
+        self.jobs.create(file_id=file_id, collector_id="pi", mode_id="manual")
+        queued = self.jobs.create(file_id=file_id, collector_id="pi", mode_id="manual")
+        doomed = self.jobs.create(file_id=other_file, collector_id="pi", mode_id="manual")
+        self.jobs.cancel(queued)
+        row = file_service.get_file_by_id(other_file)
+        file_service.delete_file(row)
+        self.jobs.file_deleted(other_file, row["sha256"])
+        for analysis_id in (queued, doomed):
+            self.assertNotIn(analysis_id, self.jobs._cancel)
+            self.assertNotIn(analysis_id, self.jobs._deleted)
+        self.assertTrue(self.jobs.wait_idle(30))
+
+    def test_5_rows_are_deleted_before_their_result_files(self) -> None:
+        first = self.run_analysis(mode_id="manual")
+        second = self.run_analysis(mode_id="manual")
+        workspace.execute(
+            "UPDATE packet_analyses SET finished_at = datetime('now', '-40 days') WHERE id = ?",
+            (second["id"],),
+        )
+        row_still_there = []
+        real_delete = self.jobs._delete_results
+
+        def watching(analysis_id: int) -> None:
+            row_still_there.append(
+                workspace.query_one("SELECT 1 FROM packet_analyses WHERE id = ?", (analysis_id,)) is not None
+            )
+            real_delete(analysis_id)
+
+        with patch.object(self.jobs, "_delete_results", watching):
+            self.assertEqual(self.jobs.sweep_retention(), 1)
+            row = file_service.get_file_by_id(first["file_id"])
+            file_service.delete_file(row)
+            self.jobs.file_deleted(first["file_id"], None)
+        self.assertEqual(row_still_there, [False, False])
+
+    def test_7_eviction_goes_through_the_one_removal_path(self) -> None:
+        self._staged_sha()
+        with patch.object(ph, "STAGE_BUDGET_BYTES", 0), \
+                patch.object(ph, "remove_staged", wraps=ph.remove_staged) as spy:
+            ph.evict_over_budget(self.jobs._target("pi"), self.jobs.probe("pi").base64_flag)
+        spy.assert_called_once()
+
+    def test_8_export_checks_the_analysis_before_it_streams(self) -> None:
+        analysis_id = workspace.execute(
+            "INSERT INTO packet_analyses (file_id, file_sha256, collector_id, mode_id, status)"
+            " VALUES (1, 'x', 'pi', 'manual', 'running')"
+        )
+        with self.assertRaises(pj.Conflict):
+            self.jobs.export_csv(analysis_id)  # not iterated: the check is up front
+        with self.assertRaises(pj.NotFound):
+            self.jobs.export_csv(999)
+
+
 class ApiMappingTest(unittest.TestCase):
     """packets_api turns PacketError into its HTTP status, and nothing else."""
 

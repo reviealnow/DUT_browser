@@ -57,7 +57,7 @@ def list_hosts(request: Request) -> dict:
 @router.post("/hosts/{collector_id}/probe")
 def probe_host(collector_id: str, request: Request) -> dict:
     jobs = _jobs(request)
-    _call(jobs._require_connected, collector_id)
+    _call(jobs.require_connected, collector_id)
     return _call(jobs.probe, collector_id).public()
 
 
@@ -149,10 +149,10 @@ def analysis_frame(analysis_id: int, frame_number: int, request: Request) -> dic
 
 @router.get("/analyses/{analysis_id}/export.csv")
 def export_analysis(analysis_id: int, request: Request) -> StreamingResponse:
-    jobs = _jobs(request)
-    _call(jobs._require_done, analysis_id)
+    # export_csv checks the analysis before it returns the stream, so a bad id
+    # is a 404/409 here rather than an error half way through a download.
     return StreamingResponse(
-        jobs.export_csv(analysis_id),
+        _call(_jobs(request).export_csv, analysis_id),
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="packet-analysis-{analysis_id}.csv"'},
     )

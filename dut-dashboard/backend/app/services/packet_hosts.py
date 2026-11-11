@@ -320,23 +320,15 @@ def evict_over_budget(
         STAGE_BUDGET_BYTES,
     )
     if evict:
-        result = tr.run_remote(
-            target,
-            tr.delete_staged_script(sha256s=evict),
-            job_id=tr.new_job_id(),
-            base64_flag=base64_flag,
-            timeout=STAGE_CHECK_TIMEOUT_SEC,
-        )
-        if not result.ok:
+        try:
+            removed = remove_staged(target, base64_flag, evict, protect=protect)
+        except StageError:
             # Rows stay: the Host still holds the files, and the next probe
             # lists what is really there.
             return True
-        with workspace.connect() as conn:
-            conn.executemany(
-                "DELETE FROM packet_host_stage WHERE collector_id = ? AND file_sha256 = ?",
-                [(target.collector_id, sha) for sha in evict],
-            )
-            conn.commit()
+        if len(removed) < len(evict):
+            # A capture became pinned between the plan and the lock.
+            return True
     return over
 
 
@@ -347,6 +339,55 @@ _stage_locks: dict[tuple[str, str], threading.Lock] = {}
 def _stage_lock(collector_id: str, sha256: str) -> threading.Lock:
     with _locks_guard:
         return _stage_locks.setdefault((collector_id, sha256), threading.Lock())
+
+
+def remove_staged(
+    target: tr.HostTarget,
+    base64_flag: str,
+    sha256s: list[str],
+    *,
+    protect: set[str] = frozenset(),
+) -> list[str]:
+    """Remove staged captures from one Host, and their rows. The one way to unstage.
+
+    Every removal -- eviction, a user's "remove", a deleted Files row -- comes
+    through here, and holds the per-(Host, sha) stage lock that
+    `stage_capture` holds. Pinned captures are re-checked **inside** the lock,
+    so a capture an analysis was queued for after the caller looked is kept
+    rather than pulled out from under a stage that just found it "staged".
+
+    Returns the digests actually removed; pinned and ``protect``-ed ones are
+    left. Raises `StageError` when the Host refused, with the rows unchanged.
+    """
+    wanted = sorted({tr.check_sha256(sha) for sha in sha256s})
+    # Always taken in sorted order, so two removals cannot deadlock.
+    locks = [_stage_lock(target.collector_id, sha) for sha in wanted]
+    for lock in locks:
+        lock.acquire()
+    try:
+        keep = pinned_sha256s(target.collector_id) | set(protect)
+        doomed = [sha for sha in wanted if sha not in keep]
+        if not doomed:
+            return []
+        result = tr.run_remote(
+            target,
+            tr.delete_staged_script(sha256s=doomed),
+            job_id=tr.new_job_id(),
+            base64_flag=base64_flag,
+            timeout=STAGE_CHECK_TIMEOUT_SEC,
+        )
+        if not result.ok:
+            raise StageError(result.error_message())
+        with workspace.connect() as conn:
+            conn.executemany(
+                "DELETE FROM packet_host_stage WHERE collector_id = ? AND file_sha256 = ?",
+                [(target.collector_id, sha) for sha in doomed],
+            )
+            conn.commit()
+        return doomed
+    finally:
+        for lock in reversed(locks):
+            lock.release()
 
 
 def stage_capture(

@@ -154,8 +154,10 @@ async def on_shutdown() -> None:
     """Reap serial transports, including every system-ssh child."""
     packet_jobs = getattr(app.state, "packet_jobs", None)
     if packet_jobs is not None:
-        # Cancels running analyses, whose runner then kills the remote tshark.
-        packet_jobs.stop()
+        # Cancels running analyses and waits (bounded) while each runner kills
+        # its remote tshark, so none is left running on a Pi serving consoles.
+        if not packet_jobs.stop():
+            logging.warning("Packet Monitor: a job did not stop in time; the next probe sweeps it")
     collectors = getattr(app.state, "collector_registry", None)
     if collectors is not None:
         # Before the DUT loop and unconditionally: a held collector session is
