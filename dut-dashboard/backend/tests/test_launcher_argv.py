@@ -59,9 +59,16 @@ SCRIPT = Path(__file__).resolve().parents[3] / "scripts" / "start_lan.sh"
 # without the lock, 0 and 0 with it. It reached CI as a `npm run dev` argv with
 # uvicorn's arguments stapled to the end, on a PR that touched neither.
 #
-# `mkdir` is the portable mutex: atomic, and no flock(1) on macOS.
-_LOCK_OPEN = 'until mkdir "$ARGV_LOG.lock" 2>/dev/null; do :; done\n'
-_LOCK_CLOSE = 'rmdir "$ARGV_LOG.lock"\n'
+# The lock is a file the shell itself creates with noclobber, which dash, bash
+# and busybox ash open with O_EXCL: exactly one creator succeeds, and no
+# external program is involved. It used to be `mkdir`, which is only a mutex
+# while mkdir is atomic. On the ubuntu-26.04 runner `mkdir` is uutils coreutils,
+# whose versions before 0.11 can exit 0 for two concurrent creates of one
+# directory (uutils/coreutils#13970); both shims then got in, and CI failed with
+# a lost `npm run dev` record and `rmdir: failed to remove ... argv.log.lock`.
+# No flock(1) either way: macOS has none.
+_LOCK_OPEN = 'until ( set -C; : > "$ARGV_LOG.lock" ) 2>/dev/null; do :; done\n'
+_LOCK_CLOSE = 'rm -f "$ARGV_LOG.lock"\n'
 
 _SHIM = """#!/bin/sh
 """ + _LOCK_OPEN + """{ printf '%s\\0' "$(basename "$0")" "$@"; printf '\\036'; } >> "$ARGV_LOG"
@@ -563,6 +570,54 @@ class LauncherArgvTests(unittest.TestCase):
         self.assertIn("[STOPPED]", err)
         self.assertIn(str(holder_pid), err)
         self.assertIn("kill -CONT", err)
+
+
+# What uutils `mkdir` before 0.11 does for the loser of a race: report success
+# for a directory that already exists.
+_LYING_MKDIR = """#!/bin/sh
+exit 0
+"""
+
+
+class ShimLockTest(unittest.TestCase):
+    """The recording shims' lock holds whatever `mkdir` the machine has.
+
+    Deterministic, so it fails on any machine when the lock trusts `mkdir`,
+    not only on a runner whose `mkdir` happens to lose a race.
+    """
+
+    def test_a_held_lock_keeps_a_shim_out_even_when_mkdir_lies(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            liar_dir = root / "liar"
+            liar_dir.mkdir()
+            liar = liar_dir / "mkdir"
+            liar.write_text(_LYING_MKDIR)
+            liar.chmod(0o755)
+            shim = root / "npm"
+            shim.write_text(_SHIM)
+            shim.chmod(0o755)
+            log = root / "argv.log"
+            lock = Path(f"{log}.lock")
+            lock.write_text("")  # held by another shim
+            env = {
+                **os.environ,
+                "ARGV_LOG": str(log),
+                "PATH": f"{liar_dir}{os.pathsep}{os.environ['PATH']}",
+            }
+            proc = subprocess.Popen([str(shim), "run", "dev"], env=env)
+            try:
+                time.sleep(1.0)
+                self.assertIsNone(proc.poll(), "the shim went past a lock another shim holds")
+                self.assertFalse(log.exists())
+                lock.unlink()  # the other shim is done
+                self.assertEqual(proc.wait(timeout=10), 0)
+            finally:
+                if proc.poll() is None:
+                    proc.kill()
+                    proc.wait()
+            self.assertEqual(log.read_bytes(), b"npm\0run\0dev\0\x1e")
+            self.assertFalse(lock.exists())
 
 
 if __name__ == "__main__":
