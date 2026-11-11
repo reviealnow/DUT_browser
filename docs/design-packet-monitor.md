@@ -458,6 +458,23 @@ runs under `nice -n 19`. A Host may also be serving DUT consoles through `socat`
 CPU-bound tshark there can cost console bytes at baud rate, which the queue
 alone does not prevent — hence `nice`, and hence the remote kill below.
 
+`nice` lowers CPU priority only, and on a Pi the resource a Host shares with its
+consoles is more often the SD card. So everything that reads or writes captures
+— tshark, the stage step's upload (`cat`) and checksum, and the probe's
+temp-file sweep — runs as `ionice -c3 nice -n 19 …` where `ionice` exists and
+accepts the idle class (Linux; present on the bench Pi 4), and as
+`nice -n 19 …` alone elsewhere, such as macOS. The step script tries
+`ionice -c3 true` rather than looking `ionice` up, so one that refuses the idle
+class never fails a step.
+
+**A truncated capture is a warning, not a failure.** A capture copied while the
+sniffer is still writing ends in a partial record. tshark prints every complete
+frame, then exits 2 with "… appears to have been cut short in the middle of a
+packet" (tshark 4.4.19, #228). Exactly that outcome — exit 2, that message, and
+a step not stopped by timeout, cancel or the stdout cap — counts as success,
+and the warning is stored in `packet_analyses.warning` so the UI can say how far
+the analysis got. Any other non-zero exit is still a failure.
+
 **A timeout must stop the remote tshark, not only the local ssh.** Killing the
 local ssh leaves the remote command running: it has no pty, so tshark dies only
 on SIGPIPE at its next stdout write, and a selective filter (few matching
@@ -465,7 +482,8 @@ frames) can read to the end of the file first. macOS has no `timeout(1)` by
 default. So:
 
 - the run script writes its own pid to `run/<job>.pid` and then `exec`s
-  `nice -n 19 tshark …`, so the pid file holds tshark's pid;
+  `[ionice -c3] nice -n 19 tshark …` — each of which execs the next — so the
+  pid file holds tshark's pid;
 - on timeout or user cancel the runner issues a second one-shot ssh with the
   fixed script "kill the pid in `run/<job>.pid` **if** the basename of
   `ps -p <pid> -o comm=` is `tshark`" — a guard against a recycled pid; the
@@ -519,10 +537,19 @@ nullable for legacy rows: compute and store it on first use, and require
   the upload one step, so the same 50 MB is not sent twice concurrently. The
   `test -f` on the Host is an optimisation inside that lock, not the guard.
 
-**Eviction.** At most 20 captures per Host, least recently used first, after
-each stage — but a capture referenced by a `queued` or `running` analysis on
-that Host is **pinned** and never evicted. If pinned captures alone exceed the
-limit, the limit is exceeded until they finish, and the probe reports it.
+**Eviction.** The captures staged on one Host total at most **200 MB**
+(`packet_hosts.STAGE_BUDGET_BYTES`), least recently used evicted first, after
+each stage and after each probe — but a capture referenced by a `queued` or
+`running` analysis on that Host is **pinned** and never evicted, and the
+capture just staged is protected during its own stage. If pinned captures alone
+exceed the budget, it is exceeded until they finish, and the probe reports it.
+The budget is in bytes rather than a count because the Host is often a
+Raspberry Pi serving DUT consoles from an SD card: twenty 50 MB captures would
+be a gigabyte on a card that must not fill (Q11).
+
+**Free space.** A stage also refuses, before writing a byte, when the Host
+would be left with less than 200 MB free once the capture is on it — the same
+floor the probe applies (§B5, Q10).
 
 **Deletion** (the single rule; §B3 and §B14 Q4 refer here). Deleting a
 Files-workspace row first cancels its queued and running analyses (running
@@ -554,12 +581,22 @@ one succeeded. It checks:
   (§B6) and to decode by type;
 - tools: checksum (`sha256sum` or `shasum`), and whether `base64 -d` or only
   `base64 -D` (older macOS) decodes — §B10 depends on it;
-- free space in `~`;
-- the §B4 sweeps (staged captures with no Files row, LRU beyond 20 unless
-  pinned, stale `*.tmp`) and the §B3 `run/` sweep (orphaned tshark killed).
+- free space in `~`: a Host with less than **200 MB** free is not selectable,
+  and the probe says how much it found (Q10);
+- the §B4 sweeps (staged captures with no Files row, LRU beyond the 200 MB
+  budget unless pinned, stale `*.tmp`) and the §B3 `run/` sweep (orphaned
+  tshark killed). The Files digests to keep go to the probe script on stdin, so
+  the §B10 16 KB script limit does not bound how many files the workspace holds.
+  Jobs this backend is still running are passed in by id; their pid files and
+  their processes survive the sweep, so an on-demand probe never kills a live
+  analysis.
 
 A Host without tshark is shown as "tshark not installed" with the install
 command for its OS, and is not selectable.
+
+Probe results are held **in memory**, per collector (Q12): the Host is probed
+on every connect, so a stored result could only ever be a stale one. The field
+table is the exception — it is a file per tshark *version*, not per Host.
 
 ## B6. Test Modes are data (implemented in #214)
 
@@ -701,18 +738,22 @@ output of synthetic beacons, regenerable from
   schema script (`_ensure_column` is only for columns added to tables that
   already exist):
   - `packet_analyses(id, file_id, file_sha256, collector_id, mode_id,
-    display_filter, status, error, frames_total, frames_shown,
+    display_filter, status, error, warning, frames_total, frames_shown,
     rows_dropped, tshark_version, created_by_user_id, created_at,
     finished_at)`;
-  - `packet_host_stage(collector_id, file_sha256, remote_path, staged_at,
-    last_used_at)`. "Pinned" (§B4) is not a column: it is derived from
+  - `packet_host_stage(collector_id, file_sha256, remote_path, size_bytes,
+    staged_at, last_used_at)`. "Pinned" (§B4) is not a column: it is derived from
     `packet_analyses` rows in `queued`/`running` for that Host and sha, so it
-    cannot drift.
+    cannot drift. `size_bytes` is what the §B4 byte budget is counted in.
+  - Both tables land with B-PR 1, because staging and eviction need them
+    (Q13).
 - Rows: `data/packets/<analysis_id>.jsonl` (gitignored by the existing `data/`
   rule), plus `<analysis_id>.idx` — the byte offset of every 500th row — so
   `GET rows?offset=` seeks instead of scanning a 200 MB file. Findings:
   `<analysis_id>.findings.json`. Frame details: `<analysis_id>/frames/<n>.json`
   once fetched (§B9).
+- `warning`: set on a finished analysis the operator should still hear about —
+  today only a truncated capture (§B3).
 - `rows_dropped`: TSV lines with the wrong cell count (a tab inside a 3.6 text
   value) are dropped rather than misaligned, counted, and shown to the user.
 - Authorship from the session (`created_by_user_id`), never from the client.
@@ -726,7 +767,7 @@ output of synthetic beacons, regenerable from
 | GET  | `/api/packets/modes` | Test Modes (label, columns, rules) |
 | POST | `/api/packets/filters/validate` | `{collector_id, display_filter}` → `200 {ok, error}` |
 | POST | `/api/packets/analyses` | `{file_id, collector_id, mode_id, display_filter?, extra_fields?}` → `202 {id}`, or `400` with tshark's message for a bad filter |
-| GET  | `/api/packets/analyses/{id}` | status, counts, `rows_dropped`, tshark stderr on failure, findings summary |
+| GET  | `/api/packets/analyses/{id}` | status, counts, `rows_dropped`, `warning`, tshark stderr on failure, findings summary |
 | DELETE | `/api/packets/analyses/{id}` | cancel a queued/running job (remote kill, §B3) |
 | GET  | `/api/packets/analyses/{id}/rows?offset=&limit=` | paged decoded rows, `limit ≤ 500` |
 | GET  | `/api/packets/analyses/{id}/frames/{n}` | detail tree, see below |
@@ -749,7 +790,7 @@ user types (debounced, 600 ms), and only for a filter that changed.
 -T json`: `-c` counts frames *read*, so tshark stops at frame n instead of
 scanning the whole file (measured with tshark 4.4.1). Details run in the
 **interactive lane** (§B3): at most one per Host, alongside — not queued behind —
-a running analysis, also under `nice -n 19`. Each result is cached under
+a running analysis, also under `nice -n 19` (and `ionice -c3`, §B3). Each result is cached under
 `data/packets/<analysis_id>/frames/<n>.json`, so reopening a frame costs
 nothing. Expected latency: one login plus reading the capture up to frame n.
 
@@ -766,18 +807,27 @@ Every remote command is built by **one** function in
 `services/tshark_runner.py`, in two layers.
 
 **Outer layer — what the login shell sees.** A fixed template whose only
-variable parts are a job id (hex) and a base64 blob:
+variable parts are a job id (hex) and a base64 blob, written in pieces of at
+most 1000 characters (one line in reality; wrapped here):
 
 ```
-umask 077; mkdir -p ~/.dut-browser/run; printf %s <B64> | base64 -d > ~/.dut-browser/run/<job>.sh; sh ~/.dut-browser/run/<job>.sh
+umask 077; mkdir -p ~/.dut-browser/run;
+printf %s <B64 piece 1> > ~/.dut-browser/run/<job>.b64;
+printf %s <B64 piece 2> >> ~/.dut-browser/run/<job>.b64; ...;
+cat ~/.dut-browser/run/<job>.b64 | base64 -d > ~/.dut-browser/run/<job>.sh;
+rm -f ~/.dut-browser/run/<job>.b64; sh ~/.dut-browser/run/<job>.sh
 ```
 
-(`base64 -D` where the probe found that older macOS spelling.) The blob is
+(`base64 -D` where the probe found that older macOS spelling.) The pieces exist
+because of **BSD csh** — `csh` on Debian and Ubuntu, while macOS's `csh` is
+tcsh — which refuses any word longer than its buffer with "Word too long". A
+16 KB script is 22 KB of base64; as one word it failed the CI shell matrix on
+Ubuntu. The blob is
 produced by Python's `base64.b64encode`, which never wraps lines — GNU
 `base64` wraps at 76 columns, and a newline in the outer string is exactly what
 csh rejects. Every character in it is in `[A-Za-z0-9 ~/._;|>%=+-]`: no quote,
-backslash, `!`, `$`, backtick or newline. `umask`, `mkdir`, `printf`, the pipe,
-`>`, `;` and `~` mean the same thing in sh, bash, zsh, csh and fish, so the
+backslash, `!`, `$`, backtick or newline. `umask`, `mkdir`, `printf`, `cat`,
+`rm`, the pipe, `>`, `>>`, `;` and `~` mean the same thing in sh, bash, zsh, csh and fish, so the
 outer string survives whichever login shell the Host has. The script is read
 from a file, not from stdin, so stdin stays free for the pcap upload.
 
@@ -787,10 +837,12 @@ Measured on macOS before writing this: the template run by `sh`, `bash`,
 script deleted itself, and `run/` was created `drwx------`. fish was not
 installed and is untested.
 
-The whole script travels as one argument word. csh and tcsh accepted an 85 KB
-word in the same test, but older shells and `ARG_MAX` are not ours to know, so
-the builder refuses a script over **16 KB** — far above a 1024-byte filter plus
-a field list — and a test runs a 16 KB script through every installed shell.
+The whole command travels as one ssh argument. tcsh accepted an 85 KB word in
+the same test, but BSD csh does not (above), and older shells and `ARG_MAX` are
+not ours to know, so the builder refuses a script over **16 KB** — far above a
+1024-byte filter plus a field list — and a test runs a 16 KB script through
+every installed shell. CI installs zsh and BSD csh, so that matrix is at least
+sh, bash, zsh and BSD csh there, and tcsh on macOS.
 
 **Inner layer — the script, always run by `sh`.** It starts with `rm -f "$0"`,
 sets `PATH` to include the tshark directory from the probe, and then does the
@@ -870,7 +922,9 @@ No chart or UI library; no CDN.
 
 1. `feat(backend): tshark runner, host probe and staging` — includes the new
    `pty_ssh.build_ssh_argv` / `spawn_and_authenticate` helpers with this one
-   caller (Q5), the §B10 command builder, remote kill and the §B4 staging rules.
+   caller (Q5), the §B10 command builder, remote kill, the §B5 probe, the §B4
+   staging rules and the §B8 tables (Q13). No routes: the probe route and the
+   per-Host queue arrive with item 3.
 2. `feat(backend): test modes, decoders and findings rules` — **#214**.
 3. `feat(backend): packets API and analysis jobs` (+ route protection tests).
 4. `feat(frontend): Packet Monitor section`.
@@ -888,12 +942,22 @@ No chart or UI library; no CDN.
 - **Q3 — tshark floor:** 3.6. The probe refuses older Hosts with the version it
   found; field candidates cover 3.6 and newer only.
 - **Q4 — retention:** analysis results in `data/packets/` are deleted after
-  30 days (swept at startup and daily); each Host keeps at most 20 staged
-  captures (LRU, pinned ones excepted); deleting a Files row follows §B4
-  *Deletion*.
+  30 days (swept at startup and daily); the captures staged on each Host total
+  at most 200 MB (LRU, pinned ones excepted — Q11 replaced "at most 20
+  captures"); deleting a Files row follows §B4 *Deletion*.
 - **Q5 — existing ssh callers:** not moved in this work. The shared helpers
   land with their one new caller; moving `SerialWorker` and `open_session` onto
   them is a later, separate refactor PR.
+- **Q10 — free-space floor (decided 2026-11-06):** 200 MB. Below it the probe
+  marks the Host not selectable, and a stage refuses when the capture would
+  leave less than that free.
+- **Q11 — staged-capture budget (decided 2026-11-06):** 200 MB in total per
+  Host, replacing Q4's "at most 20 captures". A Pi's SD card filling up stops
+  the DUT consoles it serves; twenty 50 MB captures would have been 1 GB.
+- **Q12 — where probe results live (decided 2026-11-06):** in memory, per
+  collector; re-probed on every connect.
+- **Q13 — when the §B8 tables land (decided 2026-11-06):** with B-PR 1, since
+  staging, eviction and pinning are built and tested against them there.
 
 ## B15. Live capture (later)
 
