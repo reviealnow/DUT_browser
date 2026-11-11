@@ -52,6 +52,9 @@ VALIDATE_TIMEOUT_SEC = 10
 FRAME_TIMEOUT_SEC = 60
 #: How long a filter check or frame detail waits for the Host's one interactive slot.
 LANE_WAIT_SEC = 10
+#: How long shutdown waits for cancelled jobs: the remote kill's own timeout,
+#: plus a margin for the local ssh to close.
+STOP_TIMEOUT_SEC = tr.KILL_WAIT_SEC + 20 + 10
 
 HOST_SILENT = "Host did not answer"
 
@@ -144,7 +147,7 @@ class PacketJobs:
         except CollectorError as exc:
             raise HostUnavailable(str(exc)) from exc
 
-    def _require_connected(self, collector_id: str) -> None:
+    def require_connected(self, collector_id: str) -> None:
         try:
             status = self.registry.status(collector_id)
         except KeyError:
@@ -230,7 +233,7 @@ class PacketJobs:
         if not display_filter.strip():
             return {"ok": True, "error": None}
         try:
-            self._require_connected(collector_id)
+            self.require_connected(collector_id)
             target = self._target(collector_id)
             probe = self._ready_probe(collector_id)
         except PacketError as exc:
@@ -292,7 +295,7 @@ class PacketJobs:
         except FileNotFoundError as exc:
             raise NotFound(str(exc)) from None
 
-        self._require_connected(collector_id)
+        self.require_connected(collector_id)
         target = self._target(collector_id)
         probe = self._ready_probe(collector_id)
         available = self._field_types(target, probe)
@@ -384,7 +387,12 @@ class PacketJobs:
             was_queued = queue is not None and analysis_id in queue
             if was_queued:
                 queue.remove(analysis_id)
-            event = self._cancel.get(analysis_id)
+                # It will never reach `_run`, whose `finally` is the only other
+                # place these are cleared (review of #230: they leaked).
+                event = self._cancel.pop(analysis_id, None)
+                self._deleted.discard(analysis_id)
+            else:
+                event = self._cancel.get(analysis_id)
             if event is not None:
                 event.set()
         if was_queued or event is None:
@@ -519,14 +527,14 @@ class PacketJobs:
         )
         self._path(analysis_id, "groups.json").write_text(json.dumps(_groups(rows, group_by), default=str))
 
-    def _require_done(self, analysis_id: int) -> dict:
+    def require_done(self, analysis_id: int) -> dict:
         row = self.get(analysis_id)
         if row["status"] != "done":
             raise Conflict(f"The analysis is {row['status']}, not done.")
         return row
 
     def rows(self, analysis_id: int, offset: int = 0, limit: int = 100) -> dict:
-        row = self._require_done(analysis_id)
+        row = self.require_done(analysis_id)
         offset = max(0, int(offset))
         limit = max(1, min(int(limit), MAX_PAGE))
         total = row["frames_shown"] or 0
@@ -545,16 +553,26 @@ class PacketJobs:
         return {"offset": offset, "limit": limit, "total": total, "rows": page}
 
     def groups(self, analysis_id: int) -> list[dict]:
-        self._require_done(analysis_id)
+        self.require_done(analysis_id)
         return self._read_json(analysis_id, "groups") or []
 
     def findings(self, analysis_id: int) -> list[dict]:
-        self._require_done(analysis_id)
+        self.require_done(analysis_id)
         return self._read_json(analysis_id, "findings") or []
 
     def export_csv(self, analysis_id: int) -> Iterator[str]:
-        self._require_done(analysis_id)
+        """The CSV, as a stream. Checked now, not on the first read of the stream.
+
+        A plain generator would defer `require_done` until the response body
+        is being sent, which is too late to answer 404 or 409.
+        """
+        self.require_done(analysis_id)
         columns = [c for c in (self._read_json(analysis_id, "columns") or []) if not c["hidden"]]
+        handle = open(self._path(analysis_id, "jsonl"), "rb")
+        return self._csv_lines(columns, handle)
+
+    @staticmethod
+    def _csv_lines(columns: list[dict], handle) -> Iterator[str]:
         buffer = io.StringIO()
         writer = csv.writer(buffer)
 
@@ -564,9 +582,9 @@ class PacketJobs:
             buffer.truncate()
             return text
 
-        writer.writerow([c["label"] for c in columns])
-        yield flush()
-        with open(self._path(analysis_id, "jsonl"), "rb") as handle:
+        with handle:
+            writer.writerow([c["label"] for c in columns])
+            yield flush()
             for line in handle:
                 decoded = json.loads(line)
                 writer.writerow([
@@ -577,29 +595,35 @@ class PacketJobs:
 
     def frame(self, analysis_id: int, frame_number: int) -> Any:
         """One frame's tshark dissection tree, cached once fetched (§B9)."""
-        row = self._require_done(analysis_id)
+        row = self.require_done(analysis_id)
         if frame_number < 1:
             raise PacketError("Frame numbers start at 1.")
         cache = self.results_dir / str(int(analysis_id)) / "frames" / f"{int(frame_number)}.json"
         if cache.is_file():
             return json.loads(cache.read_text())
         collector_id = row["collector_id"]
-        self._require_connected(collector_id)
+        self.require_connected(collector_id)
         target = self._target(collector_id)
         probe = self._ready_probe(collector_id)
         file_row = file_service.get_file_by_id(row["file_id"])
         if file_row is None:
             raise NotFound("The file was deleted.")
+        try:
+            # Evicted since the analysis ran: staged again on demand (§B3) --
+            # before taking the lane, so a re-upload of a 50 MB capture never
+            # holds the Host's one interactive slot and turns every filter
+            # check there into "Host did not answer" (review of #230).
+            ph.stage_capture(
+                target, probe, sha256=row["file_sha256"],
+                source=file_service.resolve_download_path(file_row),
+            )
+        except (ph.StageError, tr.RemoteError) as exc:
+            raise HostUnavailable(str(exc)) from exc
         lane = self._lane(collector_id)
         if not lane.acquire(timeout=LANE_WAIT_SEC):
             raise HostUnavailable("The Host is busy with another frame or filter check; try again.")
         job_id = tr.new_job_id()
         try:
-            # Evicted since the analysis ran: staged again on demand (§B3).
-            ph.stage_capture(
-                target, probe, sha256=row["file_sha256"],
-                source=file_service.resolve_download_path(file_row),
-            )
             self._register(collector_id, job_id)
             result = tr.run_remote(
                 target,
@@ -612,7 +636,7 @@ class PacketJobs:
                 timeout=FRAME_TIMEOUT_SEC,
                 kill_on_stop=True,
             )
-        except (ph.StageError, tr.RemoteError) as exc:
+        except tr.RemoteError as exc:
             raise HostUnavailable(str(exc)) from exc
         finally:
             self._unregister(collector_id, job_id)
@@ -641,27 +665,17 @@ class PacketJobs:
             tr.check_sha256(sha256)
         except tr.CommandError as exc:
             raise PacketError(str(exc)) from None
-        if sha256 in ph.pinned_sha256s(collector_id):
-            raise Conflict("A queued or running analysis still needs this capture.")
-        self._require_connected(collector_id)
+        self.require_connected(collector_id)
         target = self._target(collector_id)
         probe = self._ready_probe(collector_id)
-        self._remove_staged(target, probe.base64_flag, [sha256])
+        try:
+            # Pinned is decided inside the stage lock, not here (review of #230).
+            removed = ph.remove_staged(target, probe.base64_flag, [sha256])
+        except ph.StageError as exc:
+            raise HostUnavailable(str(exc)) from exc
+        if not removed:
+            raise Conflict("A queued or running analysis still needs this capture.")
         return {"ok": True}
-
-    def _remove_staged(self, target: tr.HostTarget, base64_flag: str, sha256s: list[str]) -> None:
-        result = tr.run_remote(
-            target, tr.delete_staged_script(sha256s=sha256s),
-            job_id=tr.new_job_id(), base64_flag=base64_flag, timeout=30,
-        )
-        if not result.ok:
-            raise HostUnavailable(result.error_message())
-        with workspace.connect() as conn:
-            conn.executemany(
-                "DELETE FROM packet_host_stage WHERE collector_id = ? AND file_sha256 = ?",
-                [(target.collector_id, sha) for sha in sha256s],
-            )
-            conn.commit()
 
     # --------------------------------------------------------------- lifecycle
 
@@ -677,6 +691,7 @@ class PacketJobs:
         rows = workspace.query_all(
             "SELECT id, status FROM packet_analyses WHERE file_id = ?", (file_id,)
         )
+        finished = []
         for row in rows:
             if row["status"] in ("queued", "running"):
                 with self._lock:
@@ -686,8 +701,12 @@ class PacketJobs:
                 except PacketError:
                     pass
             else:
-                self._delete_results(row["id"])
+                finished.append(row["id"])
+        # Rows first, then files: a request arriving in between then finds no
+        # analysis (404) rather than an analysis whose files are gone (500).
         workspace.execute("DELETE FROM packet_analyses WHERE file_id = ?", (file_id,))
+        for analysis_id in finished:
+            self._delete_results(analysis_id)
 
         if not sha256 or not tr.SHA256_RE.fullmatch(sha256):
             return None
@@ -702,11 +721,11 @@ class PacketJobs:
         def remove() -> None:
             for collector_id in holders:
                 try:
-                    self._require_connected(collector_id)
+                    self.require_connected(collector_id)
                     probe = self.store.get(collector_id)
                     if probe is None or probe.base64_flag is None:
                         continue
-                    self._remove_staged(self._target(collector_id), probe.base64_flag, [sha256])
+                    ph.remove_staged(self._target(collector_id), probe.base64_flag, [sha256])
                 except Exception as exc:  # noqa: BLE001 - the next probe sweeps it
                     log.warning("Staged capture on %s not removed now: %s", collector_id, exc)
 
@@ -732,8 +751,9 @@ class PacketJobs:
             (f"-{int(days)} days",),
         )
         for row in rows:
-            self._delete_results(row["id"])
+            # Row first, then files, as in `file_deleted`.
             workspace.execute("DELETE FROM packet_analyses WHERE id = ?", (row["id"],))
+            self._delete_results(row["id"])
         return len(rows)
 
     def start_retention_timer(self) -> threading.Thread:
@@ -752,12 +772,26 @@ class PacketJobs:
         thread.start()
         return thread
 
-    def stop(self) -> None:
+    def stop(self, timeout: float = STOP_TIMEOUT_SEC) -> bool:
+        """Cancel every job and wait, up to ``timeout``, for the remote kills to run.
+
+        The workers are daemon threads, so returning at once would let the
+        process exit before a cancelled job's `kill_remote` reaches the Host,
+        and leave its tshark running on a Pi that serves DUT consoles (review
+        of #230). True when every worker finished in time.
+        """
         self._stop.set()
         with self._lock:
             events = list(self._cancel.values())
+            for queue in self._queues.values():
+                queue.clear()
+            workers = [w for w in self._workers.values() if w.is_alive()]
         for event in events:
             event.set()
+        deadline = time.monotonic() + timeout
+        for worker in workers:
+            worker.join(max(0.0, deadline - time.monotonic()))
+        return not any(w.is_alive() for w in workers)
 
 
 def _tshark_message(stderr: str) -> str:
