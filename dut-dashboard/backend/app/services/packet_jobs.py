@@ -484,15 +484,14 @@ class PacketJobs:
         if not result.ok:
             raise HostUnavailable(result.error_message())
 
-        raw_rows, dropped = pd.rows_from_tsv(tsv_path.read_text(encoding="utf-8", errors="replace"))
-        rows = [pm.decode_row(columns, raw) for raw in raw_rows]
-        findings = pr.evaluate(rows, mode.rules, mode.group_by)
-        with self._lock:
-            if row["id"] in self._deleted:
-                raise _Cancelled()
-        self._write_results(row["id"], columns, rows, findings, mode.group_by)
+        try:
+            shown, dropped = self._write_results(row["id"], columns, tsv_path, mode)
+        except BaseException:
+            # Nothing half-written outlives the job.
+            self._delete_results(row["id"])
+            raise
         return {
-            "frames_shown": len(rows),
+            "frames_shown": shown,
             "rows_dropped": dropped,
             "warning": result.warning,
             "tshark_version": probe.tshark_version,
@@ -510,13 +509,32 @@ class PacketJobs:
         except (OSError, ValueError):
             return None
 
-    def _write_results(self, analysis_id, columns, rows, findings, group_by) -> None:
+    def _write_results(self, analysis_id: int, columns, tsv_path: Path, mode: pm.TestMode) -> tuple[int, int]:
+        """Decode tshark's TSV into the result files, one row at a time.
+
+        Memory is one row, the findings and the per-group summaries -- never
+        the capture: the TSV may be up to the runner's stdout cap, and this
+        runs in the process that also owns the serial worker (review of #230).
+        Returns ``(frames shown, rows dropped)``.
+        """
+        evaluator = pr.Evaluator(mode.rules, mode.group_by)
+        groups = _GroupSummary(mode.group_by)
         offsets = []
-        with open(self._path(analysis_id, "jsonl"), "wb") as handle:
-            for index, decoded in enumerate(rows):
-                if index % ROWS_INDEX_EVERY == 0:
+        shown = 0
+        with open(tsv_path, "rb") as tsv, open(self._path(analysis_id, "jsonl"), "wb") as handle:
+            reader = pd.TsvRows(pd.tsv_file_lines(tsv))
+            for raw in reader:
+                decoded = pm.decode_row(columns, raw)
+                if shown % ROWS_INDEX_EVERY == 0:
                     offsets.append(handle.tell())
                 handle.write(json.dumps(decoded, default=str, ensure_ascii=False).encode() + b"\n")
+                evaluator.add(decoded)
+                groups.add(decoded)
+                shown += 1
+        findings = evaluator.findings()
+        with self._lock:
+            if analysis_id in self._deleted:
+                raise _Cancelled()
         self._path(analysis_id, "idx").write_text(json.dumps(offsets))
         self._path(analysis_id, "columns.json").write_text(json.dumps([
             {"key": c.key, "label": c.label, "decoder": c.decoder, "hidden": c.hidden}
@@ -525,7 +543,8 @@ class PacketJobs:
         self._path(analysis_id, "findings.json").write_text(
             json.dumps([asdict(f) for f in findings], default=str)
         )
-        self._path(analysis_id, "groups.json").write_text(json.dumps(_groups(rows, group_by), default=str))
+        self._path(analysis_id, "groups.json").write_text(json.dumps(groups.result(), default=str))
+        return shown, reader.dropped
 
     def require_done(self, analysis_id: int) -> dict:
         row = self.get(analysis_id)
@@ -810,14 +829,24 @@ def _summarise(findings: list[dict]) -> dict:
     return counts
 
 
-def _groups(rows: list[dict], group_by: str | None) -> list[dict]:
-    """One row per ``group_by`` value -- the latest frame -- with its frame count (§B2)."""
-    if not group_by:
-        return []
-    latest: dict[Any, dict] = {}
-    counts: dict[Any, int] = {}
-    for decoded in rows:
-        key = decoded.get(group_by)
-        latest[key] = decoded
-        counts[key] = counts.get(key, 0) + 1
-    return [{"group": key, "frames": counts[key], "row": row} for key, row in latest.items()]
+class _GroupSummary:
+    """One row per ``group_by`` value -- the latest frame -- with its frame count (§B2).
+
+    Fed one decoded row at a time; holds one row per group, not every row.
+    """
+
+    def __init__(self, group_by: str | None) -> None:
+        self.group_by = group_by
+        self._latest: dict[Any, dict] = {}
+        self._counts: dict[Any, int] = {}
+
+    def add(self, decoded: dict) -> None:
+        if not self.group_by:
+            return
+        key = decoded.get(self.group_by)
+        self._latest[key] = decoded
+        self._counts[key] = self._counts.get(key, 0) + 1
+
+    def result(self) -> list[dict]:
+        return [{"group": key, "frames": self._counts[key], "row": row}
+                for key, row in self._latest.items()]
