@@ -19,7 +19,7 @@ group are collapsed into one, listing every frame they came from.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterable, Literal
+from typing import Any, Callable, Iterable, Literal, Protocol
 
 from app.services.packet_decode import (
     AKM_SUITES,
@@ -297,28 +297,63 @@ def _comparable(value: Any) -> Any:
     return tuple(sorted(value)) if isinstance(value, list) else value
 
 
-def bss_config_changed(rows: list[Row]) -> list[tuple[Severity, str, list[int]]]:
+class BssConfigChanged:
     """The same BSSID advertises different settings at different times.
 
-    Needs every beacon of the BSS, so it runs on the full row set; collapsing
-    the table to one row per BSS is a display step that comes after.
+    Needs every beacon of the BSS, so it sees the full row set; collapsing the
+    table to one row per BSS is a display step that comes after. It is a
+    fold, fed one row at a time, and keeps only what the finding needs: the
+    distinct values of each key and the group's frame numbers -- never the
+    rows themselves. A key missing from any row is not compared.
     """
-    out = []
-    for key in STABLE_KEYS:
-        if not all(key in row for row in rows):
-            continue
-        seen: dict[str, list[int]] = {}
-        for row in rows:
-            seen.setdefault(repr(_comparable(row[key])), []).append(row.get("frame"))
-        if len(seen) > 1:
-            frames = sorted(f for fs in seen.values() for f in fs if f is not None)
-            out.append(("warn", f"{key} changed between beacons of this BSS "
-                                f"({len(seen)} different values).", frames))
-    return out
+
+    def __init__(self) -> None:
+        self._frames: list[int] = []
+        self._values: dict[str, set[str] | None] = {key: set() for key in STABLE_KEYS}
+
+    def add(self, row: Row) -> None:
+        frame = row.get("frame")
+        if frame is not None:
+            self._frames.append(frame)
+        for key in STABLE_KEYS:
+            values = self._values[key]
+            if values is None:
+                continue
+            if key not in row:
+                self._values[key] = None
+                continue
+            values.add(repr(_comparable(row[key])))
+
+    def result(self) -> list[tuple[Severity, str, list[int]]]:
+        out = []
+        for key in STABLE_KEYS:
+            values = self._values[key]
+            if values is not None and len(values) > 1:
+                # Every row has exactly one value per key, so the frames of
+                # all values together are the group's frames.
+                out.append(("warn", f"{key} changed between beacons of this BSS "
+                                    f"({len(values)} different values).", sorted(self._frames)))
+        return out
+
+
+def bss_config_changed(rows: Iterable[Row]) -> list[tuple[Severity, str, list[int]]]:
+    """:class:`BssConfigChanged` over one group's rows, in one call."""
+    fold = BssConfigChanged()
+    for row in rows:
+        fold.add(row)
+    return fold.result()
+
+
+class GroupFold(Protocol):
+    """A group rule: fed every row of one group, then asked for its findings."""
+
+    def add(self, row: Row) -> None: ...
+
+    def result(self) -> list[tuple[Severity, str, list[int]]]: ...
 
 
 RowRule = Callable[[Row], "tuple[Severity, str] | None"]
-GroupRule = Callable[[list[Row]], "list[tuple[Severity, str, list[int]]]"]
+GroupRule = Callable[[], GroupFold]
 
 ROW_RULES: dict[str, RowRule] = {
     "wpa3_requires_mfpr": wpa3_requires_mfpr,
@@ -333,66 +368,83 @@ ROW_RULES: dict[str, RowRule] = {
     "hidden_ssid": hidden_ssid,
     "beacon_timing": beacon_timing,
 }
+#: Each value makes a fresh fold for one group.
 GROUP_RULES: dict[str, GroupRule] = {
-    "bss_config_changed": bss_config_changed,
+    "bss_config_changed": BssConfigChanged,
 }
 RULES = frozenset(ROW_RULES) | frozenset(GROUP_RULES)
 
 _SEVERITY_ORDER = {"fail": 0, "warn": 1, "info": 2}
 
 
-def evaluate(rows: list[Row], rule_ids: Iterable[str], group_by: str | None = None) -> list[Finding]:
+class Evaluator:
+    """The named rules over decoded rows fed one at a time; see :func:`evaluate`.
+
+    Memory is the findings plus, per group, what its group rules fold -- not
+    the rows: a capture of any length is evaluated as it is read.
+    """
+
+    def __init__(self, rule_ids: Iterable[str], group_by: str | None = None) -> None:
+        rule_ids = list(dict.fromkeys(rule_ids))
+        unknown = [r for r in rule_ids if r not in RULES]
+        if unknown:
+            raise ValueError(f"Unknown rule(s): {unknown}")
+        self.group_by = group_by
+        self._row_rules = [(r, ROW_RULES[r]) for r in rule_ids if r in ROW_RULES]
+        # Without a grouping key every frame would be one "group", and comparing
+        # beacons of different networks with each other means nothing.
+        self._group_rules = [r for r in rule_ids if r in GROUP_RULES] if group_by else []
+        self._folds: dict[Any, list[GroupFold]] = {}
+        self._collapsed: dict[tuple[str, Any, str], Finding] = {}
+
+    def _add_finding(self, rule: str, severity: Severity, message: str, group: Any,
+                     frames: Iterable[int | None]) -> None:
+        key = (rule, group, message)
+        finding = self._collapsed.get(key)
+        if finding is None:
+            finding = self._collapsed[key] = Finding(rule, severity, message, group)
+        finding.frames.extend(f for f in frames if f is not None)
+
+    def add(self, row: Row) -> None:
+        group = row.get(self.group_by) if self.group_by else None
+        for rule, check in self._row_rules:
+            result = check(row)
+            if result is not None:
+                self._add_finding(rule, result[0], result[1], group, [row.get("frame")])
+        # A row whose group value is missing belongs to no known BSS;
+        # pooling all of them would compare unrelated networks.
+        if self._group_rules and group is not None:
+            folds = self._folds.get(group)
+            if folds is None:
+                folds = self._folds[group] = [GROUP_RULES[r]() for r in self._group_rules]
+            for fold in folds:
+                fold.add(row)
+
+    def findings(self) -> list[Finding]:
+        """Every finding, fail first, then warn, then info. Call once, after the last row."""
+        for group, folds in self._folds.items():
+            for rule, fold in zip(self._group_rules, folds):
+                for severity, message, frames in fold.result():
+                    self._add_finding(rule, severity, message, group, frames)
+        findings = list(self._collapsed.values())
+        for finding in findings:
+            finding.frames.sort()
+        findings.sort(key=lambda f: (_SEVERITY_ORDER[f.severity], f.rule,
+                                     "" if f.group is None else str(f.group)))
+        return findings
+
+
+def evaluate(rows: Iterable[Row], rule_ids: Iterable[str], group_by: str | None = None) -> list[Finding]:
     """Run the named rules over decoded rows; fail first, then warn, then info.
 
     Identical findings (same rule, group and message) collapse into one with
     every frame listed. A rule that raises is a bug in the rule; it is not
-    swallowed here.
+    swallowed here. ``rows`` is read once, so it may be a generator.
     """
-    rule_ids = list(dict.fromkeys(rule_ids))
-    unknown = [r for r in rule_ids if r not in RULES]
-    if unknown:
-        raise ValueError(f"Unknown rule(s): {unknown}")
-
-    collapsed: dict[tuple[str, str | None, str], Finding] = {}
-
-    def add(rule: str, severity: Severity, message: str, group: str | None, frames: list[int]) -> None:
-        key = (rule, group, message)
-        finding = collapsed.get(key)
-        if finding is None:
-            finding = collapsed[key] = Finding(rule, severity, message, group)
-        finding.frames.extend(f for f in frames if f is not None)
-
+    evaluator = Evaluator(rule_ids, group_by)
     for row in rows:
-        group = row.get(group_by) if group_by else None
-        for rule in rule_ids:
-            check = ROW_RULES.get(rule)
-            if check is None:
-                continue
-            result = check(row)
-            if result is not None:
-                add(rule, result[0], result[1], group, [row.get("frame")])
-
-    # Without a grouping key every frame would be one "group", and comparing
-    # beacons of different networks with each other means nothing.
-    group_rules = [r for r in rule_ids if r in GROUP_RULES]
-    if group_rules and group_by:
-        groups: dict[Any, list[Row]] = {}
-        for row in rows:
-            # A row whose group value is missing belongs to no known BSS;
-            # pooling all of them would compare unrelated networks.
-            if row.get(group_by) is not None:
-                groups.setdefault(row[group_by], []).append(row)
-        for group, members in groups.items():
-            for rule in group_rules:
-                for severity, message, frames in GROUP_RULES[rule](members):
-                    add(rule, severity, message, group, frames)
-
-    findings = list(collapsed.values())
-    for finding in findings:
-        finding.frames.sort()
-    findings.sort(key=lambda f: (_SEVERITY_ORDER[f.severity], f.rule,
-                                 "" if f.group is None else str(f.group)))
-    return findings
+        evaluator.add(row)
+    return evaluator.findings()
 
 
 def channel_occupancy(rows: list[Row], dut_bssids: Iterable[str] = ()) -> dict:
