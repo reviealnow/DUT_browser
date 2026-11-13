@@ -807,8 +807,11 @@ job that fails after a 50 MB upload. The UI calls the validate route as the
 user types (debounced, 600 ms), and only for a filter that changed.
 
 **Frame detail.** `tshark -n -r <sha>.pcapng -c <n> -Y "frame.number==<n>"
--T json`: `-c` counts frames *read*, so tshark stops at frame n instead of
-scanning the whole file (measured with tshark 4.4.1). Details run in the
+-T json --no-duplicate-keys`: `-c` counts frames *read*, so tshark stops at frame n instead of
+scanning the whole file (measured with tshark 4.4.1). `--no-duplicate-keys`
+(tshark 2.6+) turns a repeated field, such as one `wlan.tag` per tagged
+parameter, into an array; without it `-T json` prints duplicate keys and a
+JSON parser keeps only the last, which can hide a beacon's RSN element. Details run in the
 **interactive lane** (§B3): at most one per Host, alongside — not queued behind —
 a running analysis, also under `nice -n 19` (and `ionice -c3`, §B3). Each result is cached under
 `data/packets/<analysis_id>/frames/<n>.json`, so reopening a frame costs

@@ -359,7 +359,9 @@ class FrameDetailTest(_JobsBench):
         frame = self.jobs.frame(analysis["id"], 3)
         self.assertEqual(frame["_source"]["layers"]["frame"]["frame.number"], "3")
         detail_call = self.tshark_calls()[-1]
-        self.assertIn("-c 3 -Y frame.number==3 -T json", detail_call)
+        # Repeated fields (one wlan.tag per tagged parameter) must reach the
+        # panel as an array, not as duplicate keys json.loads would collapse.
+        self.assertIn("-c 3 -Y frame.number==3 -T json --no-duplicate-keys", detail_call)
         self.assertEqual(self.jobs.frame(analysis["id"], 3), frame)
         self.assertEqual(len(self.tshark_calls()), calls_before + 1)
 
