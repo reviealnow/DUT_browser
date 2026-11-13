@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { PacketAnalysis, PacketHost, PacketMode, PacketRowsPage } from "../api/rest";
+import type { PacketAnalysis, PacketHost, PacketMode, PacketRowsPage, WorkspaceFile } from "../api/rest";
 
 /**
  * Packet Monitor's section (docs/design-packet-monitor.md §B11): what it asks
@@ -29,8 +30,12 @@ vi.mock("../api/rest", async (importOriginal) => ({
   ...Object.fromEntries(Object.entries(api).map(([name, fn]) => [name, (...args: unknown[]) => fn(...args)])),
 }));
 
-const { default: PacketMonitorSection, hostBlocker, FILTER_DEBOUNCE_MS } = await import("./PacketMonitorSection");
-const { PacketAnalysisProvider, POLL_MS } = await import("../monitoring/PacketAnalysisContext");
+const { default: PacketMonitorSection, hostBlocker, FILTER_DEBOUNCE_MS } = await import(
+  "./PacketMonitorSection"
+);
+const { PacketAnalysisProvider, POLL_MS, PAGE_CACHE_MAX, usePacketAnalysis } = await import(
+  "../monitoring/PacketAnalysisContext"
+);
 const { PacketTable, ROW_HEIGHT, PAGE_SIZE } = await import("./PacketTable");
 
 const PROBE = {
@@ -408,5 +413,65 @@ describe("PacketTable", () => {
     await waitFor(() => expect(page).toHaveBeenCalledWith(30_000, PAGE_SIZE));
     await screen.findByText("30001");
     expect(document.querySelectorAll("tr.pkt-row").length).toBeLessThan(60);
+  });
+});
+
+// Review of #231, points 7-9.
+describe("PacketMonitorSection, review of #231 points 7-9", () => {
+  it("9: the context keeps a bounded number of row pages, and asks once per page in flight", async () => {
+    let ctx!: ReturnType<typeof usePacketAnalysis>;
+    function Grab() {
+      ctx = usePacketAnalysis();
+      return null;
+    }
+    api.createPacketAnalysis.mockResolvedValue(1);
+    api.getPacketAnalysis.mockResolvedValue(analysis("done"));
+    render(
+      <PacketAnalysisProvider>
+        <Grab />
+      </PacketAnalysisProvider>,
+    );
+    await act(() => ctx.start({ file_id: 3, collector_id: "pi", mode_id: "beacon_security", display_filter: "", extra_fields: [] }));
+    await waitFor(() => expect(ctx.analysis?.id).toBe(1));
+
+    const first = deferred<PacketRowsPage>();
+    api.getPacketRows.mockImplementation((_id: number, offset: number, limit: number) =>
+      offset === 0 ? first.promise : Promise.resolve(rows(offset, limit, 100_000)),
+    );
+    const a = ctx.page(0, PAGE_SIZE);
+    const b = ctx.page(0, PAGE_SIZE);
+    expect(api.getPacketRows).toHaveBeenCalledTimes(1);
+    first.resolve(rows(0, PAGE_SIZE, 100_000));
+    await Promise.all([a, b]);
+    await ctx.page(0, PAGE_SIZE);
+    expect(api.getPacketRows).toHaveBeenCalledTimes(1);
+
+    for (let n = 1; n <= PAGE_CACHE_MAX; n += 1) {
+      await ctx.page(n * PAGE_SIZE, PAGE_SIZE);
+    }
+    expect(api.getPacketRows).toHaveBeenCalledTimes(1 + PAGE_CACHE_MAX);
+    // The first page was the least recently used, so it is gone and asked for again.
+    await ctx.page(0, PAGE_SIZE);
+    expect(api.getPacketRows).toHaveBeenCalledTimes(2 + PAGE_CACHE_MAX);
+    expect(api.getPacketRows).toHaveBeenLastCalledWith(1, 0, PAGE_SIZE);
+  });
+
+  it("9: the table drops pages the window has left, and asks again on the way back", async () => {
+    const total = 50_000;
+    const page = vi.fn((offset: number, limit: number) => Promise.resolve(rows(offset, limit, total)));
+    render(
+      <PacketTable
+        total={total} columns={COLUMNS} page={page}
+        severityByFrame={new Map()} selectedFrame={null} onOpen={() => {}}
+      />,
+    );
+    await screen.findByText("1");
+    const view = screen.getByTestId("packet-window");
+    fireEvent.scroll(view, { target: { scrollTop: 30_000 * ROW_HEIGHT } });
+    await screen.findByText("30001");
+    expect(screen.queryByText("1")).toBeNull();
+    fireEvent.scroll(view, { target: { scrollTop: 0 } });
+    await screen.findByText("1");
+    expect(page.mock.calls.filter(([offset]) => offset === 0)).toHaveLength(2);
   });
 });

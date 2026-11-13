@@ -10,11 +10,16 @@ import type { PacketColumn, PacketRowsPage, PacketSeverity } from "../api/rest";
  * plus a few either side, are in the DOM. Rows arrive a page at a time from
  * `page`, which the context caches, and a row not loaded yet draws as a
  * placeholder of the same height so the scrollbar never jumps.
+ *
+ * Only the pages within KEEP_PAGES of the window are kept; scrolling away
+ * drops the rest, and scrolling back asks `page` again, whose own cache
+ * answers a page still in flight with the same request.
  */
 export const ROW_HEIGHT = 28;
 export const VIEW_HEIGHT = 480;
 export const PAGE_SIZE = 200;
 const OVERSCAN = 10;
+export const KEEP_PAGES = 2;
 
 type Loaded = { row: Record<string, unknown>; display: Record<string, string> };
 
@@ -30,10 +35,11 @@ type PacketTableProps = {
 
 export function PacketTable({ total, columns, page, severityByFrame, selectedFrame, onOpen }: PacketTableProps) {
   const [scrollTop, setScrollTop] = useState(0);
-  const [loaded, setLoaded] = useState<Map<number, Loaded>>(new Map());
+  // Rows by page number, for the pages near the window only.
+  const [loaded, setLoaded] = useState<Map<number, Loaded[]>>(new Map());
   const [error, setError] = useState("");
-  // Pages asked for, per `page` (one analysis): each is requested once, however
-  // often the window moves over it while it is in flight.
+  // Pages asked for and still kept, per `page` (one analysis): each is asked
+  // for once while it stays near the window.
   const requested = useRef<{ source: typeof page; pages: Set<number> }>({ source: page, pages: new Set() });
 
   // A new analysis (a new `page`) starts from an empty window.
@@ -57,21 +63,36 @@ export function PacketTable({ total, columns, page, severityByFrame, selectedFra
     if (state.source !== page) {
       return; // the reset above runs first and brings us back here
     }
-    for (let number = Math.floor(first / PAGE_SIZE); number * PAGE_SIZE < last; number += 1) {
+    const firstPage = Math.floor(first / PAGE_SIZE);
+    const lastPage = Math.floor(Math.max(first, last - 1) / PAGE_SIZE);
+    const near = (number: number) => number >= firstPage - KEEP_PAGES && number <= lastPage + KEEP_PAGES;
+    // Forget what the window has left behind: rows, and that they were asked for.
+    for (const number of [...state.pages]) {
+      if (!near(number)) state.pages.delete(number);
+    }
+    setLoaded((previous) => {
+      const stale = [...previous.keys()].filter((number) => !near(number));
+      if (!stale.length) return previous;
+      const next = new Map(previous);
+      stale.forEach((number) => next.delete(number));
+      return next;
+    });
+    for (let number = firstPage; number <= lastPage; number += 1) {
       if (state.pages.has(number)) {
         continue;
       }
       state.pages.add(number);
       page(number * PAGE_SIZE, PAGE_SIZE)
         .then((result) => {
-          if (requested.current !== state) {
-            return; // an answer for an analysis no longer shown
+          if (requested.current !== state || !state.pages.has(number)) {
+            return; // an analysis no longer shown, or a page the window has left
           }
           setLoaded((previous) => {
             const next = new Map(previous);
-            result.rows.forEach((row, i) => {
-              next.set(result.offset + i, { row, display: result.display[i] ?? {} });
-            });
+            next.set(
+              number,
+              result.rows.map((row, i) => ({ row, display: result.display[i] ?? {} })),
+            );
             return next;
           });
         })
@@ -116,7 +137,7 @@ export function PacketTable({ total, columns, page, severityByFrame, selectedFra
           <tbody>
             <tr aria-hidden style={{ height: first * ROW_HEIGHT }} />
             {indexes.map((index) => {
-              const item = loaded.get(index);
+              const item = loaded.get(Math.floor(index / PAGE_SIZE))?.[index % PAGE_SIZE];
               if (!item) {
                 return (
                   <tr key={index} className="pkt-row pkt-pending" style={{ height: ROW_HEIGHT }}>
