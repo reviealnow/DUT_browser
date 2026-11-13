@@ -30,7 +30,7 @@ vi.mock("../api/rest", async (importOriginal) => ({
   ...Object.fromEntries(Object.entries(api).map(([name, fn]) => [name, (...args: unknown[]) => fn(...args)])),
 }));
 
-const { default: PacketMonitorSection, hostBlocker, FILTER_DEBOUNCE_MS } = await import(
+const { default: PacketMonitorSection, hostBlocker, FILTER_DEBOUNCE_MS, FILES_PAGE, FILES_MAX_PAGES } = await import(
   "./PacketMonitorSection"
 );
 const { PacketAnalysisProvider, POLL_MS, PAGE_CACHE_MAX, usePacketAnalysis } = await import(
@@ -466,6 +466,39 @@ describe("PacketMonitorSection, review of #231 points 7-9", () => {
     // The open frame comes back with its tree, fetched again.
     expect(await screen.findByText("frame-2-tree")).toBeTruthy();
     expect(screen.getByText("Frame 2")).toBeTruthy();
+  });
+
+  it("8: offers captures beyond the newest 500 files, by paging the filename search", async () => {
+    const pcaps: WorkspaceFile[] = Array.from({ length: 1200 }, (_, i) => ({
+      id: 10_000 - i, filename: `run-${i}.pcapng`, size: 1, uploader: null,
+      uploaded_at: `2026-11-${String(12 - Math.floor(i / 200)).padStart(2, "0")}T00:00:00`,
+    })) as WorkspaceFile[];
+    const old = { id: 7, filename: "legacy.CAP", size: 1, uploader: null, uploaded_at: "2020-01-01T00:00:00" };
+    api.getFiles.mockImplementation(({ q, offset = 0, limit }: { q?: string; offset?: number; limit?: number }) => {
+      const all = q === ".pcap" ? pcaps : q === ".cap" ? [old] : [];
+      return Promise.resolve({ files: all.slice(offset, offset + (limit ?? all.length)), stats: {}, total: all.length });
+    });
+    renderSection();
+    const select = (await screen.findByLabelText("Capture file")) as HTMLSelectElement;
+    await waitFor(() => expect(select.options.length).toBe(1 + 1200 + 1));
+    expect(api.getFiles).toHaveBeenCalledWith({ q: ".pcap", limit: FILES_PAGE, offset: 1000 });
+    expect(select.options[1].textContent).toBe("run-0.pcapng");
+    expect(select.options[select.options.length - 1].textContent).toBe("legacy.CAP");
+    expect(screen.queryByText(/only the newest are listed/)).toBeNull();
+  });
+
+  it("8: says so when the capture list may be incomplete", async () => {
+    let next = 1;
+    api.getFiles.mockImplementation(({ q, limit = FILES_PAGE }: { q?: string; limit?: number }) =>
+      Promise.resolve({
+        files: q === ".pcap" ? Array.from({ length: limit }, () => ({ id: next++, filename: "x.pcap", size: 1, uploader: null, uploaded_at: "" })) : [],
+        stats: {},
+        total: q === ".pcap" ? 1_000_000 : 0,
+      }),
+    );
+    renderSection();
+    expect(await screen.findByText(/only the newest are listed/)).toBeTruthy();
+    expect(api.getFiles.mock.calls.filter(([o]) => o.q === ".pcap")).toHaveLength(FILES_MAX_PAGES);
   });
 
   it("9: the context keeps a bounded number of row pages, and asks once per page in flight", async () => {

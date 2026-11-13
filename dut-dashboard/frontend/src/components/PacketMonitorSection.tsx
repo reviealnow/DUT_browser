@@ -27,6 +27,16 @@ import { PacketTable } from "./PacketTable";
  */
 export const CAPTURE_RE = /\.(pcap|pcapng|cap)$/i;
 export const FILTER_DEBOUNCE_MS = 600;
+/** `/api/files` serves at most this many rows per request. */
+export const FILES_PAGE = 500;
+/** Pages read per search before the list says it may be incomplete. */
+export const FILES_MAX_PAGES = 10;
+/**
+ * Filename searches that, between them, find every name CAPTURE_RE accepts:
+ * ".pcap" also matches ".pcapng". The server's match is a case-insensitive
+ * substring, so the results are filtered by CAPTURE_RE afterwards.
+ */
+const CAPTURE_SEARCHES = [".pcap", ".cap"];
 const HISTORY_KEY = "packetMonitor.filterHistory";
 const HIDDEN_KEY = "packetMonitor.hiddenColumns";
 const HISTORY_MAX = 10;
@@ -49,6 +59,33 @@ function writeStore(key: string, value: unknown): void {
   }
 }
 
+/**
+ * Every capture in the Files workspace, newest first, using the paging and
+ * filename search `/api/files` already has. `complete` is false when a search
+ * stopped at FILES_MAX_PAGES before reaching its total.
+ */
+export async function listCaptures(): Promise<{ files: WorkspaceFile[]; complete: boolean }> {
+  const found = new Map<number, WorkspaceFile>();
+  let complete = true;
+  for (const q of CAPTURE_SEARCHES) {
+    for (let page = 0; ; page += 1) {
+      if (page === FILES_MAX_PAGES) {
+        complete = false;
+        break;
+      }
+      const list = await getFiles({ q, limit: FILES_PAGE, offset: page * FILES_PAGE });
+      for (const f of list.files) {
+        if (CAPTURE_RE.test(f.filename)) found.set(f.id, f);
+      }
+      if (list.files.length < FILES_PAGE || (page + 1) * FILES_PAGE >= list.total) break;
+    }
+  }
+  const files = [...found.values()].sort(
+    (a, b) => b.uploaded_at.localeCompare(a.uploaded_at) || b.id - a.id,
+  );
+  return { files, complete };
+}
+
 /** Why a Host cannot be picked, in the words the operator needs, or "" if it can. */
 export function hostBlocker(host: PacketHost): string {
   if (!host.connected) return "not connected — ask an admin to connect it";
@@ -66,6 +103,7 @@ export default function PacketMonitorSection() {
   // The form lives in the context so it survives leaving the section (#231 review, 7).
   const { fileId, hostId, modeId, filter, extra, frame, byBss } = form;
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
+  const [filesComplete, setFilesComplete] = useState(true);
   const [filesError, setFilesError] = useState("");
   // Filter checks by `${hostId}\n${text}`: a result only ever describes the
   // text it was asked about, so neither a stale nor a late answer can enable
@@ -83,8 +121,11 @@ export default function PacketMonitorSection() {
   // On entry, once: the Hosts, the Test Modes and the captures to choose from.
   useEffect(() => {
     void load();
-    getFiles({ limit: 500 })
-      .then((list) => setFiles(list.files.filter((f) => CAPTURE_RE.test(f.filename))))
+    listCaptures()
+      .then((list) => {
+        setFiles(list.files);
+        setFilesComplete(list.complete);
+      })
       .catch((e: unknown) => setFilesError(humanizeApiError(e)));
   }, [load]);
 
@@ -209,6 +250,12 @@ export default function PacketMonitorSection() {
       <Card title="Capture" subtitle="tshark runs on the Host, not on this server">
         {state.error ? <div className="pkt-error">{state.error}</div> : null}
         {filesError ? <div className="pkt-error">{filesError}</div> : null}
+        {!filesComplete ? (
+          <div className="pkt-blocker" role="status">
+            More than {FILES_MAX_PAGES * FILES_PAGE} files in Files look like captures; only the newest are listed
+            here.
+          </div>
+        ) : null}
         <div className="pkt-controls">
           <label className="modal-label">
             Capture file
