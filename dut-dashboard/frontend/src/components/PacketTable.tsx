@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { humanizeApiError } from "../api/rest";
 import type { PacketColumn, PacketRowsPage, PacketSeverity } from "../api/rest";
 
 /**
@@ -77,7 +78,7 @@ export function PacketTable({ total, columns, page, severityByFrame, selectedFra
         .catch((e: unknown) => {
           if (requested.current === state) {
             state.pages.delete(number);
-            setError(e instanceof Error ? e.message : String(e));
+            setError(humanizeApiError(e));
           }
         });
     }

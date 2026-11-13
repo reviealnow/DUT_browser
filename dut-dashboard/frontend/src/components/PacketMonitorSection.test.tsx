@@ -215,7 +215,179 @@ describe("PacketMonitorSection", () => {
   });
 });
 
+/** A promise the test resolves when it chooses. */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+const tree = (marker: string) => ({ _source: { layers: { marker } } });
+
+async function runOnce() {
+  fireEvent.click(screen.getByRole("button", { name: "Run" }));
+}
+
+// Review of #231: what the operator sees when answers arrive late or out of order.
+describe("PacketMonitorSection, late and out-of-order answers", () => {
+  it("1/2: shows the frame clicked last, not the one answered last", async () => {
+    api.createPacketAnalysis.mockResolvedValue(1);
+    api.getPacketAnalysis.mockResolvedValue(analysis("done"));
+    const slow = deferred<unknown>();
+    api.getPacketFrame.mockImplementation((_id: number, n: number) =>
+      n === 2 ? slow.promise : Promise.resolve(tree("from-frame-1")),
+    );
+    renderSection();
+    await choose("Capture file", "3");
+    await choose("Host", "pi");
+    await runOnce();
+    fireEvent.click(await screen.findByRole("button", { name: "#2" }));
+    fireEvent.click(screen.getByRole("button", { name: "#1" }));
+    expect(await screen.findByText("from-frame-1")).toBeTruthy();
+    await act(async () => slow.resolve(tree("from-frame-2")));
+    expect(screen.getByText("Frame 1")).toBeTruthy();
+    expect(screen.getByText("from-frame-1")).toBeTruthy();
+    expect(screen.queryByText("from-frame-2")).toBeNull();
+  });
+
+  it("3: a new Run turns 'One row per BSS' off, so a mode without groups shows its rows", async () => {
+    api.createPacketAnalysis.mockResolvedValueOnce(1).mockResolvedValueOnce(2);
+    api.getPacketAnalysis.mockImplementation((id: number) => Promise.resolve(analysis("done", { id })));
+    api.getPacketGroups.mockImplementation((id: number) =>
+      Promise.resolve(id === 1 ? [{ group: "aa:bb", frames: 2, row: {}, display: { frame: "1" } }] : []),
+    );
+    renderSection();
+    await choose("Capture file", "3");
+    await choose("Host", "pi");
+    await runOnce();
+    fireEvent.click(await screen.findByLabelText(/One row per BSS/));
+    await runOnce();
+    await waitFor(() => expect(api.getPacketGroups).toHaveBeenCalledWith(2));
+    expect(await screen.findAllByText("PSK / SAE")).toHaveLength(2);
+    expect(screen.queryByLabelText(/One row per BSS/)).toBeNull();
+  });
+
+  it("4: a previous analysis's slow findings do not land on the next one", async () => {
+    api.createPacketAnalysis.mockResolvedValueOnce(1).mockResolvedValueOnce(2);
+    // A is seen running when created and finishes on a poll, as in the review.
+    let firstLookAtA = true;
+    api.getPacketAnalysis.mockImplementation((id: number) => {
+      if (id === 1 && firstLookAtA) {
+        firstLookAtA = false;
+        return Promise.resolve(analysis("running", { id }));
+      }
+      return Promise.resolve(analysis("done", { id }));
+    });
+    const slowA = deferred<unknown>();
+    api.getPacketFindings.mockImplementation((id: number) =>
+      id === 1
+        ? slowA.promise
+        : Promise.resolve([{ rule: "b", severity: "warn", message: "finding of B", group: null, frames: [1] }]),
+    );
+    renderSection();
+    await choose("Capture file", "3");
+    await choose("Host", "pi");
+    await runOnce();
+    await waitFor(() => expect(api.getPacketFindings).toHaveBeenCalledWith(1), { timeout: POLL_MS * 3 });
+    await waitFor(() => expect((screen.getByRole("button", { name: "Run" }) as HTMLButtonElement).disabled).toBe(false));
+    await runOnce();
+    expect(await screen.findByText("finding of B")).toBeTruthy();
+    await act(async () =>
+      slowA.resolve([{ rule: "a", severity: "fail", message: "finding of A", group: null, frames: [2] }]),
+    );
+    expect(screen.getByText("finding of B")).toBeTruthy();
+    expect(screen.queryByText("finding of A")).toBeNull();
+  });
+
+  it("4: polls one at a time on a slow backend, and fetches the results once", async () => {
+    api.createPacketAnalysis.mockResolvedValue(1);
+    api.getPacketAnalysis
+      .mockResolvedValueOnce(analysis("running"))
+      .mockImplementation(
+        () => new Promise((resolve) => setTimeout(() => resolve(analysis("done")), POLL_MS * 2.5)),
+      );
+    renderSection();
+    await choose("Capture file", "3");
+    await choose("Host", "pi");
+    await runOnce();
+    expect(await screen.findByText("SAE but MFPR = 0", {}, { timeout: POLL_MS * 6 })).toBeTruthy();
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS * 2));
+    // One create-time GET, then one poll: the ticks while it was slow were skipped.
+    expect(api.getPacketAnalysis).toHaveBeenCalledTimes(2);
+    expect(api.getPacketFindings).toHaveBeenCalledTimes(1);
+  }, 15_000);
+
+  it("5: an edited filter drops the old verdict at once", async () => {
+    api.validatePacketFilter.mockImplementation((_host: string, text: string) =>
+      Promise.resolve(text === "wlan.nope" ? { ok: false, error: "not a valid protocol" } : { ok: true, error: null }),
+    );
+    renderSection();
+    await choose("Capture file", "3");
+    await choose("Host", "pi");
+    const input = screen.getByLabelText("Display filter");
+    const runButton = () => screen.getByRole("button", { name: "Run" }) as HTMLButtonElement;
+
+    fireEvent.change(input, { target: { value: "wlan.nope" } });
+    expect(await screen.findByText("not a valid protocol", {}, { timeout: 3000 })).toBeTruthy();
+    fireEvent.change(input, { target: { value: "wlan.ssid" } });
+    // The old red error goes with the text it was about.
+    expect(screen.queryByText("not a valid protocol")).toBeNull();
+    expect(await screen.findByText("Filter is valid.", {}, { timeout: 3000 })).toBeTruthy();
+    expect(runButton().disabled).toBe(false);
+
+    // A valid verdict does not carry over to text that has not been checked.
+    fireEvent.change(input, { target: { value: "wlan.nope2" } });
+    expect(runButton().disabled).toBe(true);
+    expect(screen.queryByText("Filter is valid.")).toBeNull();
+  });
+
+  it("6: a failed poll's error goes once a later poll works", async () => {
+    api.createPacketAnalysis.mockResolvedValue(1);
+    api.getPacketAnalysis
+      .mockResolvedValueOnce(analysis("running"))
+      .mockRejectedValueOnce(new Error('{"detail":"Backend restarting."}'))
+      .mockResolvedValue(analysis("done", { warning: "The capture is cut short." }));
+    renderSection();
+    await choose("Capture file", "3");
+    await choose("Host", "pi");
+    await runOnce();
+    expect(await screen.findByText("Backend restarting.", {}, { timeout: POLL_MS * 3 })).toBeTruthy();
+    expect(await screen.findByText("Done: 2 frames.", {}, { timeout: POLL_MS * 3 })).toBeTruthy();
+    expect(screen.getByText("The capture is cut short.")).toBeTruthy();
+    expect(screen.queryByText("Backend restarting.")).toBeNull();
+  });
+
+  it("6: a Cancel that lost the race to the end shows the result, not an error", async () => {
+    api.createPacketAnalysis.mockResolvedValue(1);
+    api.getPacketAnalysis.mockResolvedValueOnce(analysis("running")).mockResolvedValue(analysis("done"));
+    api.cancelPacketAnalysis.mockRejectedValue(new Error('{"detail":"Analysis 1 has already finished."}'));
+    renderSection();
+    await choose("Capture file", "3");
+    await choose("Host", "pi");
+    await runOnce();
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+    expect(await screen.findByText("Done: 2 frames.")).toBeTruthy();
+    expect(await screen.findByText("SAE but MFPR = 0")).toBeTruthy();
+    expect(screen.queryByText("Analysis 1 has already finished.")).toBeNull();
+  });
+});
+
 describe("PacketTable", () => {
+  it("10: words a failed page the way the rest of the section does", async () => {
+    const page = vi.fn(() => Promise.reject(new Error('{"detail":"Analysis 1 is not done."}')));
+    render(
+      <PacketTable
+        total={10} columns={COLUMNS} page={page}
+        severityByFrame={new Map()} selectedFrame={null} onOpen={() => {}}
+      />,
+    );
+    expect(await screen.findByText("Analysis 1 is not done.")).toBeTruthy();
+  });
+
   it("keeps only the visible rows in the DOM and fetches pages as it scrolls", async () => {
     const total = 50_000;
     const page = vi.fn((offset: number, limit: number) => Promise.resolve(rows(offset, limit, total)));

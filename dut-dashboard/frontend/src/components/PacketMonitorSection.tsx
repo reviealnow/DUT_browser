@@ -70,8 +70,10 @@ export default function PacketMonitorSection() {
   const [modeId, setModeId] = useState("");
   const [filter, setFilter] = useState("");
   const [extra, setExtra] = useState("");
-  const [check, setCheck] = useState<PacketFilterCheck | null>(null);
-  const [checking, setChecking] = useState(false);
+  // Filter checks by `${hostId}\n${text}`: a result only ever describes the
+  // text it was asked about, so neither a stale nor a late answer can enable
+  // or block Run for what is in the box now.
+  const [checks, setChecks] = useState<Record<string, PacketFilterCheck>>({});
   const [history, setHistory] = useState<string[]>(() => readStore<string[]>(HISTORY_KEY, []));
   const [hidden, setHidden] = useState<Record<string, string[]>>(() => readStore(HIDDEN_KEY, {}));
   const [severity, setSeverity] = useState<PacketSeverity | null>(null);
@@ -80,6 +82,8 @@ export default function PacketMonitorSection() {
   const [tree, setTree] = useState<unknown>(null);
   const [treeLoading, setTreeLoading] = useState(false);
   const [treeError, setTreeError] = useState("");
+  // Bumped by every frame request and every Run: only the latest may fill the panel.
+  const frameRequest = useRef(0);
 
   // On entry, once: the Hosts, the Test Modes and the captures to choose from.
   useEffect(() => {
@@ -93,46 +97,49 @@ export default function PacketMonitorSection() {
     if (!modeId && modes.length) setModeId(modes[0].id);
   }, [modes, modeId]);
 
-  // Validate as the user types: debounced, and only for a filter that changed.
-  const lastChecked = useRef("");
+  // Validate as the user types: debounced, and only for a filter not checked yet.
+  const filterText = filter.trim();
+  const filterKey = hostId && filterText ? `${hostId}\n${filterText}` : "";
+  const check: PacketFilterCheck | null = filterKey ? (checks[filterKey] ?? null) : null;
+  const checking = filterKey !== "" && check === null;
   useEffect(() => {
-    const text = filter.trim();
-    const key = `${hostId}\n${text}`;
-    if (!hostId || !text) {
-      setCheck(null);
-      lastChecked.current = key;
-      return;
-    }
-    if (key === lastChecked.current) return;
+    if (!filterKey || filterKey in checks) return;
     const timer = window.setTimeout(() => {
-      lastChecked.current = key;
-      setChecking(true);
-      validatePacketFilter(hostId, text)
-        .then(setCheck)
-        .catch((e: unknown) => setCheck({ ok: null, error: humanizeApiError(e) }))
-        .finally(() => setChecking(false));
+      const record = (result: PacketFilterCheck) => setChecks((prev) => ({ ...prev, [filterKey]: result }));
+      validatePacketFilter(hostId, filterText)
+        .then(record)
+        .catch((e: unknown) => record({ ok: null, error: humanizeApiError(e) }));
     }, FILTER_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
-  }, [filter, hostId]);
+    // `checks` is read, not watched: a result arriving must not restart the timer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterKey]);
 
   const mode = modes.find((m) => m.id === modeId) ?? null;
   const host = hosts.find((h) => h.id === hostId) ?? null;
   const blocker = host ? hostBlocker(host) : "";
   const running = analysis !== null && (analysis.status === "queued" || analysis.status === "running");
   const extraFields = extra.split(/[\s,]+/).filter(Boolean);
+  // A filter must have been checked as it reads now; "could not check" (ok:
+  // null) still lets the user run, since the Host will say if it is wrong.
+  const filterReady = !filterKey || (check !== null && check.ok !== false);
   const canRun =
-    fileId !== null && host !== null && !blocker && mode !== null && !running && !state.starting && check?.ok !== false;
+    fileId !== null && host !== null && !blocker && mode !== null && !running && !state.starting && filterReady;
 
   const run = async () => {
     if (!canRun || fileId === null || !mode) return;
-    const text = filter.trim();
+    const text = filterText;
     if (text) {
       const next = [text, ...history.filter((h) => h !== text)].slice(0, HISTORY_MAX);
       setHistory(next);
       writeStore(HISTORY_KEY, next);
     }
+    frameRequest.current += 1;
     setFrame(null);
+    setTree(null);
+    setTreeLoading(false);
     setSeverity(null);
+    setByBss(false);
     await state.start({
       file_id: fileId,
       collector_id: hostId,
@@ -174,17 +181,24 @@ export default function PacketMonitorSection() {
 
   const openFrame = async (number: number) => {
     if (!analysis) return;
+    const request = ++frameRequest.current;
     setFrame(number);
     setTree(null);
     setTreeError("");
     setTreeLoading(true);
     try {
-      setTree(await getPacketFrame(analysis.id, number));
+      const next = await getPacketFrame(analysis.id, number);
+      if (request === frameRequest.current) setTree(next);
     } catch (e) {
-      setTreeError(humanizeApiError(e));
+      if (request === frameRequest.current) setTreeError(humanizeApiError(e));
     } finally {
-      setTreeLoading(false);
+      if (request === frameRequest.current) setTreeLoading(false);
     }
+  };
+
+  const closeFrame = () => {
+    frameRequest.current += 1;
+    setFrame(null);
   };
 
   const done = analysis?.status === "done";
@@ -290,7 +304,7 @@ export default function PacketMonitorSection() {
             />
           </label>
         </div>
-        <FilterStatus check={check} checking={checking} hasFilter={Boolean(filter.trim()) && Boolean(hostId)} />
+        <FilterStatus check={check} checking={checking} hasFilter={filterKey !== ""} />
         {mode ? <div className="pkt-muted">{mode.description}</div> : null}
 
         <div className="pkt-actions">
@@ -370,7 +384,7 @@ export default function PacketMonitorSection() {
         >
           <div className={frame !== null ? "pkt-split" : undefined}>
             <div className="pkt-main">
-              {byBss ? (
+              {byBss && state.groups.length ? (
                 <GroupsTable columns={shownColumns} />
               ) : (
                 <PacketTable
@@ -389,7 +403,7 @@ export default function PacketMonitorSection() {
                 tree={tree}
                 loading={treeLoading}
                 error={treeError}
-                onClose={() => setFrame(null)}
+                onClose={closeFrame}
               />
             ) : null}
           </div>
@@ -418,8 +432,10 @@ function FilterStatus({ check, checking, hasFilter }: { check: PacketFilterCheck
 
 function AnalysisStatus() {
   const { analysis, analysisError } = usePacketAnalysis();
-  if (analysisError) return <span className="pkt-error">{analysisError}</span>;
-  if (!analysis) return null;
+  // The error sits beside the status, never in place of it: a failed poll or
+  // Cancel must not hide "Done" or a truncation warning.
+  const error = analysisError ? <span className="pkt-error">{analysisError}</span> : null;
+  if (!analysis) return error;
   const parts: string[] = [];
   switch (analysis.status) {
     case "queued":
@@ -445,6 +461,7 @@ function AnalysisStatus() {
       {analysis.rows_dropped ? (
         <span className="pill warn">{analysis.rows_dropped} rows dropped (a tab inside a value)</span>
       ) : null}
+      {error}
     </span>
   );
 }

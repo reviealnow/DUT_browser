@@ -75,6 +75,11 @@ export function PacketAnalysisProvider({ children }: { children: ReactNode }) {
 
   const loadInflight = useRef<Promise<void> | null>(null);
   const pages = useRef<Map<string, Promise<PacketRowsPage>>>(new Map());
+  // The analysis on screen, and the one whose findings were already fetched:
+  // a slow answer for an earlier analysis must not land on a later one, and
+  // one analysis's results are fetched once however many paths see it end.
+  const currentId = useRef<number | null>(null);
+  const finishedId = useRef<number | null>(null);
 
   const load = useCallback(() => {
     if (loadInflight.current) {
@@ -112,6 +117,10 @@ export function PacketAnalysisProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const finished = useCallback(async (done: PacketAnalysis) => {
+    if (done.id !== currentId.current || finishedId.current === done.id) {
+      return;
+    }
+    finishedId.current = done.id;
     if (done.status !== "done") {
       setFindings([]);
       setGroups([]);
@@ -122,9 +131,16 @@ export function PacketAnalysisProvider({ children }: { children: ReactNode }) {
         getPacketFindings(done.id),
         getPacketGroups(done.id),
       ]);
+      if (done.id !== currentId.current) {
+        return; // the user started another analysis meanwhile
+      }
       setFindings(nextFindings);
       setGroups(nextGroups);
     } catch (e) {
+      if (done.id !== currentId.current) {
+        return;
+      }
+      finishedId.current = null; // let a later poll or Cancel try again
       setAnalysisError(humanizeApiError(e));
     }
   }, []);
@@ -135,10 +151,14 @@ export function PacketAnalysisProvider({ children }: { children: ReactNode }) {
       setAnalysisError("");
       try {
         const id = await createPacketAnalysis(request);
+        currentId.current = id;
         pages.current.clear();
         setFindings([]);
         setGroups([]);
         const created = await getPacketAnalysis(id);
+        if (currentId.current !== id) {
+          return;
+        }
         setAnalysis(created);
         if (!isActive(created)) {
           // Finished (or refused) before the first poll could see it run.
@@ -157,35 +177,67 @@ export function PacketAnalysisProvider({ children }: { children: ReactNode }) {
     if (!analysis) {
       return;
     }
+    const id = analysis.id;
+    let cancelError = "";
     try {
-      await cancelPacketAnalysis(analysis.id);
-      setAnalysis(await getPacketAnalysis(analysis.id));
+      await cancelPacketAnalysis(id);
     } catch (e) {
-      setAnalysisError(humanizeApiError(e));
+      // Often a 409 because the analysis ended a moment ago; the state below
+      // says so, and the error is only worth showing if it is still running.
+      cancelError = humanizeApiError(e);
     }
-  }, [analysis]);
+    try {
+      const next = await getPacketAnalysis(id);
+      if (currentId.current !== id) {
+        return;
+      }
+      setAnalysis(next);
+      // Ending here stops the poll, so this path must fetch the results too.
+      if (!isActive(next)) {
+        setAnalysisError("");
+        void finished(next);
+      } else if (cancelError) {
+        setAnalysisError(cancelError);
+      }
+    } catch (e) {
+      if (currentId.current === id) {
+        setAnalysisError(cancelError || humanizeApiError(e));
+      }
+    }
+  }, [analysis, finished]);
 
-  // The one poll: while the current analysis is queued or running.
+  // The one poll: while the current analysis is queued or running. One request
+  // at a time, so a slow backend does not stack them up.
   const activeId = isActive(analysis) ? analysis!.id : null;
   useEffect(() => {
     if (activeId === null) {
       return;
     }
     let stopped = false;
+    let inFlight = false;
     const timer = window.setInterval(async () => {
+      if (inFlight || stopped) {
+        return;
+      }
+      inFlight = true;
       try {
         const next = await getPacketAnalysis(activeId);
-        if (stopped) {
+        if (stopped || currentId.current !== activeId) {
           return;
         }
         setAnalysis(next);
+        setAnalysisError(""); // a poll that worked supersedes one that did not
         if (!isActive(next)) {
+          stopped = true;
+          window.clearInterval(timer);
           void finished(next);
         }
       } catch (e) {
         if (!stopped) {
           setAnalysisError(humanizeApiError(e));
         }
+      } finally {
+        inFlight = false;
       }
     }, POLL_MS);
     return () => {
