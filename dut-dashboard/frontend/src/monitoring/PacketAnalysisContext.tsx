@@ -34,9 +34,29 @@ import {
  * the last PAGE_CACHE_MAX answers are kept, so a table scrolling back and forth
  * over a few pages does not ask twice -- but an analysis of hundreds of
  * thousands of rows scrolled end to end does not stay in memory either.
+ *
+ * The form that produced the results lives here too, so leaving the section
+ * and coming back shows the inputs behind the table, not a blank form.
  */
 export const POLL_MS = 1000;
 export const PAGE_CACHE_MAX = 16;
+
+/** What the operator chose in the section; kept across navigation. */
+export type PacketForm = {
+  fileId: number | null;
+  hostId: string;
+  modeId: string;
+  filter: string;
+  extra: string;
+  /** The frame whose detail panel is open, or null. */
+  frame: number | null;
+  /** "One row per BSS". */
+  byBss: boolean;
+};
+
+export const EMPTY_FORM: PacketForm = {
+  fileId: null, hostId: "", modeId: "", filter: "", extra: "", frame: null, byBss: false,
+};
 
 type PageCache = {
   inflight: Map<string, Promise<PacketRowsPage>>;
@@ -65,6 +85,10 @@ export type PacketMonitorState = {
   starting: boolean;
   /** One page of decoded rows of the current analysis. */
   page: (offset: number, limit: number) => Promise<PacketRowsPage>;
+
+  form: PacketForm;
+  /** Merge `patch` into the form. */
+  setForm: (patch: Partial<PacketForm>) => void;
 };
 
 const PacketAnalysisContext = createContext<PacketMonitorState | null>(null);
@@ -83,6 +107,8 @@ export function PacketAnalysisProvider({ children }: { children: ReactNode }) {
   const [findings, setFindings] = useState<PacketFinding[]>([]);
   const [groups, setGroups] = useState<PacketGroup[]>([]);
   const [starting, setStarting] = useState(false);
+  const [form, setFormState] = useState<PacketForm>(EMPTY_FORM);
+  const setForm = useCallback((patch: Partial<PacketForm>) => setFormState((prev) => ({ ...prev, ...patch })), []);
 
   const loadInflight = useRef<Promise<void> | null>(null);
   const pages = useRef<PageCache>(emptyCache());
@@ -298,6 +324,7 @@ export function PacketAnalysisProvider({ children }: { children: ReactNode }) {
       value={{
         hosts, modes, loading, error, load, probe, probing,
         analysis, analysisError, findings, groups, start, cancel, starting, page,
+        form, setForm,
       }}
     >
       {children}

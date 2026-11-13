@@ -418,6 +418,56 @@ describe("PacketTable", () => {
 
 // Review of #231, points 7-9.
 describe("PacketMonitorSection, review of #231 points 7-9", () => {
+  /** The section behind a switch, as AppShell mounts it under the provider. */
+  function Navigable() {
+    const [shown, setShown] = useState(true);
+    return (
+      <PacketAnalysisProvider>
+        <button type="button" onClick={() => setShown((s) => !s)}>
+          navigate
+        </button>
+        {shown ? <PacketMonitorSection /> : null}
+      </PacketAnalysisProvider>
+    );
+  }
+
+  it("7: leaving the section and coming back keeps the form behind the results", async () => {
+    const second: PacketMode = { ...MODES[0], id: "deauth", label: "Deauth storm", description: "Deauths." };
+    api.getPacketModes.mockResolvedValue([MODES[0], second]);
+    api.createPacketAnalysis.mockResolvedValue(1);
+    api.getPacketAnalysis.mockResolvedValue(analysis("done", { mode_id: "deauth" }));
+    api.getPacketGroups.mockResolvedValue([{ group: "aa:bb", frames: 2, row: {}, display: { frame: "1" } }]);
+    api.getPacketFrame.mockResolvedValue(tree("frame-2-tree"));
+    render(<Navigable />);
+    await choose("Capture file", "3");
+    await choose("Host", "pi");
+    await choose("Test Mode", "deauth");
+    fireEvent.change(screen.getByLabelText("Display filter"), { target: { value: "wlan.ssid" } });
+    fireEvent.change(screen.getByLabelText("Extra fields"), { target: { value: "wlan.fixed.beacon" } });
+    await waitFor(() => expect((screen.getByRole("button", { name: "Run" }) as HTMLButtonElement).disabled).toBe(false), {
+      timeout: 3000,
+    });
+    await runOnce();
+    fireEvent.click(await screen.findByRole("button", { name: "#2" }));
+    expect(await screen.findByText("frame-2-tree")).toBeTruthy();
+    fireEvent.click(screen.getByLabelText(/One row per BSS/));
+
+    fireEvent.click(screen.getByRole("button", { name: "navigate" }));
+    expect(screen.queryByLabelText("Capture file")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "navigate" }));
+
+    const value = (label: string) => (screen.getByLabelText(label) as HTMLInputElement | HTMLSelectElement).value;
+    await waitFor(() => expect(value("Capture file")).toBe("3"));
+    expect(value("Host")).toBe("pi");
+    expect(value("Test Mode")).toBe("deauth");
+    expect(value("Display filter")).toBe("wlan.ssid");
+    expect(value("Extra fields")).toBe("wlan.fixed.beacon");
+    expect((screen.getByLabelText(/One row per BSS/) as HTMLInputElement).checked).toBe(true);
+    // The open frame comes back with its tree, fetched again.
+    expect(await screen.findByText("frame-2-tree")).toBeTruthy();
+    expect(screen.getByText("Frame 2")).toBeTruthy();
+  });
+
   it("9: the context keeps a bounded number of row pages, and asks once per page in flight", async () => {
     let ctx!: ReturnType<typeof usePacketAnalysis>;
     function Grab() {

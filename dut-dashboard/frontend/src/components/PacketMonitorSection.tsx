@@ -62,14 +62,11 @@ export function hostBlocker(host: PacketHost): string {
 
 export default function PacketMonitorSection() {
   const state = usePacketAnalysis();
-  const { hosts, modes, analysis, load } = state;
+  const { hosts, modes, analysis, load, form, setForm } = state;
+  // The form lives in the context so it survives leaving the section (#231 review, 7).
+  const { fileId, hostId, modeId, filter, extra, frame, byBss } = form;
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
   const [filesError, setFilesError] = useState("");
-  const [fileId, setFileId] = useState<number | null>(null);
-  const [hostId, setHostId] = useState("");
-  const [modeId, setModeId] = useState("");
-  const [filter, setFilter] = useState("");
-  const [extra, setExtra] = useState("");
   // Filter checks by `${hostId}\n${text}`: a result only ever describes the
   // text it was asked about, so neither a stale nor a late answer can enable
   // or block Run for what is in the box now.
@@ -77,8 +74,6 @@ export default function PacketMonitorSection() {
   const [history, setHistory] = useState<string[]>(() => readStore<string[]>(HISTORY_KEY, []));
   const [hidden, setHidden] = useState<Record<string, string[]>>(() => readStore(HIDDEN_KEY, {}));
   const [severity, setSeverity] = useState<PacketSeverity | null>(null);
-  const [byBss, setByBss] = useState(false);
-  const [frame, setFrame] = useState<number | null>(null);
   const [tree, setTree] = useState<unknown>(null);
   const [treeLoading, setTreeLoading] = useState(false);
   const [treeError, setTreeError] = useState("");
@@ -94,8 +89,8 @@ export default function PacketMonitorSection() {
   }, [load]);
 
   useEffect(() => {
-    if (!modeId && modes.length) setModeId(modes[0].id);
-  }, [modes, modeId]);
+    if (!modeId && modes.length) setForm({ modeId: modes[0].id });
+  }, [modes, modeId, setForm]);
 
   // Validate as the user types: debounced, and only for a filter not checked yet.
   const filterText = filter.trim();
@@ -135,11 +130,10 @@ export default function PacketMonitorSection() {
       writeStore(HISTORY_KEY, next);
     }
     frameRequest.current += 1;
-    setFrame(null);
+    setForm({ frame: null, byBss: false });
     setTree(null);
     setTreeLoading(false);
     setSeverity(null);
-    setByBss(false);
     await state.start({
       file_id: fileId,
       collector_id: hostId,
@@ -182,7 +176,7 @@ export default function PacketMonitorSection() {
   const openFrame = async (number: number) => {
     if (!analysis) return;
     const request = ++frameRequest.current;
-    setFrame(number);
+    setForm({ frame: number });
     setTree(null);
     setTreeError("");
     setTreeLoading(true);
@@ -198,8 +192,15 @@ export default function PacketMonitorSection() {
 
   const closeFrame = () => {
     frameRequest.current += 1;
-    setFrame(null);
+    setForm({ frame: null });
   };
+
+  // Back in the section with a frame still open: its tree was not kept, so
+  // ask for it again. Once, on entry.
+  useEffect(() => {
+    if (frame !== null && analysis?.status === "done") void openFrame(frame);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const done = analysis?.status === "done";
 
@@ -214,7 +215,7 @@ export default function PacketMonitorSection() {
             <select
               className="input"
               value={fileId ?? ""}
-              onChange={(e) => setFileId(e.target.value ? Number(e.target.value) : null)}
+              onChange={(e) => setForm({ fileId: e.target.value ? Number(e.target.value) : null })}
               aria-label="Capture file"
             >
               <option value="">{files.length ? "Choose a capture" : "No pcap / pcapng in Files"}</option>
@@ -230,7 +231,7 @@ export default function PacketMonitorSection() {
             <select
               className="input"
               value={hostId}
-              onChange={(e) => setHostId(e.target.value)}
+              onChange={(e) => setForm({ hostId: e.target.value })}
               aria-label="Host"
             >
               <option value="">{hosts.length ? "Choose a Host" : "No Hosts registered"}</option>
@@ -265,7 +266,7 @@ export default function PacketMonitorSection() {
             <select
               className="input"
               value={modeId}
-              onChange={(e) => setModeId(e.target.value)}
+              onChange={(e) => setForm({ modeId: e.target.value })}
               aria-label="Test Mode"
             >
               {modes.map((m) => (
@@ -280,7 +281,7 @@ export default function PacketMonitorSection() {
             <input
               className="input"
               value={filter}
-              onChange={(e) => setFilter(e.target.value)}
+              onChange={(e) => setForm({ filter: e.target.value })}
               placeholder={mode?.display_filter ? `in addition to ${mode.display_filter}` : "e.g. wlan.ssid == \"lab\""}
               list="packet-filter-history"
               maxLength={1024}
@@ -298,7 +299,7 @@ export default function PacketMonitorSection() {
             <input
               className="input"
               value={extra}
-              onChange={(e) => setExtra(e.target.value)}
+              onChange={(e) => setForm({ extra: e.target.value })}
               placeholder="wlan.fixed.beacon, …"
               aria-label="Extra fields"
             />
@@ -375,7 +376,7 @@ export default function PacketMonitorSection() {
             <>
               {state.groups.length ? (
                 <label className="pkt-toggle">
-                  <input type="checkbox" checked={byBss} onChange={(e) => setByBss(e.target.checked)} /> One row per BSS
+                  <input type="checkbox" checked={byBss} onChange={(e) => setForm({ byBss: e.target.checked })} /> One row per BSS
                 </label>
               ) : null}
               <ColumnChooser columns={allColumns} hidden={hiddenHere} onToggle={toggleColumn} />
