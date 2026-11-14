@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
 
@@ -132,9 +132,16 @@ def preview_file(file_id: int):
 
 
 @router.delete("/{file_id}")
-def delete_file(file_id: int) -> dict:
+def delete_file(file_id: int, request: Request) -> dict:
     row = file_service.get_file_by_id(file_id)
     if row is None:
         raise HTTPException(status_code=404, detail="File not found")
     file_service.delete_file(row)
+    # A capture is customer data, also staged on Hosts and analysed under
+    # data/packets/ (docs/design-packet-monitor.md §B4 *Deletion*): its
+    # analyses are cancelled and removed now, its staged copies in the
+    # background once no other Files row has the same content.
+    packet_jobs = getattr(request.app.state, "packet_jobs", None)
+    if packet_jobs is not None:
+        packet_jobs.file_deleted(file_id, row.get("sha256"))
     return {"ok": True}

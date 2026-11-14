@@ -19,6 +19,7 @@ from app.api.firmware_api import router as firmware_router
 from app.api.files_api import router as files_router
 from app.api.fleet_api import router as fleet_router
 from app.api.fleet_profiles_api import router as fleet_profiles_router
+from app.api.packets_api import router as packets_router
 from app.api.serial_api import router as serial_router
 from app.api.settings_api import router as settings_router
 from app.api.workspace_api import router as workspace_router
@@ -30,6 +31,7 @@ from app.dut.registry import DEFAULT_DUT_ID, DutContext, DutRegistry, build_defa
 from app.services import api_consumers, auth_service
 from app.services.analyzer_service import AnalyzerService
 from app.services.capability_report import build_capability_report
+from app.services.packet_jobs import PacketJobs
 from app.services.site_survey import channel_recommendation, get_site_survey
 from app.services.survey_cache import last_recommendation, remember_recommendation
 from app.services import context_snapshot, dut_model, mesh_topology, session_meta, survey_snapshot
@@ -70,6 +72,9 @@ app.include_router(files_router, dependencies=[_ENGINEER])
 app.include_router(bulletin_router, dependencies=[_ENGINEER])
 app.include_router(settings_router)
 app.include_router(workspace_router, dependencies=[_ENGINEER])
+# Packet Monitor (docs/design-packet-monitor.md Q1): engineers run tshark on
+# Hosts an admin has already connected; connecting them stays in collectors_api.
+app.include_router(packets_router, dependencies=[_ENGINEER])
 
 
 @app.middleware("http")
@@ -131,6 +136,14 @@ async def on_startup() -> None:
         else:
             logging.warning("Fleet node %s was not converted: %s", entry["dut"], entry["detail"])
 
+    # Packet Monitor jobs. The queue is in memory, so anything the last process
+    # left queued or running has no owner now and is marked failed (§B3).
+    app.state.packet_jobs = PacketJobs(app.state.collector_registry)
+    interrupted = app.state.packet_jobs.mark_interrupted()
+    if interrupted:
+        logging.info("Packet Monitor: %d analyses interrupted by the restart", interrupted)
+    app.state.packet_jobs.start_retention_timer()
+
     # Rebuild the in-memory recommendation cache from persisted survey snapshots
     # so Overview / Fleet band badges survive a restart with no new scan.
     survey_snapshot.restore_cache()
@@ -139,6 +152,12 @@ async def on_startup() -> None:
 @app.on_event("shutdown")
 async def on_shutdown() -> None:
     """Reap serial transports, including every system-ssh child."""
+    packet_jobs = getattr(app.state, "packet_jobs", None)
+    if packet_jobs is not None:
+        # Cancels running analyses and waits (bounded) while each runner kills
+        # its remote tshark, so none is left running on a Pi serving consoles.
+        if not packet_jobs.stop():
+            logging.warning("Packet Monitor: a job did not stop in time; the next probe sweeps it")
     collectors = getattr(app.state, "collector_registry", None)
     if collectors is not None:
         # Before the DUT loop and unconditionally: a held collector session is

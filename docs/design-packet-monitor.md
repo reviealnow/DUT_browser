@@ -746,12 +746,15 @@ output of synthetic beacons, regenerable from
     `packet_analyses` rows in `queued`/`running` for that Host and sha, so it
     cannot drift. `size_bytes` is what the §B4 byte budget is counted in.
   - Both tables land with B-PR 1, because staging and eviction need them
-    (Q13).
+    (Q13). B-PR 3 adds `packet_analyses.extra_fields` (a JSON list) with
+    `_ensure_column`, so a database made with B-PR 1's table gains it too.
 - Rows: `data/packets/<analysis_id>.jsonl` (gitignored by the existing `data/`
   rule), plus `<analysis_id>.idx` — the byte offset of every 500th row — so
   `GET rows?offset=` seeks instead of scanning a 200 MB file. Findings:
-  `<analysis_id>.findings.json`. Frame details: `<analysis_id>/frames/<n>.json`
-  once fetched (§B9).
+  `<analysis_id>.findings.json`. The resolved columns:
+  `<analysis_id>.columns.json`. One row per `group_by` value (the latest frame
+  of each BSS, with its frame count): `<analysis_id>.groups.json`. Frame
+  details: `<analysis_id>/frames/<n>.json` once fetched (§B9).
 - `warning`: set on a finished analysis the operator should still hear about —
   today only a truncated capture (§B3).
 - `rows_dropped`: TSV lines with the wrong cell count (a tab inside a 3.6 text
@@ -771,8 +774,25 @@ output of synthetic beacons, regenerable from
 | DELETE | `/api/packets/analyses/{id}` | cancel a queued/running job (remote kill, §B3) |
 | GET  | `/api/packets/analyses/{id}/rows?offset=&limit=` | paged decoded rows, `limit ≤ 500` |
 | GET  | `/api/packets/analyses/{id}/frames/{n}` | detail tree, see below |
-| GET  | `/api/packets/analyses/{id}/export.csv` | |
+| GET  | `/api/packets/analyses/{id}/export.csv` | visible columns, values formatted as shown |
 | DELETE | `/api/packets/hosts/{id}/staged/{sha256}` | remove a staged copy (refused while pinned) |
+| GET  | `/api/packets/analyses?limit=` | recent analyses, newest first (added in B-PR 3) |
+| GET  | `/api/packets/analyses/{id}/groups` | one row per BSS with its frame count (added in B-PR 3) |
+| GET  | `/api/packets/analyses/{id}/findings` | every finding (added in B-PR 3; the summary above only counts them) |
+
+Error statuses: `400` for a request this side refuses (unknown mode, bad
+filter, a field the Host's tshark does not know), `404` for an unknown
+analysis, file or Host, `409` for a Host that is not connected or not ready,
+or an analysis in the wrong state, and `502` when the Host could not be
+logged into or tshark failed there.
+
+**Filters combine.** A Test Mode's own display filter and the user's are
+applied together, `(<mode filter>) && (<user filter>)`; Manual mode has no
+filter of its own. `extra_fields` add text columns to any mode; every name must
+`fullmatch` the field pattern and be in the Host's `tshark -G fields` list.
+
+Every engineer sees and may cancel every analysis, as with the Files workspace
+(Q16); `created_by_user_id` records who started it.
 
 **Filter validation is up front and cheap.** tshark compiles the display filter
 before it opens its input, and a valid filter over an empty capture exits 0. So
@@ -958,6 +978,16 @@ No chart or UI library; no CDN.
   collector; re-probed on every connect.
 - **Q13 — when the §B8 tables land (decided 2026-11-06):** with B-PR 1, since
   staging, eviction and pinning are built and tested against them there.
+- **Q14 — Files delete (decided 2026-11-10):** the §B4 *Deletion* rule lands
+  in B-PR 3. `DELETE /api/files/{id}` keeps its response; after the row is gone
+  it cancels and removes the file's analyses and results, and removes its
+  staged copies from connected Hosts in a background thread, only when no other
+  Files row has the same sha256.
+- **Q15 — probe on connect (decided 2026-11-10):** `collectors_api`'s connect
+  route starts the §B5 probe in a background thread after a successful login;
+  a slow or failing probe never delays or fails the connect.
+- **Q16 — who sees an analysis (decided 2026-11-10):** every engineer, and every
+  engineer may cancel one.
 
 ## B15. Live capture (later)
 
