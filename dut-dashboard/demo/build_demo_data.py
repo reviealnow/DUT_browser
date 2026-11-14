@@ -1193,6 +1193,374 @@ def build_ssid(bundle: Path, anon: Anonymiser,
     }
 
 
+#: The Packet Monitor test fixture: real tshark output of synthetic beacons.
+PACKET_FIXTURES = HERE.parent / "backend" / "tests" / "fixtures" / "packets"
+PACKET_TSHARK = "4.4.1"
+#: Display filters whose tshark verdict -- and, for the valid ones, whose run
+#: in every Test Mode -- the page carries. Nothing else can be judged from a
+#: file: what a filter means is tshark's to say (§B9). None names an SSID or a
+#: BSSID, so no filter text needs aliasing.
+PACKET_FILTERS = (
+    "wlan.rsn.capabilities.mfpr == 0",
+    "wlan_radio.frequency > 5000",
+    "wlan.fixed.beacon != 100",
+    "wlan.nope == 1",
+    "wlan.rsn.akms.type ==",
+)
+_MAC_FULL_RE = re.compile(r"(?:[0-9a-f]{2}:){5}[0-9a-f]{2}")
+_BROADCAST = "ff:ff:ff:ff:ff:ff"
+#: How the Info column names a beacon's SSID: quoted text, or hex when tshark
+#: will not print it as text.
+_INFO_SSID_RE = re.compile(r'SSID=(?:"([^"]*)"|([0-9a-f]+)\b)')
+
+
+def _packet_backend():
+    """The product's own Packet Monitor modules — decoding and rules are not redone here."""
+    import sys
+    sys.path.insert(0, str(HERE.parent / "backend"))
+    from app.services import packet_decode, packet_jobs, packet_modes, packet_rules, tshark_runner
+    return packet_decode, packet_jobs, packet_modes, packet_rules, tshark_runner
+
+
+def _tshark(tshark: str, args: list[str], *, stdin: bytes | None = None, check: bool = True):
+    """Run tshark in UTC, so a frame tree's local timestamps do not depend on who built the page."""
+    import os
+    import subprocess
+    result = subprocess.run([tshark, *args], input=stdin, capture_output=True,
+                            env={**os.environ, "TZ": "UTC"})
+    if check and result.returncode != 0:
+        raise SystemExit(f"tshark {' '.join(args)} failed: "
+                         f"{result.stderr.decode('utf-8', 'replace').strip()}")
+    return result
+
+
+def _ssid_bytes_in_tree(node, into: set[bytes]) -> None:
+    """Every SSID a frame tree carries, nontransmitted profiles' included, as raw bytes."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "wlan.ssid":
+                for item in value if isinstance(value, list) else [value]:
+                    if isinstance(item, str) and item:
+                        into.add(bytes.fromhex(item.replace(":", "")))
+            else:
+                _ssid_bytes_in_tree(value, into)
+    elif isinstance(node, list):
+        for item in node:
+            _ssid_bytes_in_tree(item, into)
+
+
+def _macs_in(node, into: set[str]) -> None:
+    if isinstance(node, dict):
+        for value in node.values():
+            _macs_in(value, into)
+    elif isinstance(node, list):
+        for item in node:
+            _macs_in(item, into)
+    elif isinstance(node, str) and _MAC_FULL_RE.fullmatch(node.lower()) and node.lower() != _BROADCAST:
+        into.add(node.lower())
+
+
+def _ssid_text(raw: bytes) -> str:
+    """The text `packet_decode.decode_text` gives these bytes (non-UTF-8 keeps its hex)."""
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return "0x" + raw.hex()
+
+
+def _hidden(ssid) -> bool:
+    """Empty or all-NUL: a hidden network carries no name to disclose."""
+    return isinstance(ssid, str) and ssid.strip("\x00") == ""
+
+
+def _alias_ssid(anon: Anonymiser, ssid):
+    return ssid if ssid is None or _hidden(ssid) else anon.ssid(ssid)
+
+
+_COLON_HEX_RE = re.compile(r"[0-9a-f]{2}(?::[0-9a-f]{2})*")
+
+
+def _colon_hex(raw: bytes) -> str:
+    return ":".join(f"{b:02x}" for b in raw)
+
+
+def _alias_tree(node, anon: Anonymiser, ssids: set[bytes], key: str | None = None):
+    """A frame tree with every MAC and SSID replaced; everything else as tshark printed it.
+
+    An SSID also travels inside raw element bytes -- a Multiple BSSID
+    element's nontransmitted profile is printed whole -- so a byte string
+    carrying an SSID element (ID 0, its length, its bytes) has that element
+    rewritten too. Matching on the element header rather than on the bare
+    bytes keeps a two-letter SSID from rewriting unrelated octets.
+    """
+    if isinstance(node, dict):
+        return {k: _alias_tree(v, anon, ssids, k) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_alias_tree(item, anon, ssids, key) for item in node]
+    if not isinstance(node, str):
+        return node
+    if key == "wlan.ssid" and node:
+        raw = bytes.fromhex(node.replace(":", ""))
+        if _hidden(_ssid_text(raw)):
+            return node
+        return _colon_hex(anon.ssid(_ssid_text(raw)).encode())
+    if _MAC_FULL_RE.fullmatch(node.lower()) and node.lower() != _BROADCAST:
+        return anon.mac(node)
+    if _COLON_HEX_RE.fullmatch(node):
+        for raw in sorted(ssids, key=len, reverse=True):
+            if _hidden(_ssid_text(raw)):
+                continue
+            alias = anon.ssid(_ssid_text(raw)).encode()
+            node = node.replace(_colon_hex(bytes([0, len(raw)]) + raw),
+                                _colon_hex(bytes([0, len(alias)]) + alias))
+    return node
+
+
+def _alias_info(info, anon: Anonymiser):
+    if not isinstance(info, str):
+        return info
+
+    def one(match: re.Match) -> str:
+        text = match.group(1)
+        if text is None:
+            text = _ssid_text(bytes.fromhex(match.group(2)))
+        return match.group(0) if _hidden(text) else f'SSID="{anon.ssid(text)}"'
+    return _INFO_SSID_RE.sub(one, info)
+
+
+def _alias_row(row: dict, anon: Anonymiser) -> dict:
+    out = dict(row)
+    for key in ("bssid", "src", "dst"):
+        if isinstance(out.get(key), str) and out[key] != _BROADCAST:
+            out[key] = anon.mac(out[key])
+    if "ssid" in out:
+        out["ssid"] = _alias_ssid(anon, out["ssid"])
+    if "info" in out:
+        out["info"] = _alias_info(out["info"], anon)
+    return out
+
+
+def _refuse_packet_identifiers(blob: str, macs: set[str], ssids: set[bytes]) -> None:
+    """Stop the build if any captured MAC or SSID survived, in any spelling tshark uses."""
+    lower = blob.lower()
+    for mac in macs:
+        if mac in lower:
+            raise SystemExit(f"packet-monitor.html: BSSID {mac} survived aliasing; refusing")
+    for raw in ssids:
+        text = _ssid_text(raw)
+        if _hidden(text):
+            continue
+        forms = [_colon_hex(raw), json.dumps(f'SSID="{text}"')[1:-1],
+                 json.dumps(text, ensure_ascii=False)]
+        if len(raw) >= 4:
+            forms.append("SSID=" + raw.hex())
+        for form in forms:
+            if form in blob:
+                raise SystemExit(f"packet-monitor.html: SSID {text!r} survived aliasing "
+                                 f"as {form!r}; refusing")
+
+
+def build_packets(bundle: Path | None, anon: Anonymiser,
+                  survey_bundle: Path | None = None, *, tshark: Path | None = None) -> dict:
+    """Packet Monitor: the repository's tshark fixture, through the product's own code.
+
+    The frames are synthetic — `make_beacons.py`, one beacon per case the rules
+    distinguish — and the dissection is real: the committed TSV is what tshark
+    4.4.1 printed for them. Rows, display text, findings, groups and the CSV
+    are produced here by `packet_modes`, `packet_rules` and `PacketJobs`'
+    result writers, exactly as an analysis on a Host would produce them, so
+    the page never decodes a field or judges a frame itself.
+
+    What the TSV cannot give — Manual mode's columns, each frame's `-T json`
+    tree, tshark's verdict on a display filter, and which frames a filter keeps
+    — needs tshark itself, so this builder takes `--tshark` and refuses any
+    version but the fixture's. It also rebuilds the beacon TSV from the same
+    frames and refuses if it differs by a byte from the committed one: the trees
+    and verdicts must be about the very frames the rows came from.
+    """
+    import importlib.util
+    import tempfile
+    from dataclasses import asdict
+
+    if tshark is None:
+        raise SystemExit("packet-monitor.html is built with tshark — pass --tshark "
+                         f"<path to tshark {PACKET_TSHARK}>")
+    tshark = str(tshark)
+    version = _tshark(tshark, ["--version"]).stdout.decode().split()[2]
+    if version != PACKET_TSHARK:
+        raise SystemExit(f"tshark {version} is not {PACKET_TSHARK}, the version the "
+                         f"committed fixture was made with")
+    pd, pj, pm, pr, tr = _packet_backend()
+
+    tsv_text = (PACKET_FIXTURES / f"beacons_tshark-{PACKET_TSHARK}.tsv").read_text(encoding="utf-8")
+    field_types = json.loads((PACKET_FIXTURES / f"field_types_tshark-{PACKET_TSHARK}.json")
+                             .read_text(encoding="utf-8"))
+    spec = importlib.util.spec_from_file_location("make_beacons", PACKET_FIXTURES / "make_beacons.py")
+    make_beacons = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(make_beacons)
+
+    live_types = {}
+    for line in _tshark(tshark, ["-G", "fields"]).stdout.decode("utf-8", "replace").splitlines():
+        parts = line.split("\t")
+        if parts[0] == "F" and len(parts) > 3:
+            live_types[parts[2]] = parts[3]
+
+    with tempfile.TemporaryDirectory() as tmp:
+        pcap = Path(tmp) / "beacons.pcap"
+        make_beacons.write_pcap(pcap)
+
+        # The same command make_beacons.py ran to make the committed TSV.
+        beacon_fields = sorted({f for m in pm.MODES if m.display_filter == pm.BEACON_FILTER
+                                for f in pm.extraction_fields(pm.resolve_columns(m, field_types))})
+        args = ["-n", "-r", str(pcap), "-Y", pm.BEACON_FILTER, "-T", "fields",
+                "-E", "header=y", "-E", "separator=/t", "-E", "occurrence=a",
+                "-E", f"aggregator={pd.AGGREGATOR}"]
+        for name in beacon_fields:
+            args += ["-e", name]
+        if _tshark(tshark, args).stdout.decode("utf-8") != tsv_text:
+            raise SystemExit("tshark's output for make_beacons.py's frames no longer matches "
+                             f"beacons_tshark-{PACKET_TSHARK}.tsv; regenerate the fixture first")
+
+        tsv_by_mode: dict[str, str] = {}
+        types_by_mode: dict[str, dict] = {}
+        for mode in pm.MODES:
+            if mode.display_filter == pm.BEACON_FILTER:
+                tsv_by_mode[mode.id], types_by_mode[mode.id] = tsv_text, field_types
+                continue
+            # Manual: Wireshark's summary columns, which the beacon fixture does not carry.
+            columns = pm.resolve_columns(mode, live_types)
+            args = ["-n", "-r", str(pcap), "-T", "fields", "-E", "header=y", "-E", "separator=/t",
+                    "-E", "occurrence=a", "-E", f"aggregator={pd.AGGREGATOR}"]
+            if mode.display_filter:
+                args += ["-Y", mode.display_filter]
+            for name in pm.extraction_fields(columns):
+                args += ["-e", name]
+            tsv_by_mode[mode.id] = _tshark(tshark, args).stdout.decode("utf-8", "replace")
+            types_by_mode[mode.id] = live_types
+
+        # Verdicts the way the product asks for them: compile the filter against
+        # an empty capture on stdin, and report tshark's own first line.
+        checks = {}
+        for text in PACKET_FILTERS:
+            tr.check_display_filter(text)
+            result = _tshark(tshark, ["-n", "-r", "-", "-Y", text], stdin=tr.EMPTY_PCAP, check=False)
+            checks[text] = ({"ok": True, "error": None} if result.returncode == 0 else
+                            {"ok": False, "error": pj._tshark_message(result.stderr.decode("utf-8", "replace"))})
+
+        kept: dict[tuple[str, str], list[int]] = {}
+        for mode in pm.MODES:
+            for text in ("", *(t for t in PACKET_FILTERS if checks[t]["ok"])):
+                full = pj.combined_filter(mode.display_filter, text)
+                result = _tshark(tshark, ["-n", "-r", str(pcap), *(["-Y", full] if full else []),
+                                          "-T", "fields", "-e", "frame.number"])
+                kept[(mode.id, text)] = [int(n) for n in result.stdout.decode().split()]
+
+        frame_count = len(kept[("manual", "")])
+        trees = {}
+        for number in range(1, frame_count + 1):
+            result = _tshark(tshark, ["-n", "-r", str(pcap), "-c", str(number),
+                                      "-Y", f"frame.number=={number}", "-T", "json",
+                                      "--no-duplicate-keys"])
+            trees[number] = json.loads(result.stdout.decode("utf-8", "replace"))[0]
+
+    # Decode and judge every mode on the real values, before any is aliased.
+    decoded = {}
+    for mode in pm.MODES:
+        columns = pm.resolve_columns(mode, types_by_mode[mode.id])
+        raw_rows, dropped = pd.rows_from_tsv(tsv_by_mode[mode.id])
+        rows = [pm.decode_row(columns, raw) for raw in raw_rows]
+        decoded[mode.id] = (columns, rows, dropped)
+
+    # Every identifier, up front, so the aliases do not depend on walk order.
+    captured_macs: set[str] = set()
+    captured_ssids: set[bytes] = set()
+    for _, rows, _ in decoded.values():
+        _macs_in(rows, captured_macs)
+    _macs_in(trees, captured_macs)
+    _ssid_bytes_in_tree(trees, captured_ssids)
+    anon.prepare(ssids={t for t in map(_ssid_text, captured_ssids) if not _hidden(t)},
+                 macs=captured_macs)
+
+    jobs = pj.PacketJobs(None)
+    analyses = {}
+    with tempfile.TemporaryDirectory() as tmp:
+        jobs.results_dir = Path(tmp)
+        analysis_id = 0
+        for mode in pm.MODES:
+            columns, rows, dropped = decoded[mode.id]
+            by_frame = {row["frame"]: row for row in rows}
+            runs = {}
+            for (mode_id, text), frames in kept.items():
+                if mode_id != mode.id:
+                    continue
+                subset = [by_frame[n] for n in frames]
+                findings = pr.evaluate(subset, mode.rules, mode.group_by)
+                for finding in findings:
+                    if isinstance(finding.group, str):
+                        finding.group = anon.mac(finding.group)
+                shown = [_alias_row(row, anon) for row in subset]
+                analysis_id += 1
+                jobs._write_results(analysis_id, columns, shown, findings, mode.group_by)
+                groups = jobs._read_json(analysis_id, "groups") or []
+                visible = [c for c in jobs._read_json(analysis_id, "columns") if not c["hidden"]]
+                with open(jobs._path(analysis_id, "jsonl"), "rb") as handle:
+                    csv_text = "".join(pj.PacketJobs._csv_lines(visible, handle))
+                runs[text] = {
+                    "frames": frames,
+                    "findings": jobs._read_json(analysis_id, "findings") or [],
+                    "summary": pj._summarise(jobs._read_json(analysis_id, "findings") or []),
+                    "groups": [{**g, "display": d} for g, d in
+                               zip(groups, jobs._display(analysis_id, [g["row"] for g in groups]))],
+                    "csv": csv_text,
+                }
+            all_shown = [_alias_row(row, anon) for row in rows]
+            analyses[mode.id] = {
+                "columns": jobs._read_json(analysis_id, "columns"),
+                "rows": {str(row["frame"]): row for row in all_shown},
+                "display": {str(row["frame"]): text for row, text in
+                            zip(all_shown, jobs._display(analysis_id, all_shown))},
+                "rowsDropped": dropped,
+                "runs": runs,
+            }
+
+    payload = {
+        "generatedFrom": f"backend/tests/fixtures/packets/beacons_tshark-{PACKET_TSHARK}.tsv",
+        "tsharkVersion": PACKET_TSHARK,
+        "frameCount": frame_count,
+        "modes": [{
+            "id": m.id, "label": m.label, "description": m.description,
+            "display_filter": m.display_filter, "group_by": m.group_by,
+            "columns": [{"key": c.key, "label": c.label, "decoder": c.decoder, "hidden": c.hidden}
+                        for c in m.columns],
+            "rules": list(m.rules),
+        } for m in pm.MODES],
+        "analyses": analyses,
+        "filterChecks": checks,
+        "filterLimit": tr.MAX_FILTER_CHARS,
+        "filterNulError": _refusal(tr, "a\x00b"),
+        "filterLongError": _refusal(tr, "x" * (tr.MAX_FILTER_CHARS + 1)),
+        "frames": {str(n): _alias_tree(tree, anon, captured_ssids) for n, tree in trees.items()},
+        # The Hosts are hosts.html's, so the two screens describe one bench. Only
+        # a connected Host has a probe; it ran the fixture's tshark.
+        "hosts": [{
+            "id": h["id"], "label": h["label"], "connected": h["connected"],
+            "probe": ({"tshark_version": PACKET_TSHARK, "problems": [], "install_hint": None}
+                      if h["connected"] else None),
+        } for h in fixtures()["hosts.html"]["hosts"]],
+    }
+    _refuse_packet_identifiers(json.dumps(payload, ensure_ascii=False), captured_macs, captured_ssids)
+    return payload
+
+
+def _refusal(tr, text: str) -> str:
+    """What `tshark_runner.check_display_filter` says about a filter it refuses."""
+    try:
+        tr.check_display_filter(text)
+    except tr.CommandError as exc:
+        return str(exc)
+    raise SystemExit(f"check_display_filter accepted {text[:20]!r}…; the page's copy of its rule is wrong")
+
+
 def build_static(bundle: Path | None, anon: Anonymiser,
                  survey_bundle: Path | None = None) -> dict:
     """A page whose content is synthetic in full — nothing to derive or replace.
@@ -1351,7 +1719,8 @@ PAGE_BUILDERS = {"overview.html": build, "fleet.html": build_static,
                  "serial-console.html": build_console,
                  "cpu-memory.html": build_cpu,
                  "ssid-capability.html": build_ssid,
-                 "firmware.html": build_static}
+                 "firmware.html": build_static,
+                 "packet-monitor.html": build_packets}
 
 
 def sync_fixtures() -> int:
@@ -1410,6 +1779,9 @@ def main() -> int:
     ap.add_argument("--page", default=None,
                     help="demo page to rewrite: overview.html, site-survey.html "
                          "or wifi-clients.html (default: overview.html)")
+    ap.add_argument("--tshark", type=Path, default=None,
+                    help="packet-monitor.html only: the tshark binary (version "
+                         f"{PACKET_TSHARK}) that dissects the fixture's frames")
     ap.add_argument("--sync-fixtures", action="store_true",
                     help="write demo-fixtures.json into every page that has fixture "
                          "keys, and stop. Needs no capture; touches only the keys "
@@ -1420,7 +1792,8 @@ def main() -> int:
     if args.sync_fixtures:
         unread = [name for name, value in (("--bundle", args.bundle),
                                            ("--survey-bundle", args.survey_bundle),
-                                           ("--page", args.page)) if value is not None]
+                                           ("--page", args.page),
+                                           ("--tshark", args.tshark)) if value is not None]
         if unread:
             raise SystemExit(
                 f"--sync-fixtures takes no {', '.join(unread)}: it reads no capture "
@@ -1438,11 +1811,15 @@ def main() -> int:
     if page not in builders:
         raise SystemExit(f"no builder for {page}; known: {', '.join(builders)}")
 
-    if args.bundle is None and builders[page] is not build_static:
+    # Packet Monitor reads the repository's own tshark fixture, not a bundle.
+    if args.bundle is None and builders[page] not in (build_static, build_packets):
         raise SystemExit(f"{page} is built from a capture — pass --bundle")
+    if args.tshark is not None and builders[page] is not build_packets:
+        raise SystemExit(f"--tshark is read only for packet-monitor.html, not {page}")
 
     anon = Anonymiser()
-    payload = builders[page](args.bundle, anon, args.survey_bundle)
+    extra = {"tshark": args.tshark} if builders[page] is build_packets else {}
+    payload = builders[page](args.bundle, anon, args.survey_bundle, **extra)
     payload.update(fixtures().get(page, {}))     # synthetic copy, see README
     inject(HERE / page, payload)
     print(f"anonymised: {anon.counts() or 'nothing'}")

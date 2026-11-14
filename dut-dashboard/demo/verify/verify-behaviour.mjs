@@ -852,4 +852,140 @@ const report = reporter();
     pageErrors(window).length === 0, pageErrors(window).join(" | "));
 }
 
+// ----------------------------------------------------------- packet monitor
+{
+  report.section("packet-monitor.html — findings, frame detail, the window and the filter gate");
+  const window = await load("packet-monitor.html");
+  const document = window.document;
+  const $ = (id) => document.getElementById(id);
+  const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+  const DATA = JSON.parse($("demo-data").textContent);
+  const stored = DATA.analyses.beacon_security.runs[""];
+
+  // A count filters the findings LIST (§B11, as built in B-PR 4); the table is not filtered.
+  const items = () => [...document.querySelectorAll("#findingsList li")];
+  const pill = (level) => document.querySelector(`#findingsBar [data-severity="${level}"]`);
+  report.ok("the bar shows the backend's three counts",
+    ["fail", "warn", "info"].every(l => pill(l) && pill(l).textContent.trim() === `${stored.summary[l]} ${l}`),
+    [...document.querySelectorAll("#findingsBar button")].map(b => b.textContent).join(","));
+  report.ok("every finding is listed before a count is picked", items().length === stored.findings.length);
+  report.ok("the fixture has findings at more than one severity", stored.summary.fail > 0 && stored.summary.warn > 0);
+  click(window, pill("fail"));
+  report.ok("clicking the fail count leaves only fail findings",
+    items().length === stored.summary.fail && items().every(li => li.classList.contains("pkt-fail")),
+    `${items().length} items`);
+  report.ok("and marks that count pressed", pill("fail").getAttribute("aria-pressed") === "true");
+  const tableRows = () => document.querySelectorAll("#packetWindow tr[data-row-frame]").length;
+  const rowsBefore = tableRows();
+  click(window, pill("warn"));
+  report.ok("another count switches the list to that severity",
+    items().length === stored.summary.warn && items().every(li => li.classList.contains("pkt-warn")));
+  report.ok("the table is not filtered by it", tableRows() === rowsBefore);
+  click(window, pill("warn"));
+  report.ok("clicking it again shows every finding", items().length === stored.findings.length);
+
+  // A frame number in a finding opens the side panel with that frame's tree.
+  const link = document.querySelector("#findingsList [data-frame]");
+  const n = link.dataset.frame;
+  click(window, link);
+  const panel = $("detail");
+  report.ok("a frame link opens the detail panel beside the table",
+    !panel.hidden && panel.getAttribute("aria-label") === `Frame ${n} detail` && $("split").className === "pkt-split");
+  report.ok("the panel holds that frame's tshark tree",
+    [...panel.querySelectorAll(".pkt-tree > details > summary")].map(s => s.textContent).includes("wlan")
+    && [...panel.querySelectorAll(".pkt-leaf")].some(el => el.textContent === `frame.number: ${n}`));
+  report.ok("and the frame's row is selected",
+    !!document.querySelector(`#packetWindow tr[data-row-frame="${n}"].pkt-selected`));
+  click(window, $("closeDetail"));
+  report.ok("Close takes the panel away", panel.hidden && $("split").className === "");
+
+  // PacketTable renders a window, not every row.
+  const total = stored.frames.length;
+  const rendered = () => [...document.querySelectorAll("#packetWindow tr[data-row-frame]")].map(tr => Number(tr.dataset.rowFrame));
+  report.ok("the table keeps fewer rows in the DOM than the analysis holds",
+    rendered().length > 0 && rendered().length < total && rendered().length < 60, `${rendered().length} of ${total}`);
+  const win = $("packetWindow");
+  Object.defineProperty(win, "scrollTop", { configurable: true, value: total * 28 - 480 });
+  win.dispatchEvent(new window.Event("scroll"));
+  report.ok("scrolling to the end brings the last frame in and drops the first",
+    rendered().includes(stored.frames[total - 1]) && !rendered().includes(stored.frames[0]), rendered().join(","));
+
+  // The column chooser hides a column for this mode, and remembers it.
+  const ssidBox = document.querySelector('#columnsMenu [data-column="ssid"]');
+  const headers = () => [...document.querySelectorAll("#tableArea thead th")].map(th => th.textContent);
+  ssidBox.checked = false;
+  ssidBox.dispatchEvent(new window.Event("change", { bubbles: true }));
+  report.ok("the column chooser hides a column", !headers().includes("SSID") && headers().includes("BSSID"));
+  report.ok("and remembers it per mode",
+    JSON.parse(window.localStorage.getItem("packetMonitor.hiddenColumns")).beacon_security.includes("ssid"));
+  ssidBox.checked = true;
+  ssidBox.dispatchEvent(new window.Event("change", { bubbles: true }));
+
+  // "One row per BSS" switches the table to the groups.
+  const byBss = $("byBss");
+  report.ok("a mode with group_by offers One row per BSS", !$("byBssLabel").hidden);
+  byBss.checked = true;
+  byBss.dispatchEvent(new window.Event("change", { bubbles: true }));
+  const groupRows = document.querySelectorAll("#groupsTable tbody tr").length;
+  report.ok("ticking it draws one row per BSS, with its frame count first",
+    groupRows === stored.groups.length && groupRows < total && headers()[0] === "Frames", `${groupRows} rows`);
+  byBss.checked = false;
+  byBss.dispatchEvent(new window.Event("change", { bubbles: true }));
+  report.ok("unticking it goes back to the frames", !!$("packetWindow") && !$("groupsTable"));
+
+  // The filter gate. A filter tshark refused disables Run with tshark's own words.
+  const filter = $("filter");
+  const type = (text) => { filter.value = text; filter.dispatchEvent(new window.Event("input", { bubbles: true })); };
+  report.ok("Run is enabled for the stored analysis", !$("run").disabled);
+  type("wlan.nope == 1");
+  report.ok("Run waits while the filter is checked",
+    $("run").disabled && $("filterStatus").textContent.includes("Checking the filter"));
+  await wait(700);
+  report.ok("a filter tshark refused disables Run",
+    $("run").disabled && filter.getAttribute("aria-invalid") === "true");
+  report.ok("and shows tshark's message",
+    $("filterStatus").textContent.trim() === DATA.filterChecks["wlan.nope == 1"].error, $("filterStatus").textContent);
+  type("wlan.rsn.capabilities.mfpr == 0");
+  await wait(700);
+  report.ok("a filter tshark accepted enables Run",
+    !$("run").disabled && $("filterStatus").textContent.includes("Filter is valid"));
+  type("a\u0000b");
+  await wait(700);
+  report.ok("a NUL byte is refused before any Host is asked",
+    $("run").disabled && $("filterStatus").textContent.includes("NUL"));
+  type("wlan.ssid == \"lab\"");
+  await wait(700);
+  report.ok("a filter nobody asked tshark about is 'not checked' and does not block Run",
+    !$("run").disabled && $("filterStatus").textContent.startsWith("Filter not checked"));
+
+  // Run replays the stored run for that filter; Cancel is offered only while it runs.
+  type("wlan.rsn.capabilities.mfpr == 0");
+  await wait(700);
+  click(window, $("run"));
+  await wait(400);
+  report.ok("Run shows the analysis running, with Cancel",
+    $("analysisStatus").textContent.includes("Running on the Host") && !$("cancel").hidden && $("findingsCard").hidden);
+  await wait(1400);
+  const filtered = DATA.analyses.beacon_security.runs["wlan.rsn.capabilities.mfpr == 0"];
+  report.ok("it ends with the stored filtered run, its counts and its rows",
+    $("analysisStatus").textContent.includes(`Done: ${filtered.frames.length} frames.`)
+    && pill("fail").textContent.trim() === `${filtered.summary.fail} fail` && $("cancel").hidden);
+  report.ok("the filter joins the history", [...document.querySelectorAll("#packet-filter-history option")]
+    .map(o => o.value).includes("wlan.rsn.capabilities.mfpr == 0"));
+  report.ok("Export CSV carries the backend's CSV for that run",
+    decodeURIComponent($("exportCsv").getAttribute("href").split(",").slice(1).join(",")) === filtered.csv);
+  click(window, $("run"));
+  await wait(400);
+  click(window, $("cancel"));
+  report.ok("Cancel stops it and shows no results",
+    $("analysisStatus").textContent.includes("Cancelled.") && $("findingsCard").hidden && $("framesCard").hidden);
+
+  // A Host that is not connected cannot be picked, as in the product's select.
+  const rack = [...$("host").options].find(o => o.textContent.includes("(rack)"));
+  report.ok("a disconnected Host is listed but cannot be picked", !!rack && rack.disabled && rack.textContent.startsWith("○ "));
+
+  report.ok("packet-monitor.html threw nothing while all that ran",
+    pageErrors(window).length === 0, pageErrors(window).join(" | "));
+}
+
 report.finish();

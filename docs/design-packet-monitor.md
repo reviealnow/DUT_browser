@@ -927,7 +927,10 @@ Following the Wi-Fi Clients template:
   `demo/build_demo_data.py`; a matching `demo/packet-monitor.html` page and its
   `demo/verify` case. (Can be its own PR.) Until that page exists, every demo
   sidebar draws Packet Monitor as a screen with no file in the kit, which is
-  what the navigation verifier requires of an admin sidebar.
+  what the navigation verifier requires of an admin sidebar. B-PR 5 shipped the
+  page and its verify case but deliberately not the `demoApi.ts` half: the Demo
+  Mode build browses as a guest and Packet Monitor is `minRole: "engineer"`, so
+  no route it would answer is reachable there.
 - `PacketAnalysisContext` sits in `AppShell` with the other providers, so a
   running analysis keeps its place while the user visits another section.
 
