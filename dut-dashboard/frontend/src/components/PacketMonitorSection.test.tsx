@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { PacketAnalysis, PacketHost, PacketMode, PacketRowsPage } from "../api/rest";
+import type { PacketAnalysis, PacketHost, PacketMode, PacketRowsPage, WorkspaceFile } from "../api/rest";
 
 /**
  * Packet Monitor's section (docs/design-packet-monitor.md §B11): what it asks
@@ -29,8 +30,12 @@ vi.mock("../api/rest", async (importOriginal) => ({
   ...Object.fromEntries(Object.entries(api).map(([name, fn]) => [name, (...args: unknown[]) => fn(...args)])),
 }));
 
-const { default: PacketMonitorSection, hostBlocker, FILTER_DEBOUNCE_MS } = await import("./PacketMonitorSection");
-const { PacketAnalysisProvider, POLL_MS } = await import("../monitoring/PacketAnalysisContext");
+const { default: PacketMonitorSection, hostBlocker, FILTER_DEBOUNCE_MS, FILES_PAGE, FILES_MAX_PAGES } = await import(
+  "./PacketMonitorSection"
+);
+const { PacketAnalysisProvider, POLL_MS, PAGE_CACHE_MAX, usePacketAnalysis } = await import(
+  "../monitoring/PacketAnalysisContext"
+);
 const { PacketTable, ROW_HEIGHT, PAGE_SIZE } = await import("./PacketTable");
 
 const PROBE = {
@@ -408,5 +413,148 @@ describe("PacketTable", () => {
     await waitFor(() => expect(page).toHaveBeenCalledWith(30_000, PAGE_SIZE));
     await screen.findByText("30001");
     expect(document.querySelectorAll("tr.pkt-row").length).toBeLessThan(60);
+  });
+});
+
+// Review of #231, points 7-9.
+describe("PacketMonitorSection, review of #231 points 7-9", () => {
+  /** The section behind a switch, as AppShell mounts it under the provider. */
+  function Navigable() {
+    const [shown, setShown] = useState(true);
+    return (
+      <PacketAnalysisProvider>
+        <button type="button" onClick={() => setShown((s) => !s)}>
+          navigate
+        </button>
+        {shown ? <PacketMonitorSection /> : null}
+      </PacketAnalysisProvider>
+    );
+  }
+
+  it("7: leaving the section and coming back keeps the form behind the results", async () => {
+    const second: PacketMode = { ...MODES[0], id: "deauth", label: "Deauth storm", description: "Deauths." };
+    api.getPacketModes.mockResolvedValue([MODES[0], second]);
+    api.createPacketAnalysis.mockResolvedValue(1);
+    api.getPacketAnalysis.mockResolvedValue(analysis("done", { mode_id: "deauth" }));
+    api.getPacketGroups.mockResolvedValue([{ group: "aa:bb", frames: 2, row: {}, display: { frame: "1" } }]);
+    api.getPacketFrame.mockResolvedValue(tree("frame-2-tree"));
+    render(<Navigable />);
+    await choose("Capture file", "3");
+    await choose("Host", "pi");
+    await choose("Test Mode", "deauth");
+    fireEvent.change(screen.getByLabelText("Display filter"), { target: { value: "wlan.ssid" } });
+    fireEvent.change(screen.getByLabelText("Extra fields"), { target: { value: "wlan.fixed.beacon" } });
+    await waitFor(() => expect((screen.getByRole("button", { name: "Run" }) as HTMLButtonElement).disabled).toBe(false), {
+      timeout: 3000,
+    });
+    await runOnce();
+    fireEvent.click(await screen.findByRole("button", { name: "#2" }));
+    expect(await screen.findByText("frame-2-tree")).toBeTruthy();
+    fireEvent.click(screen.getByLabelText(/One row per BSS/));
+
+    fireEvent.click(screen.getByRole("button", { name: "navigate" }));
+    expect(screen.queryByLabelText("Capture file")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "navigate" }));
+
+    const value = (label: string) => (screen.getByLabelText(label) as HTMLInputElement | HTMLSelectElement).value;
+    await waitFor(() => expect(value("Capture file")).toBe("3"));
+    expect(value("Host")).toBe("pi");
+    expect(value("Test Mode")).toBe("deauth");
+    expect(value("Display filter")).toBe("wlan.ssid");
+    expect(value("Extra fields")).toBe("wlan.fixed.beacon");
+    expect((screen.getByLabelText(/One row per BSS/) as HTMLInputElement).checked).toBe(true);
+    // The open frame comes back with its tree, fetched again.
+    expect(await screen.findByText("frame-2-tree")).toBeTruthy();
+    expect(screen.getByText("Frame 2")).toBeTruthy();
+  });
+
+  it("8: offers captures beyond the newest 500 files, by paging the filename search", async () => {
+    const pcaps: WorkspaceFile[] = Array.from({ length: 1200 }, (_, i) => ({
+      id: 10_000 - i, filename: `run-${i}.pcapng`, size: 1, uploader: null,
+      uploaded_at: `2026-11-${String(12 - Math.floor(i / 200)).padStart(2, "0")}T00:00:00`,
+    })) as WorkspaceFile[];
+    const old = { id: 7, filename: "legacy.CAP", size: 1, uploader: null, uploaded_at: "2020-01-01T00:00:00" };
+    api.getFiles.mockImplementation(({ q, offset = 0, limit }: { q?: string; offset?: number; limit?: number }) => {
+      const all = q === ".pcap" ? pcaps : q === ".cap" ? [old] : [];
+      return Promise.resolve({ files: all.slice(offset, offset + (limit ?? all.length)), stats: {}, total: all.length });
+    });
+    renderSection();
+    const select = (await screen.findByLabelText("Capture file")) as HTMLSelectElement;
+    await waitFor(() => expect(select.options.length).toBe(1 + 1200 + 1));
+    expect(api.getFiles).toHaveBeenCalledWith({ q: ".pcap", limit: FILES_PAGE, offset: 1000 });
+    expect(select.options[1].textContent).toBe("run-0.pcapng");
+    expect(select.options[select.options.length - 1].textContent).toBe("legacy.CAP");
+    expect(screen.queryByText(/only the newest are listed/)).toBeNull();
+  });
+
+  it("8: says so when the capture list may be incomplete", async () => {
+    let next = 1;
+    api.getFiles.mockImplementation(({ q, limit = FILES_PAGE }: { q?: string; limit?: number }) =>
+      Promise.resolve({
+        files: q === ".pcap" ? Array.from({ length: limit }, () => ({ id: next++, filename: "x.pcap", size: 1, uploader: null, uploaded_at: "" })) : [],
+        stats: {},
+        total: q === ".pcap" ? 1_000_000 : 0,
+      }),
+    );
+    renderSection();
+    expect(await screen.findByText(/only the newest are listed/)).toBeTruthy();
+    expect(api.getFiles.mock.calls.filter(([o]) => o.q === ".pcap")).toHaveLength(FILES_MAX_PAGES);
+  });
+
+  it("9: the context keeps a bounded number of row pages, and asks once per page in flight", async () => {
+    let ctx!: ReturnType<typeof usePacketAnalysis>;
+    function Grab() {
+      ctx = usePacketAnalysis();
+      return null;
+    }
+    api.createPacketAnalysis.mockResolvedValue(1);
+    api.getPacketAnalysis.mockResolvedValue(analysis("done"));
+    render(
+      <PacketAnalysisProvider>
+        <Grab />
+      </PacketAnalysisProvider>,
+    );
+    await act(() => ctx.start({ file_id: 3, collector_id: "pi", mode_id: "beacon_security", display_filter: "", extra_fields: [] }));
+    await waitFor(() => expect(ctx.analysis?.id).toBe(1));
+
+    const first = deferred<PacketRowsPage>();
+    api.getPacketRows.mockImplementation((_id: number, offset: number, limit: number) =>
+      offset === 0 ? first.promise : Promise.resolve(rows(offset, limit, 100_000)),
+    );
+    const a = ctx.page(0, PAGE_SIZE);
+    const b = ctx.page(0, PAGE_SIZE);
+    expect(api.getPacketRows).toHaveBeenCalledTimes(1);
+    first.resolve(rows(0, PAGE_SIZE, 100_000));
+    await Promise.all([a, b]);
+    await ctx.page(0, PAGE_SIZE);
+    expect(api.getPacketRows).toHaveBeenCalledTimes(1);
+
+    for (let n = 1; n <= PAGE_CACHE_MAX; n += 1) {
+      await ctx.page(n * PAGE_SIZE, PAGE_SIZE);
+    }
+    expect(api.getPacketRows).toHaveBeenCalledTimes(1 + PAGE_CACHE_MAX);
+    // The first page was the least recently used, so it is gone and asked for again.
+    await ctx.page(0, PAGE_SIZE);
+    expect(api.getPacketRows).toHaveBeenCalledTimes(2 + PAGE_CACHE_MAX);
+    expect(api.getPacketRows).toHaveBeenLastCalledWith(1, 0, PAGE_SIZE);
+  });
+
+  it("9: the table drops pages the window has left, and asks again on the way back", async () => {
+    const total = 50_000;
+    const page = vi.fn((offset: number, limit: number) => Promise.resolve(rows(offset, limit, total)));
+    render(
+      <PacketTable
+        total={total} columns={COLUMNS} page={page}
+        severityByFrame={new Map()} selectedFrame={null} onOpen={() => {}}
+      />,
+    );
+    await screen.findByText("1");
+    const view = screen.getByTestId("packet-window");
+    fireEvent.scroll(view, { target: { scrollTop: 30_000 * ROW_HEIGHT } });
+    await screen.findByText("30001");
+    expect(screen.queryByText("1")).toBeNull();
+    fireEvent.scroll(view, { target: { scrollTop: 0 } });
+    await screen.findByText("1");
+    expect(page.mock.calls.filter(([offset]) => offset === 0)).toHaveLength(2);
   });
 });

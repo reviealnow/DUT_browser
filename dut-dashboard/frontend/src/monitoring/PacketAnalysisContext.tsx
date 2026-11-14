@@ -30,10 +30,41 @@ import {
  * or running -- a backend poll, not a serial capture, so the serial RPC rule
  * does not apply (§B9).
  *
- * Row pages are cached per analysis and offset, with one request in flight per
- * page, so a table scrolling back and forth never asks twice.
+ * Row pages are requested once per analysis and offset while in flight, and
+ * the last PAGE_CACHE_MAX answers are kept, so a table scrolling back and forth
+ * over a few pages does not ask twice -- but an analysis of hundreds of
+ * thousands of rows scrolled end to end does not stay in memory either.
+ *
+ * The form that produced the results lives here too, so leaving the section
+ * and coming back shows the inputs behind the table, not a blank form.
  */
 export const POLL_MS = 1000;
+export const PAGE_CACHE_MAX = 16;
+
+/** What the operator chose in the section; kept across navigation. */
+export type PacketForm = {
+  fileId: number | null;
+  hostId: string;
+  modeId: string;
+  filter: string;
+  extra: string;
+  /** The frame whose detail panel is open, or null. */
+  frame: number | null;
+  /** "One row per BSS". */
+  byBss: boolean;
+};
+
+export const EMPTY_FORM: PacketForm = {
+  fileId: null, hostId: "", modeId: "", filter: "", extra: "", frame: null, byBss: false,
+};
+
+type PageCache = {
+  inflight: Map<string, Promise<PacketRowsPage>>;
+  /** Insertion order is recency: the first key is the least recently used. */
+  done: Map<string, PacketRowsPage>;
+};
+
+const emptyCache = (): PageCache => ({ inflight: new Map(), done: new Map() });
 
 export type PacketMonitorState = {
   hosts: PacketHost[];
@@ -54,6 +85,10 @@ export type PacketMonitorState = {
   starting: boolean;
   /** One page of decoded rows of the current analysis. */
   page: (offset: number, limit: number) => Promise<PacketRowsPage>;
+
+  form: PacketForm;
+  /** Merge `patch` into the form. */
+  setForm: (patch: Partial<PacketForm>) => void;
 };
 
 const PacketAnalysisContext = createContext<PacketMonitorState | null>(null);
@@ -72,9 +107,11 @@ export function PacketAnalysisProvider({ children }: { children: ReactNode }) {
   const [findings, setFindings] = useState<PacketFinding[]>([]);
   const [groups, setGroups] = useState<PacketGroup[]>([]);
   const [starting, setStarting] = useState(false);
+  const [form, setFormState] = useState<PacketForm>(EMPTY_FORM);
+  const setForm = useCallback((patch: Partial<PacketForm>) => setFormState((prev) => ({ ...prev, ...patch })), []);
 
   const loadInflight = useRef<Promise<void> | null>(null);
-  const pages = useRef<Map<string, Promise<PacketRowsPage>>>(new Map());
+  const pages = useRef<PageCache>(emptyCache());
   // The analysis on screen, and the one whose findings were already fetched:
   // a slow answer for an earlier analysis must not land on a later one, and
   // one analysis's results are fetched once however many paths see it end.
@@ -152,7 +189,9 @@ export function PacketAnalysisProvider({ children }: { children: ReactNode }) {
       try {
         const id = await createPacketAnalysis(request);
         currentId.current = id;
-        pages.current.clear();
+        // A fresh object, not a clear: a page still in flight for the previous
+        // analysis then lands in a cache nobody reads.
+        pages.current = emptyCache();
         setFindings([]);
         setGroups([]);
         const created = await getPacketAnalysis(id);
@@ -253,11 +292,27 @@ export function PacketAnalysisProvider({ children }: { children: ReactNode }) {
         return Promise.reject(new Error("No analysis"));
       }
       const key = `${analysisId}:${offset}:${limit}`;
-      let pending = pages.current.get(key);
+      const cache = pages.current;
+      const hit = cache.done.get(key);
+      if (hit) {
+        cache.done.delete(key); // re-insert: now the most recently used
+        cache.done.set(key, hit);
+        return Promise.resolve(hit);
+      }
+      let pending = cache.inflight.get(key);
       if (!pending) {
         pending = getPacketRows(analysisId, offset, limit);
-        pending.catch(() => pages.current.delete(key));
-        pages.current.set(key, pending);
+        cache.inflight.set(key, pending);
+        pending.then(
+          (result) => {
+            cache.inflight.delete(key);
+            cache.done.set(key, result);
+            while (cache.done.size > PAGE_CACHE_MAX) {
+              cache.done.delete(cache.done.keys().next().value as string);
+            }
+          },
+          () => cache.inflight.delete(key),
+        );
       }
       return pending;
     },
@@ -269,6 +324,7 @@ export function PacketAnalysisProvider({ children }: { children: ReactNode }) {
       value={{
         hosts, modes, loading, error, load, probe, probing,
         analysis, analysisError, findings, groups, start, cancel, starting, page,
+        form, setForm,
       }}
     >
       {children}
