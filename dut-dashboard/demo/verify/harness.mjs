@@ -31,7 +31,7 @@ export const SCREEN_FILES = {
   "Bulletin": "bulletin.html", "Upgrade Firmware": "firmware.html",
 };
 /** Real product screens the kit has no file for; they explain themselves. */
-export const NO_FILE = new Set(["Logs / Crash Events", "Settings", "Offline Analyzer"]);
+export const NO_FILE = new Set(["Logs / Crash Events", "Settings", "Offline Analyzer", "Packet Monitor"]);
 
 /**
  * Load a page and record anything it throws.

@@ -2969,3 +2969,181 @@ body {
   color: var(--muted);
   white-space: nowrap;
 }
+
+/* --- Packet Monitor (PacketMonitorSection, PacketTable, PacketDetailPanel) --- */
+.pkt-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3, 12px);
+  align-items: flex-end;
+  margin-bottom: var(--space-2, 8px);
+}
+.pkt-controls .modal-label {
+  min-width: 220px;
+}
+.pkt-filter {
+  flex: 1 1 320px;
+}
+.pkt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2, 8px);
+  align-items: center;
+  margin-top: var(--space-3, 12px);
+}
+.pkt-status {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-2, 8px);
+  align-items: center;
+  color: var(--muted);
+}
+.pkt-muted {
+  color: var(--muted);
+}
+.pkt-error {
+  color: var(--danger);
+}
+.pkt-filter-ok {
+  color: var(--ok);
+}
+.pkt-blocker {
+  color: var(--warn);
+  background: var(--warn-weak);
+  border-radius: 6px;
+  padding: 6px 10px;
+  margin-bottom: var(--space-2, 8px);
+}
+.pkt-findings-bar {
+  display: flex;
+  gap: var(--space-2, 8px);
+  margin-bottom: var(--space-3, 12px);
+}
+.pkt-findings-bar .pill {
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.pkt-findings-bar .pill.pkt-active {
+  border-color: currentColor;
+}
+.pkt-findings {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.pkt-frames {
+  margin-left: 6px;
+}
+.pkt-frame-link {
+  border: 0;
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0 3px;
+  font-variant-numeric: tabular-nums;
+}
+.pkt-window {
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.pkt-table {
+  width: max-content;
+  min-width: 100%;
+}
+.pkt-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  z-index: 1;
+}
+.pkt-row td {
+  white-space: nowrap;
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pkt-row {
+  cursor: pointer;
+}
+.pkt-row.pkt-fail {
+  background: var(--danger-weak);
+}
+.pkt-row.pkt-warn {
+  background: var(--warn-weak);
+}
+.pkt-row.pkt-selected {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.pkt-pending td {
+  color: var(--muted);
+}
+.pkt-empty {
+  color: var(--muted);
+  padding: var(--space-4, 16px);
+}
+.pkt-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 380px);
+  gap: var(--space-3, 12px);
+}
+.pkt-main {
+  min-width: 0;
+}
+.pkt-detail {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: var(--space-3, 12px);
+  max-height: 480px;
+  overflow: auto;
+}
+.pkt-detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-2, 8px);
+}
+.pkt-tree details > summary {
+  cursor: pointer;
+}
+.pkt-tree-children {
+  padding-left: 14px;
+}
+.pkt-leaf {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+  word-break: break-all;
+}
+.pkt-leaf-key {
+  color: var(--muted);
+}
+.pkt-toggle {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  margin-right: var(--space-2, 8px);
+}
+.pkt-columns {
+  position: relative;
+  display: inline-block;
+}
+.pkt-columns > summary {
+  list-style: none;
+}
+.pkt-columns-menu {
+  position: absolute;
+  right: 0;
+  z-index: 5;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: var(--space-2, 8px);
+  display: grid;
+  gap: 4px;
+  min-width: 200px;
+  max-height: 320px;
+  overflow: auto;
+}

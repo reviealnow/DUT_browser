@@ -807,8 +807,11 @@ job that fails after a 50 MB upload. The UI calls the validate route as the
 user types (debounced, 600 ms), and only for a filter that changed.
 
 **Frame detail.** `tshark -n -r <sha>.pcapng -c <n> -Y "frame.number==<n>"
--T json`: `-c` counts frames *read*, so tshark stops at frame n instead of
-scanning the whole file (measured with tshark 4.4.1). Details run in the
+-T json --no-duplicate-keys`: `-c` counts frames *read*, so tshark stops at frame n instead of
+scanning the whole file (measured with tshark 4.4.1). `--no-duplicate-keys`
+(tshark 2.6+) turns a repeated field, such as one `wlan.tag` per tagged
+parameter, into an array; without it `-T json` prints duplicate keys and a
+JSON parser keeps only the last, which can hide a beacon's RSN element. Details run in the
 **interactive lane** (§B3): at most one per Host, alongside — not queued behind —
 a running analysis, also under `nice -n 19` (and `ionice -c3`, §B3). Each result is cached under
 `data/packets/<analysis_id>/frames/<n>.json`, so reopening a frame costs
@@ -901,10 +904,19 @@ Following the Wi-Fi Clients template:
     status dot;
   - Test Mode select + filter input (validated as you type, with recent-filter
     history in `localStorage`) + Run / Cancel;
-  - findings bar (fail / warn / info counts, click to filter the table);
+  - findings bar (fail / warn / info counts). As built in B-PR 4, a count
+    filters the **findings list**, and each finding's frame numbers open the
+    detail panel; the table itself is not filtered, because rows are paged by
+    offset and a frame filter would need a route of its own. The table colours
+    every row that a finding names;
   - `PacketTable`: hand-rolled windowed rendering (only visible rows in the
-    DOM), column chooser, horizontal scroll, row status colour from findings;
+    DOM), column chooser, horizontal scroll, row status colour from findings.
+    Values are the backend's display text (`rows[].display`, §B9), with the raw
+    value on hover; the browser holds no copy of the suite names;
+  - "One row per BSS" switches the table to the groups route for modes with a
+    `group_by`;
   - `PacketDetailPanel`: a side panel tree, not a popup window.
+  - Extra fields: a free-text list beside the filter, sent as `extra_fields`.
 - `navigation.ts`: new item `packets`, label "Packet Monitor", group
   **Monitoring**, `minRole: "engineer"` (Q1). Not Fleet: its Hosts/Profiles are
   admin-only, so an engineer would see a lone item there. The demo kit's
@@ -913,7 +925,11 @@ Following the Wi-Fi Clients template:
   Host shows "ask an admin to connect it" rather than a Connect button.
 - Demo mode: `demoApi.ts` answers from an anonymised fixture built by
   `demo/build_demo_data.py`; a matching `demo/packet-monitor.html` page and its
-  `demo/verify` case. (Can be its own PR.)
+  `demo/verify` case. (Can be its own PR.) Until that page exists, every demo
+  sidebar draws Packet Monitor as a screen with no file in the kit, which is
+  what the navigation verifier requires of an admin sidebar.
+- `PacketAnalysisContext` sits in `AppShell` with the other providers, so a
+  running analysis keeps its place while the user visits another section.
 
 No chart or UI library; no CDN.
 

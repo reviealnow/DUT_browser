@@ -23,6 +23,7 @@ import { canAccess, NAV_ITEMS, SectionId } from "../components/shell/navigation"
 import { AuthProvider, useAuth } from "../monitoring/AuthContext";
 import { useAppVersion } from "../monitoring/useAppVersion";
 import { DutMonitorProvider } from "../monitoring/DutMonitorContext";
+import { PacketAnalysisProvider } from "../monitoring/PacketAnalysisContext";
 import { RemoteRssiProvider } from "../monitoring/RemoteRssiContext";
 import { DutMonitorState, DutStatus, useDutMonitor } from "../monitoring/useDutMonitor";
 import { useWifiScan, wifiScanForDut, WifiScanProvider } from "../monitoring/WifiScanContext";
@@ -47,6 +48,7 @@ const SettingsSection = lazy(() => import("../components/SettingsSection"));
 const WifiClientsCard = lazy(() => import("../components/WifiClientsCard"));
 const SsidCapabilityCard = lazy(() => import("../components/SsidCapabilityCard"));
 const SiteSurveyCard = lazy(() => import("../components/SiteSurveyCard"));
+const PacketMonitorSection = lazy(() => import("../components/PacketMonitorSection"));
 const Dashboard = lazy(() => import("./Dashboard"));
 
 const PHASE3_HINT = "Trend charts and live views arrive in Phase 3.";
@@ -182,6 +184,8 @@ function AppShellInner() {
           mounted together, so a capture started in one must survive the switch
           to the other. */}
       <RemoteRssiProvider>
+      {/* An analysis keeps its place while the user looks at another section. */}
+      <PacketAnalysisProvider>
       <div className={`app${navCollapsed ? " nav-collapsed" : ""}`}>
         <Sidebar
           active={active}
@@ -320,6 +324,7 @@ function AppShellInner() {
           </main>
         </div>
       </div>
+      </PacketAnalysisProvider>
       </RemoteRssiProvider>
       </WifiScanProvider>
     </DutMonitorProvider>
@@ -427,6 +432,8 @@ function renderSection(
       return <DownloadsSection query={search} />;
     case "offline":
       return <OfflineAnalyzerSection />;
+    case "packets":
+      return <PacketMonitorSection />;
     case "files":
       return <FilesSection query={search} onTagClick={onTagSearch} />;
     case "bulletin":

@@ -287,7 +287,13 @@ def filter_check_script(*, tshark_path: str, display_filter: str) -> str:
 
 
 def frame_detail_script(*, job_id: str, sha256: str, tshark_path: str, frame_number: int) -> str:
-    """One frame's dissection tree. ``-c`` stops tshark at frame n (§B9)."""
+    """One frame's dissection tree. ``-c`` stops tshark at frame n (§B9).
+
+    ``-T json`` prints a repeated field (one ``wlan.tag`` per tagged parameter)
+    as duplicate object keys, and ``json.loads`` keeps only the last one, so a
+    beacon's RSN element could vanish from the tree. ``--no-duplicate-keys``
+    (tshark 2.6+, below the 3.6 floor) merges them into one key with an array.
+    """
     _check_job(job_id)
     check_sha256(sha256)
     _check_tshark_path(tshark_path)
@@ -296,6 +302,7 @@ def frame_detail_script(*, job_id: str, sha256: str, tshark_path: str, frame_num
     args = [
         "-n", "-r", f"captures/{sha256}.pcapng",
         "-c", str(frame_number), "-Y", f"frame.number=={frame_number}", "-T", "json",
+        "--no-duplicate-keys",
     ]
     return _script(_exec_tshark(job_id, tshark_path, args), tshark_path)
 

@@ -220,6 +220,22 @@ class AnalysisTest(_JobsBench):
                 self.assertEqual(page["rows"], everything[offset:offset + limit])
         self.assertEqual(self.jobs.rows(analysis["id"], len(everything), 5)["rows"], [])
 
+    def test_rows_carry_their_display_text(self) -> None:
+        analysis = self.run_analysis()
+        page = self.jobs.rows(analysis["id"], 0, 500)
+        decoders = {c["key"]: c["decoder"] for c in analysis["columns"]}
+        self.assertEqual(len(page["display"]), len(page["rows"]))
+        with_akm = [i for i, r in enumerate(page["rows"]) if r.get("akm")]
+        self.assertTrue(with_akm, "the fixture should have RSN beacons")
+        for i in with_akm:
+            raw = page["rows"][i]
+            self.assertEqual(page["display"][i]["akm"], pd.format_value("akm_list", raw["akm"]))
+            self.assertNotRegex(page["display"][i]["akm"], r"^\[")
+        for raw, shown in zip(page["rows"], page["display"]):
+            self.assertEqual(set(shown), {k for k in decoders if k in raw})
+        groups = self.jobs.groups(analysis["id"])
+        self.assertEqual(groups[0]["display"]["bssid"], groups[0]["row"]["bssid"])
+
     def test_groups_are_one_row_per_bss(self) -> None:
         analysis = self.run_analysis()
         rows, _ = expected_rows("beacon_security")
@@ -343,7 +359,9 @@ class FrameDetailTest(_JobsBench):
         frame = self.jobs.frame(analysis["id"], 3)
         self.assertEqual(frame["_source"]["layers"]["frame"]["frame.number"], "3")
         detail_call = self.tshark_calls()[-1]
-        self.assertIn("-c 3 -Y frame.number==3 -T json", detail_call)
+        # Repeated fields (one wlan.tag per tagged parameter) must reach the
+        # panel as an array, not as duplicate keys json.loads would collapse.
+        self.assertIn("-c 3 -Y frame.number==3 -T json --no-duplicate-keys", detail_call)
         self.assertEqual(self.jobs.frame(analysis["id"], 3), frame)
         self.assertEqual(len(self.tshark_calls()), calls_before + 1)
 
