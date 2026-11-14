@@ -110,6 +110,12 @@ h1{font-size:23px; margin:0; letter-spacing:-.02em}
       <span class="tile-sub">A real bundle's four cards — what Download DUT Log actually produces, listed as it came off disk.</span>
       <span class="tile-tag tag-measured">measured</span>
     </a>
+    <a class="tile" href="packet-monitor.html">
+      <span class="tile-icon">📦</span>
+      <span class="tile-name">Packet Monitor</span>
+      <span class="tile-sub">36 beacons through tshark and the product's rules: findings by severity, frame detail trees, one row per BSS.</span>
+      <span class="tile-tag tag-synthetic">synthetic frames · real tshark 4.4.1 dissection</span>
+    </a>
   </div>
 
   <div class="group">Fleet</div>
@@ -194,6 +200,13 @@ h1{font-size:23px; margin:0; letter-spacing:-.02em}
       management API takes the <b>encrypted</b> image and the web-UI path takes the <b>signed</b>
       <span class="mono">.sig</span>, refused in that order, with an unrecognised filename
       deliberately let through. Getting that pairing wrong is what cost a real bench session.
+    </p>
+    <p>
+      <b>Packet Monitor</b> is the reverse case: the <i>frames</i> are invented — synthetic beacons,
+      one for each case the findings rules tell apart, from the repository's own test fixture — and
+      everything said about them is real. tshark 4.4.1 dissected them, and the rows, findings and
+      groups were made by the product's own backend code. No Host is reachable from a file, so Run
+      replays that stored analysis and its filter checks are tshark's recorded answers.
     </p>
     <p>
       A <span class="chip">◇ concept</span> chip marks an idea shown for discussion. Anything
