@@ -21,8 +21,9 @@ _DIFF_FIELDS = (
     ("dot11r", "802.11r"),
 )
 
-# Config fields that are None only when no hostapd conf was read for the VAP.
-_UNKNOWABLE_FIELDS = ("security", "pmf")
+# Config fields whose None means "unknown", never "off": no hostapd conf was
+# read, or (802.11k/v) the conf does not set them because the driver does.
+_UNKNOWABLE_FIELDS = ("security", "pmf", "dot11k", "dot11v", "dot11r")
 
 
 def _norm_bool(v: Any) -> bool | None:
@@ -69,7 +70,7 @@ def build_capability_report(
         b = bss_index.get(bssid_a) if bssid_a else None
         match = b is not None
 
-        # Config fields that are unknown (no hostapd conf read) and so were
+        # Config fields that are unknown (see _UNKNOWABLE_FIELDS) and so were
         # never compared. Without this, a row whose only comparable fields
         # agree would read as a clean match although security was skipped.
         unknown: list[str] = [f for f in _UNKNOWABLE_FIELDS if a.get(f) is None]
@@ -84,8 +85,8 @@ def build_capability_report(
                 if field in ("dot11k", "dot11v", "dot11r"):
                     val_a = _norm_bool(val_a)
                     val_b = _norm_bool(val_b)
-                # Unknown config security / PMF (no hostapd conf read) cannot
-                # disagree with the beacons, so it is not reported as a diff.
+                # An unknown config value cannot disagree with the beacons,
+                # so it is not reported as a diff.
                 if field in unknown:
                     continue
                 if val_a != val_b and not (val_a is None and val_b is None):
