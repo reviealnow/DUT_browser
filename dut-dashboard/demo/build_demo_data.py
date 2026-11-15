@@ -1328,16 +1328,42 @@ def _alias_info(info, anon: Anonymiser):
     return _INFO_SSID_RE.sub(one, info)
 
 
+#: Decoded-row columns that carry an identifier, and how each is aliased.
+_MAC_KEYS = ("bssid", "src", "dst")
+
+
+def _alias_value(key: str | None, value, anon: Anonymiser):
+    """One column's value with its identifier replaced; any other column as it is.
+
+    Keyed by column, so a finding's or a group's value is aliased by the mode's
+    `group_by` column exactly as that column is aliased in a row.
+    """
+    if key in _MAC_KEYS:
+        return anon.mac(value) if isinstance(value, str) and value != _BROADCAST else value
+    if key == "ssid":
+        return _alias_ssid(anon, value)
+    if key == "info":
+        return _alias_info(value, anon)
+    return value
+
+
 def _alias_row(row: dict, anon: Anonymiser) -> dict:
-    out = dict(row)
-    for key in ("bssid", "src", "dst"):
-        if isinstance(out.get(key), str) and out[key] != _BROADCAST:
-            out[key] = anon.mac(out[key])
-    if "ssid" in out:
-        out["ssid"] = _alias_ssid(anon, out["ssid"])
-    if "info" in out:
-        out["info"] = _alias_info(out["info"], anon)
-    return out
+    return {key: _alias_value(key, value, anon) for key, value in row.items()}
+
+
+def _alias_findings_and_groups(findings: list[dict], groups: list[dict],
+                               group_by: str | None, anon: Anonymiser) -> tuple[list[dict], list[dict]]:
+    """An analysis's findings and groups with identifiers replaced.
+
+    A finding's and a group's `group` is the value of the mode's `group_by`
+    column, so it is aliased as that column is -- a BSSID as a MAC, an SSID as
+    an SSID -- never by guessing from its type.
+    """
+    return (
+        [{**f, "group": _alias_value(group_by, f["group"], anon)} for f in findings],
+        [{**g, "group": _alias_value(group_by, g["group"], anon), "row": _alias_row(g["row"], anon)}
+         for g in groups],
+    )
 
 
 def _refuse_packet_identifiers(blob: str, macs: set[str], ssids: set[bytes]) -> None:
@@ -1380,17 +1406,17 @@ def build_packets(bundle: Path | None, anon: Anonymiser,
     """
     import importlib.util
     import tempfile
-    from dataclasses import asdict
 
     if tshark is None:
         raise SystemExit("packet-monitor.html is built with tshark — pass --tshark "
                          f"<path to tshark {PACKET_TSHARK}>")
     tshark = str(tshark)
-    version = _tshark(tshark, ["--version"]).stdout.decode().split()[2]
+    pd, pj, pm, pr, tr = _packet_backend()
+    # The product's own parser: Debian builds print "4.4.1." and must still read as 4.4.1.
+    version = tr.parse_tshark_version(_tshark(tshark, ["--version"]).stdout.decode("utf-8", "replace"))
     if version != PACKET_TSHARK:
         raise SystemExit(f"tshark {version} is not {PACKET_TSHARK}, the version the "
                          f"committed fixture was made with")
-    pd, pj, pm, pr, tr = _packet_backend()
 
     tsv_text = (PACKET_FIXTURES / f"beacons_tshark-{PACKET_TSHARK}.tsv").read_text(encoding="utf-8")
     field_types = json.loads((PACKET_FIXTURES / f"field_types_tshark-{PACKET_TSHARK}.json")
@@ -1455,7 +1481,9 @@ def build_packets(bundle: Path | None, anon: Anonymiser,
                                           "-T", "fields", "-e", "frame.number"])
                 kept[(mode.id, text)] = [int(n) for n in result.stdout.decode().split()]
 
-        frame_count = len(kept[("manual", "")])
+        # Every frame in the capture, whatever any Test Mode keeps.
+        frame_count = len(_tshark(tshark, ["-n", "-r", str(pcap), "-T", "fields",
+                                           "-e", "frame.number"]).stdout.decode().split())
         trees = {}
         for number in range(1, frame_count + 1):
             result = _tshark(tshark, ["-n", "-r", str(pcap), "-c", str(number),
@@ -1488,27 +1516,41 @@ def build_packets(bundle: Path | None, anon: Anonymiser,
         analysis_id = 0
         for mode in pm.MODES:
             columns, rows, dropped = decoded[mode.id]
-            by_frame = {row["frame"]: row for row in rows}
+            header, *lines = [line for line in tsv_by_mode[mode.id].split("\n") if line]
+            number_at = header.split("\t").index("frame.number")
             runs = {}
             for (mode_id, text), frames in kept.items():
                 if mode_id != mode.id:
                     continue
-                subset = [by_frame[n] for n in frames]
-                findings = pr.evaluate(subset, mode.rules, mode.group_by)
-                for finding in findings:
-                    if isinstance(finding.group, str):
-                        finding.group = anon.mac(finding.group)
-                shown = [_alias_row(row, anon) for row in subset]
+                # tshark's TSV for this run -- the lines of the frames its filter
+                # keeps -- fed to the job's own writer, which decodes, judges and
+                # groups the real values as an analysis on a Host does.
+                wanted = {str(n) for n in frames}
+                tsv_path = Path(tmp) / f"run-{analysis_id + 1}.tsv"
+                tsv_path.write_bytes("\n".join([header, *(line for line in lines
+                                     if line.split("\t")[number_at] in wanted)]).encode() + b"\n")
                 analysis_id += 1
-                jobs._write_results(analysis_id, columns, shown, findings, mode.group_by)
-                groups = jobs._read_json(analysis_id, "groups") or []
+                shown, _ = jobs._write_results(analysis_id, columns, tsv_path, mode)
+                if shown != len(frames):
+                    raise SystemExit(f"{mode.id} {text!r}: the writer kept {shown} of "
+                                     f"{len(frames)} frames")
+                # Only then aliased: the results files, rewritten in place so the
+                # CSV and the display text are made from the aliased rows.
+                jsonl = jobs._path(analysis_id, "jsonl")
+                aliased = [_alias_row(json.loads(line), anon)
+                           for line in jsonl.read_bytes().splitlines()]
+                jsonl.write_bytes(b"".join(json.dumps(row, default=str, ensure_ascii=False).encode()
+                                           + b"\n" for row in aliased))
+                findings, groups = _alias_findings_and_groups(
+                    jobs._read_json(analysis_id, "findings") or [],
+                    jobs._read_json(analysis_id, "groups") or [], mode.group_by, anon)
                 visible = [c for c in jobs._read_json(analysis_id, "columns") if not c["hidden"]]
-                with open(jobs._path(analysis_id, "jsonl"), "rb") as handle:
+                with open(jsonl, "rb") as handle:
                     csv_text = "".join(pj.PacketJobs._csv_lines(visible, handle))
                 runs[text] = {
                     "frames": frames,
-                    "findings": jobs._read_json(analysis_id, "findings") or [],
-                    "summary": pj._summarise(jobs._read_json(analysis_id, "findings") or []),
+                    "findings": findings,
+                    "summary": pj._summarise(findings),
                     "groups": [{**g, "display": d} for g, d in
                                zip(groups, jobs._display(analysis_id, [g["row"] for g in groups]))],
                     "csv": csv_text,

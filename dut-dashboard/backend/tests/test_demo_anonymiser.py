@@ -680,6 +680,26 @@ def test_a_frame_tree_loses_every_ssid_and_bssid_it_carries(anon_module) -> None
         anon_module._refuse_packet_identifiers(json.dumps(tree), {"00:03:7f:00:00:03"}, set())
 
 
+def test_a_group_is_aliased_by_the_column_it_groups_by(anon_module) -> None:
+    """A finding's `group` is the `group_by` column's value. Aliasing it as a MAC
+    whenever it was a string turned an SSID-grouped mode's groups into made-up
+    MACs and left the SSID's real name in nobody's alias map; it must be aliased
+    as its column is, and a non-identifying group must be left alone."""
+    anon = anon_module.Anonymiser()
+    anon.prepare(ssids={"flappy"}, macs={"00:03:7f:00:00:0f"})
+    alias = anon_module._alias_findings_and_groups
+
+    findings, groups = alias([{"rule": "r", "group": "flappy", "frames": [1]}],
+                             [{"group": "flappy", "frames": 1, "row": {"ssid": "flappy"}}], "ssid", anon)
+    assert findings[0]["group"] == anon.ssid("flappy") == groups[0]["group"] == groups[0]["row"]["ssid"]
+
+    findings, _ = alias([{"group": "00:03:7f:00:00:0f"}], [], "bssid", anon)
+    assert findings[0]["group"] == anon.mac("00:03:7f:00:00:0f")
+
+    findings, _ = alias([{"group": "US"}, {"group": None}], [], "country", anon)
+    assert [f["group"] for f in findings] == ["US", None]
+
+
 def test_the_info_column_names_no_captured_ssid(anon_module) -> None:
     """Manual mode's Info column spells an SSID quoted, or as hex when tshark will
     not print it as text; a hidden one stays as tshark wrote it."""
