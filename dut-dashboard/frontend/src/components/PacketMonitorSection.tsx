@@ -27,6 +27,16 @@ import { PacketTable } from "./PacketTable";
  */
 export const CAPTURE_RE = /\.(pcap|pcapng|cap)$/i;
 export const FILTER_DEBOUNCE_MS = 600;
+/** `/api/files` serves at most this many rows per request. */
+export const FILES_PAGE = 500;
+/** Pages read per search before the list says it may be incomplete. */
+export const FILES_MAX_PAGES = 10;
+/**
+ * Filename searches that, between them, find every name CAPTURE_RE accepts:
+ * ".pcap" also matches ".pcapng". The server's match is a case-insensitive
+ * substring, so the results are filtered by CAPTURE_RE afterwards.
+ */
+const CAPTURE_SEARCHES = [".pcap", ".cap"];
 const HISTORY_KEY = "packetMonitor.filterHistory";
 const HIDDEN_KEY = "packetMonitor.hiddenColumns";
 const HISTORY_MAX = 10;
@@ -49,6 +59,33 @@ function writeStore(key: string, value: unknown): void {
   }
 }
 
+/**
+ * Every capture in the Files workspace, newest first, using the paging and
+ * filename search `/api/files` already has. `complete` is false when a search
+ * stopped at FILES_MAX_PAGES before reaching its total.
+ */
+export async function listCaptures(): Promise<{ files: WorkspaceFile[]; complete: boolean }> {
+  const found = new Map<number, WorkspaceFile>();
+  let complete = true;
+  for (const q of CAPTURE_SEARCHES) {
+    for (let page = 0; ; page += 1) {
+      if (page === FILES_MAX_PAGES) {
+        complete = false;
+        break;
+      }
+      const list = await getFiles({ q, limit: FILES_PAGE, offset: page * FILES_PAGE });
+      for (const f of list.files) {
+        if (CAPTURE_RE.test(f.filename)) found.set(f.id, f);
+      }
+      if (list.files.length < FILES_PAGE || (page + 1) * FILES_PAGE >= list.total) break;
+    }
+  }
+  const files = [...found.values()].sort(
+    (a, b) => b.uploaded_at.localeCompare(a.uploaded_at) || b.id - a.id,
+  );
+  return { files, complete };
+}
+
 /** Why a Host cannot be picked, in the words the operator needs, or "" if it can. */
 export function hostBlocker(host: PacketHost): string {
   if (!host.connected) return "not connected — ask an admin to connect it";
@@ -62,14 +99,12 @@ export function hostBlocker(host: PacketHost): string {
 
 export default function PacketMonitorSection() {
   const state = usePacketAnalysis();
-  const { hosts, modes, analysis, load } = state;
+  const { hosts, modes, analysis, load, form, setForm } = state;
+  // The form lives in the context so it survives leaving the section (#231 review, 7).
+  const { fileId, hostId, modeId, filter, extra, frame, byBss } = form;
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
+  const [filesComplete, setFilesComplete] = useState(true);
   const [filesError, setFilesError] = useState("");
-  const [fileId, setFileId] = useState<number | null>(null);
-  const [hostId, setHostId] = useState("");
-  const [modeId, setModeId] = useState("");
-  const [filter, setFilter] = useState("");
-  const [extra, setExtra] = useState("");
   // Filter checks by `${hostId}\n${text}`: a result only ever describes the
   // text it was asked about, so neither a stale nor a late answer can enable
   // or block Run for what is in the box now.
@@ -77,8 +112,6 @@ export default function PacketMonitorSection() {
   const [history, setHistory] = useState<string[]>(() => readStore<string[]>(HISTORY_KEY, []));
   const [hidden, setHidden] = useState<Record<string, string[]>>(() => readStore(HIDDEN_KEY, {}));
   const [severity, setSeverity] = useState<PacketSeverity | null>(null);
-  const [byBss, setByBss] = useState(false);
-  const [frame, setFrame] = useState<number | null>(null);
   const [tree, setTree] = useState<unknown>(null);
   const [treeLoading, setTreeLoading] = useState(false);
   const [treeError, setTreeError] = useState("");
@@ -88,14 +121,17 @@ export default function PacketMonitorSection() {
   // On entry, once: the Hosts, the Test Modes and the captures to choose from.
   useEffect(() => {
     void load();
-    getFiles({ limit: 500 })
-      .then((list) => setFiles(list.files.filter((f) => CAPTURE_RE.test(f.filename))))
+    listCaptures()
+      .then((list) => {
+        setFiles(list.files);
+        setFilesComplete(list.complete);
+      })
       .catch((e: unknown) => setFilesError(humanizeApiError(e)));
   }, [load]);
 
   useEffect(() => {
-    if (!modeId && modes.length) setModeId(modes[0].id);
-  }, [modes, modeId]);
+    if (!modeId && modes.length) setForm({ modeId: modes[0].id });
+  }, [modes, modeId, setForm]);
 
   // Validate as the user types: debounced, and only for a filter not checked yet.
   const filterText = filter.trim();
@@ -135,11 +171,10 @@ export default function PacketMonitorSection() {
       writeStore(HISTORY_KEY, next);
     }
     frameRequest.current += 1;
-    setFrame(null);
+    setForm({ frame: null, byBss: false });
     setTree(null);
     setTreeLoading(false);
     setSeverity(null);
-    setByBss(false);
     await state.start({
       file_id: fileId,
       collector_id: hostId,
@@ -182,7 +217,7 @@ export default function PacketMonitorSection() {
   const openFrame = async (number: number) => {
     if (!analysis) return;
     const request = ++frameRequest.current;
-    setFrame(number);
+    setForm({ frame: number });
     setTree(null);
     setTreeError("");
     setTreeLoading(true);
@@ -198,8 +233,15 @@ export default function PacketMonitorSection() {
 
   const closeFrame = () => {
     frameRequest.current += 1;
-    setFrame(null);
+    setForm({ frame: null });
   };
+
+  // Back in the section with a frame still open: its tree was not kept, so
+  // ask for it again. Once, on entry.
+  useEffect(() => {
+    if (frame !== null && analysis?.status === "done") void openFrame(frame);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const done = analysis?.status === "done";
 
@@ -208,13 +250,19 @@ export default function PacketMonitorSection() {
       <Card title="Capture" subtitle="tshark runs on the Host, not on this server">
         {state.error ? <div className="pkt-error">{state.error}</div> : null}
         {filesError ? <div className="pkt-error">{filesError}</div> : null}
+        {!filesComplete ? (
+          <div className="pkt-blocker" role="status">
+            More than {FILES_MAX_PAGES * FILES_PAGE} files in Files look like captures; only the newest are listed
+            here.
+          </div>
+        ) : null}
         <div className="pkt-controls">
           <label className="modal-label">
             Capture file
             <select
               className="input"
               value={fileId ?? ""}
-              onChange={(e) => setFileId(e.target.value ? Number(e.target.value) : null)}
+              onChange={(e) => setForm({ fileId: e.target.value ? Number(e.target.value) : null })}
               aria-label="Capture file"
             >
               <option value="">{files.length ? "Choose a capture" : "No pcap / pcapng in Files"}</option>
@@ -230,7 +278,7 @@ export default function PacketMonitorSection() {
             <select
               className="input"
               value={hostId}
-              onChange={(e) => setHostId(e.target.value)}
+              onChange={(e) => setForm({ hostId: e.target.value })}
               aria-label="Host"
             >
               <option value="">{hosts.length ? "Choose a Host" : "No Hosts registered"}</option>
@@ -265,7 +313,7 @@ export default function PacketMonitorSection() {
             <select
               className="input"
               value={modeId}
-              onChange={(e) => setModeId(e.target.value)}
+              onChange={(e) => setForm({ modeId: e.target.value })}
               aria-label="Test Mode"
             >
               {modes.map((m) => (
@@ -280,7 +328,7 @@ export default function PacketMonitorSection() {
             <input
               className="input"
               value={filter}
-              onChange={(e) => setFilter(e.target.value)}
+              onChange={(e) => setForm({ filter: e.target.value })}
               placeholder={mode?.display_filter ? `in addition to ${mode.display_filter}` : "e.g. wlan.ssid == \"lab\""}
               list="packet-filter-history"
               maxLength={1024}
@@ -298,7 +346,7 @@ export default function PacketMonitorSection() {
             <input
               className="input"
               value={extra}
-              onChange={(e) => setExtra(e.target.value)}
+              onChange={(e) => setForm({ extra: e.target.value })}
               placeholder="wlan.fixed.beacon, …"
               aria-label="Extra fields"
             />
@@ -375,7 +423,7 @@ export default function PacketMonitorSection() {
             <>
               {state.groups.length ? (
                 <label className="pkt-toggle">
-                  <input type="checkbox" checked={byBss} onChange={(e) => setByBss(e.target.checked)} /> One row per BSS
+                  <input type="checkbox" checked={byBss} onChange={(e) => setForm({ byBss: e.target.checked })} /> One row per BSS
                 </label>
               ) : null}
               <ColumnChooser columns={allColumns} hidden={hiddenHere} onToggle={toggleColumn} />

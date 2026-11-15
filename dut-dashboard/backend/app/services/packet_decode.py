@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import math
 import re
-from typing import Any, Callable
+from typing import Any, BinaryIO, Callable, Iterable, Iterator
 
 # --- IEEE 802.11 suite selectors (OUI 00-0F-AC) ------------------------------
 
@@ -266,26 +266,55 @@ def band_of(freq_mhz: int | None) -> str | None:
 # --- tshark output -------------------------------------------------------------
 
 
-def rows_from_tsv(text: str) -> tuple[list[dict[str, str | None]], int]:
-    """``-T fields -E header=y -E separator=/t`` output → (one dict per frame, dropped).
+class TsvRows:
+    """``-T fields -E header=y -E separator=/t`` output → one dict per frame, lazily.
 
-    Keys are the field names from the header line; an empty cell is ``None``.
-    Rows split on ``\\n`` only -- ``str.splitlines`` would also break on
-    U+2028, ``\\x0b`` and friends, which a 3.6-era text SSID can contain. A
-    line with the wrong number of cells (a tab inside a text value) is dropped
-    rather than misaligned, and counted, so the caller can say so.
+    ``lines`` are the output already split on ``\\n`` -- and on ``\\n`` only:
+    ``str.splitlines`` would also break on U+2028, ``\\x0b`` and friends,
+    which a 3.6-era text SSID can contain. Keys are the field names from the
+    header line (the first non-empty line); an empty cell is ``None``. A line
+    with the wrong number of cells (a tab inside a text value) is dropped
+    rather than misaligned, and counted in ``dropped`` once iterated past, so
+    the caller can say so.
+
+    Iterate it once: it holds one row at a time, never the whole output.
     """
-    lines = [line.rstrip("\r") for line in text.split("\n")]
-    lines = [line for line in lines if line]
-    if not lines:
-        return [], 0
-    header = lines[0].split("\t")
-    rows: list[dict[str, str | None]] = []
-    dropped = 0
-    for line in lines[1:]:
-        cells = line.split("\t")
-        if len(cells) != len(header):
-            dropped += 1
-            continue
-        rows.append({name: (cell if cell != "" else None) for name, cell in zip(header, cells)})
-    return rows, dropped
+
+    def __init__(self, lines: Iterable[str]) -> None:
+        self._lines = lines
+        self.dropped = 0
+
+    def __iter__(self) -> Iterator[dict[str, str | None]]:
+        header: list[str] | None = None
+        for line in self._lines:
+            line = line.rstrip("\r")
+            if not line:
+                continue
+            if header is None:
+                header = line.split("\t")
+                continue
+            cells = line.split("\t")
+            if len(cells) != len(header):
+                self.dropped += 1
+                continue
+            yield {name: (cell if cell != "" else None) for name, cell in zip(header, cells)}
+
+
+def tsv_file_lines(handle: BinaryIO) -> Iterator[str]:
+    """A binary file's lines, split on ``\\n`` only, for :class:`TsvRows`.
+
+    Binary, because a text-mode file also splits on a lone ``\\r``. Decoding
+    each line on its own gives the same text as decoding the whole file with
+    ``errors="replace"``: ``\\n`` is never part of a multibyte UTF-8 sequence.
+    """
+    for raw in handle:
+        if raw.endswith(b"\n"):
+            raw = raw[:-1]
+        yield raw.decode("utf-8", errors="replace")
+
+
+def rows_from_tsv(text: str) -> tuple[list[dict[str, str | None]], int]:
+    """The whole of ``-T fields`` output → (one dict per frame, dropped). See :class:`TsvRows`."""
+    reader = TsvRows(text.split("\n"))
+    rows = list(reader)
+    return rows, reader.dropped
