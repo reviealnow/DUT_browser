@@ -980,9 +980,19 @@ const report = reporter();
   report.ok("Cancel stops it and shows no results",
     $("analysisStatus").textContent.includes("Cancelled.") && $("findingsCard").hidden && $("framesCard").hidden);
 
-  // A Host that is not connected cannot be picked, as in the product's select.
+  // A Host that is not connected can be picked, and picking it says why it
+  // cannot run (hostBlocker) instead of offering Run or Check Host.
+  type("");
   const rack = [...$("host").options].find(o => o.textContent.includes("(rack)"));
-  report.ok("a disconnected Host is listed but cannot be picked", !!rack && rack.disabled && rack.textContent.startsWith("○ "));
+  report.ok("a disconnected Host is listed, marked ○ and selectable",
+    !!rack && !rack.disabled && rack.textContent.startsWith("○ "));
+  $("host").value = rack.value;
+  $("host").dispatchEvent(new window.Event("change", { bubbles: true }));
+  report.ok("picking it shows the blocker in hostBlocker's words",
+    !$("blocker").hidden
+    && $("blocker").textContent === "Edge collector (rack): not connected — ask an admin to connect it",
+    $("blocker").textContent);
+  report.ok("and Run stays disabled, with no Check Host", $("run").disabled && $("checkHost").hidden);
 
   report.ok("packet-monitor.html threw nothing while all that ran",
     pageErrors(window).length === 0, pageErrors(window).join(" | "));

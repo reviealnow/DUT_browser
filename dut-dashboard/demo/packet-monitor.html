@@ -382,7 +382,9 @@ function renderSourceRow(){
     + `<option value="${CAPTURE.id}">${esc(CAPTURE.filename)}</option>`;
   $("file").value = S.fileId === null ? "" : String(S.fileId);
   $("host").innerHTML = `<option value="">${DATA.hosts.length ? "Choose a Host" : "No Hosts registered"}</option>`
-    + DATA.hosts.map(h => `<option value="${esc(h.id)}"${h.connected ? "" : " disabled"}>`
+    /* Every Host is selectable, a disconnected one included: picking it is how
+       the operator learns why it cannot run (hostBlocker), and Run stays off. */
+    + DATA.hosts.map(h => `<option value="${esc(h.id)}">`
       + esc((hostBlocker(h) ? "○ " : "● ") + h.label)
       + (h.probe && h.probe.tshark_version ? ` — tshark ${esc(h.probe.tshark_version)}` : "")
       + `</option>`).join("");
@@ -715,8 +717,8 @@ $("recordedNote").innerHTML =
   + `A filter longer than ${DATA.filterLimit} characters or holding a NUL byte is refused before any Host is asked, `
   + `here and there. Any other filter reads <b>Filter not checked</b>, which — as when a Host does not answer — `
   + `does not block Run; there is simply nothing stored to replay for it. A truncated capture would show its `
-  + `warning beside <b>Done</b>; this one was read whole. <b>Edge collector (rack)</b> is not connected, so it `
-  + `cannot be picked: an engineer is told to ask an admin, never offered Connect.`;
+  + `warning beside <b>Done</b>; this one was read whole. <b>Edge collector (rack)</b> is not connected: pick it `
+  + `and the page says so — ask an admin to connect it — with Run disabled and no Check Host or Connect offered.`;
 
 $("provenance").innerHTML =
   `<b>Demo kit</b> — canned data, no Host reachable. The <b>${DATA.frameCount} frames are synthetic</b>: `
