@@ -27,11 +27,11 @@ export const SCREEN_FILES = {
   "Site Survey": "site-survey.html",
   "Wi-Fi Clients": "wifi-clients.html", "CPU / Memory": "cpu-memory.html",
   "SSID Capability": "ssid-capability.html", "Downloads": "downloads.html",
-  "Serial Console": "serial-console.html", "Files": "files.html",
-  "Bulletin": "bulletin.html", "Upgrade Firmware": "firmware.html",
+  "Serial Console": "serial-console.html", "Packet Monitor": "packet-monitor.html",
+  "Files": "files.html", "Bulletin": "bulletin.html", "Upgrade Firmware": "firmware.html",
 };
 /** Real product screens the kit has no file for; they explain themselves. */
-export const NO_FILE = new Set(["Logs / Crash Events", "Settings", "Offline Analyzer", "Packet Monitor"]);
+export const NO_FILE = new Set(["Logs / Crash Events", "Settings", "Offline Analyzer"]);
 
 /**
  * Load a page and record anything it throws.

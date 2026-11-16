@@ -171,7 +171,7 @@ button{font:inherit; color:inherit; cursor:pointer}
     <a class="nav-item" href="serial-console.html" data-screen="Serial Console"><span class="nav-icon">⌨</span>Serial Console</a>
     <a class="nav-item" href="downloads.html" data-screen="Downloads"><span class="nav-icon">⬇</span>Downloads</a>
     <button class="nav-item" data-screen="Offline Analyzer"><span class="nav-icon">⌁</span>Offline Analyzer</button>
-    <button class="nav-item" data-screen="Packet Monitor"><span class="nav-icon">📦</span>Packet Monitor</button>
+    <a class="nav-item" href="packet-monitor.html" data-screen="Packet Monitor"><span class="nav-icon">📦</span>Packet Monitor</a>
     <div class="nav-group">Fleet</div>
     <button class="nav-item" aria-current="page"><span class="nav-icon">🛰</span>DUTs &amp; Mesh</button>
     <a class="nav-item" href="hosts.html" data-screen="Hosts"><span class="nav-icon">🗄</span>Hosts</a>
@@ -738,11 +738,12 @@ document.querySelectorAll("[data-screen]:not([href])").forEach(el => {
                   "Wi-Fi Clients": "wifi-clients.html", "CPU / Memory": "cpu-memory.html",
                   "SSID Capability": "ssid-capability.html", "Downloads": "downloads.html",
                   "Serial Console": "serial-console.html", "Files": "files.html",
-                  "Bulletin": "bulletin.html", "Upgrade Firmware": "firmware.html" };
+                  "Bulletin": "bulletin.html", "Upgrade Firmware": "firmware.html",
+                  "Packet Monitor": "packet-monitor.html" };
     $("navNote").innerHTML = map[name]
       ? `<b>${name}</b> is in this kit — open <b>${map[name]}</b> beside this file.`
       : `<b>${name}</b> is a screen in the product with no file in this kit; `
-        + `open <b>index.html</b> for the thirteen that ship.`;
+        + `open <b>index.html</b> for the fourteen that ship.`;
     $("navNote").scrollIntoView({ behavior: "smooth", block: "nearest" });
   });
 });

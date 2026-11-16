@@ -26,6 +26,7 @@ double-click, works offline, and survives being forwarded.
 | `cpu-memory.html` | The three trend cards over 40 hours of analyzer CSV — no anonymising needed |
 | `ssid-capability.html` | 28 VAPs of hostapd config, and the all-miss state a capture with no host-side scan really has |
 | `firmware.html` | The admin flash flow: transport, checksum gate, dry run, type-the-name confirm |
+| `packet-monitor.html` | 36 synthetic beacons as tshark 4.4.1 and the product's rules see them: findings by severity, frame trees, the windowed table, one row per BSS |
 | `index.html` | The kit's front door — every screen, and which are measured versus synthetic |
 
 Files and Bulletin are **two separate sections in the product**, so they are two
@@ -84,10 +85,23 @@ python3 build_demo_data.py --page hosts.html
 python3 build_demo_data.py --page profiles.html
 ```
 
-**Thirteen of the fourteen pages are generated. `index.html` is not** — it is the
+**Fourteen of the fifteen pages are generated. `index.html` is not** — it is the
 front door, linking the screens and saying which are measured, with no capture
 behind it and no `demo-data` block to fill. Edit it by hand; the generator
 refuses it by name rather than failing on the missing block.
+
+Packet Monitor takes no bundle either: its source is the repository's own test
+fixture, `backend/tests/fixtures/packets/`, run through the product's backend
+code. What the committed TSV cannot give — Manual mode's columns, each frame's
+`-T json` tree, tshark's verdict on a display filter and which frames a filter
+keeps — needs tshark itself, so the builder takes it and refuses any version but
+the fixture's 4.4.1. It also rebuilds the fixture's TSV from `make_beacons.py`'s
+frames and refuses if a byte differs, so the trees and verdicts are about the
+very frames the rows came from:
+
+```bash
+python3 build_demo_data.py --page packet-monitor.html --tshark /path/to/tshark
+```
 
 ### After editing `demo-fixtures.json`
 
@@ -177,9 +191,10 @@ npm test             # behaviour, then navigation
 
 `verify-behaviour.mjs` loads each shipped page into a real DOM and **clicks its
 own controls**: Send on Serial Console, each pairing the firmware service
-refuses, the expand controls on Downloads, the table on SSID Capability, and on
+refuses, the expand controls on Downloads, the table on SSID Capability, on
 Fleet the four states a card can be in and the two reasons Refresh RSSI is
-refused. `verify-navigation.mjs` clicks every sidebar entry on every page,
+refused, and on Packet Monitor the findings counts, a frame link, the table's
+window, One row per BSS and the filter gate. `verify-navigation.mjs` clicks every sidebar entry on every page,
 checks each one either opens a file that exists or explains why there is none,
 and checks the whole sidebar against `navigation.ts` — every entry the page's
 role badge can see, and no entry it cannot, in the product's order. See *A page
@@ -283,6 +298,22 @@ creates work for whoever has to make it true later.
   profile has no field for one. The two differences a viewer must not read as
   product behaviour are in each page's provenance line: this file has no backend
   at all, and a profile saved here lasts until the tab is closed.
+
+  `packet-monitor.html` is the reverse: its **frames are synthetic and every
+  word about them is real**. `make_beacons.py` builds one beacon per case the
+  findings rules tell apart; tshark 4.4.1 dissected them; rows, display text,
+  findings, groups and the CSV come from `packet_modes`, `packet_rules` and the
+  analysis writer in `packet_jobs`, so the page never decodes a field or judges
+  a frame. SSIDs and BSSIDs go through `Anonymiser` like everywhere else —
+  inside the frame trees too, where an SSID also travels in a Multiple BSSID
+  element's raw bytes — and the build refuses if any survives in any spelling
+  tshark uses. No Host is reachable from a file, so Run replays the stored run
+  for the chosen mode and filter (stored with no filter and with each filter
+  tshark accepted), Cancel stops the replay and Check Host replays the probe.
+  A filter tshark was not asked about reads *Filter not checked* and, as when a
+  Host does not answer, does not block Run; the page then says there is nothing
+  to replay rather than showing unfiltered rows under a filter. The Hosts are
+  `hosts.html`'s, so the two screens describe one bench.
 
   `fleet.html` is invented for the other reason — there is no capture of a mesh
   to be faithful to — but its *shape* is not: the fields, both capture

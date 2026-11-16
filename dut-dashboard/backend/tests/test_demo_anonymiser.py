@@ -652,6 +652,65 @@ def test_renaming_is_idempotent(anon_module) -> None:
     assert anon_module.demo_name(once) == once
 
 
+def test_a_frame_tree_loses_every_ssid_and_bssid_it_carries(anon_module) -> None:
+    """A tshark `-T json` tree names an SSID twice: as `wlan.ssid`, and inside a
+    Multiple BSSID element's raw profile bytes. The first build of
+    packet-monitor.html aliased only the former and its own guard caught the
+    second; this pins both, and that the broadcast address is left alone."""
+    ssid, nontx = b"wpa3sae_ok", b"mb_ntx_x"
+    hexed = lambda raw: ":".join(f"{b:02x}" for b in raw)
+    tree = {"wlan.ta": "00:03:7f:00:00:03", "wlan.ra": "ff:ff:ff:ff:ff:ff",
+            "wlan.ssid": hexed(ssid),
+            "profile": {"wlan.multiple_bssid.subelem.nontrans_profile":
+                        "53:02:11:00:" + hexed(bytes([0, len(nontx)]) + nontx) + ":55:03",
+                        "wlan.ssid": hexed(nontx)}}
+    anon = anon_module.Anonymiser()
+    anon.prepare(ssids={ssid.decode(), nontx.decode()}, macs={"00:03:7f:00:00:03"})
+    shown = anon_module._alias_tree(tree, anon, {ssid, nontx})
+    blob = json.dumps(shown)
+    anon_module._refuse_packet_identifiers(blob, {"00:03:7f:00:00:03"}, {ssid, nontx})
+    assert shown["wlan.ra"] == "ff:ff:ff:ff:ff:ff"
+    assert shown["wlan.ta"].startswith("02:")
+    alias = anon.ssid(nontx.decode()).encode()
+    assert hexed(bytes([0, len(alias)]) + alias) in shown["profile"]["wlan.multiple_bssid.subelem.nontrans_profile"]
+
+    with pytest.raises(SystemExit, match="mb_ntx_x"):
+        anon_module._refuse_packet_identifiers(json.dumps(tree), set(), {nontx})
+    with pytest.raises(SystemExit, match="00:03:7f:00:00:03"):
+        anon_module._refuse_packet_identifiers(json.dumps(tree), {"00:03:7f:00:00:03"}, set())
+
+
+def test_a_group_is_aliased_by_the_column_it_groups_by(anon_module) -> None:
+    """A finding's `group` is the `group_by` column's value. Aliasing it as a MAC
+    whenever it was a string turned an SSID-grouped mode's groups into made-up
+    MACs and left the SSID's real name in nobody's alias map; it must be aliased
+    as its column is, and a non-identifying group must be left alone."""
+    anon = anon_module.Anonymiser()
+    anon.prepare(ssids={"flappy"}, macs={"00:03:7f:00:00:0f"})
+    alias = anon_module._alias_findings_and_groups
+
+    findings, groups = alias([{"rule": "r", "group": "flappy", "frames": [1]}],
+                             [{"group": "flappy", "frames": 1, "row": {"ssid": "flappy"}}], "ssid", anon)
+    assert findings[0]["group"] == anon.ssid("flappy") == groups[0]["group"] == groups[0]["row"]["ssid"]
+
+    findings, _ = alias([{"group": "00:03:7f:00:00:0f"}], [], "bssid", anon)
+    assert findings[0]["group"] == anon.mac("00:03:7f:00:00:0f")
+
+    findings, _ = alias([{"group": "US"}, {"group": None}], [], "country", anon)
+    assert [f["group"] for f in findings] == ["US", None]
+
+
+def test_the_info_column_names_no_captured_ssid(anon_module) -> None:
+    """Manual mode's Info column spells an SSID quoted, or as hex when tshark will
+    not print it as text; a hidden one stays as tshark wrote it."""
+    anon = anon_module.Anonymiser()
+    anon.prepare(ssids={"flappy", "AP7_中文"})
+    info = 'Beacon frame, BI=100, SSID="flappy", SSID=' + "AP7_中文".encode().hex() + ", SSID=00000000"
+    shown = anon_module._alias_info(info, anon)
+    assert "flappy" not in shown and "AP7" not in shown and "SSID=00000000" in shown
+    assert f'SSID="{anon.ssid("AP7_中文")}"' in shown
+
+
 def test_the_front_door_is_refused_by_name_not_by_a_missing_block(anon_module) -> None:
     """index.html has no data block, so it was never regenerable — say that.
 
