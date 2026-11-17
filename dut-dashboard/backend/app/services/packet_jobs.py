@@ -260,7 +260,7 @@ class PacketJobs:
             return {"ok": None, "error": HOST_SILENT}
         if result.returncode == 0:
             return {"ok": True, "error": None}
-        return {"ok": False, "error": _tshark_message(result.stderr)}
+        return {"ok": False, "error": tshark_message(result.stderr)}
 
     # -------------------------------------------------------------- analyses
 
@@ -364,7 +364,7 @@ class PacketJobs:
         data = dict(row)
         data["extra_fields"] = json.loads(data.get("extra_fields") or "[]")
         findings = self._read_json(analysis_id, "findings")
-        data["findings_summary"] = _summarise(findings or [])
+        data["findings_summary"] = summarise(findings or [])
         data["columns"] = self._read_json(analysis_id, "columns")
         return data
 
@@ -522,8 +522,7 @@ class PacketJobs:
         end: a capture near the stdout cap decodes for a while, and Cancel
         must stop it then too, not only while tshark runs (review of #232).
         """
-        evaluator = pr.Evaluator(mode.rules, mode.group_by)
-        groups = _GroupSummary(mode.group_by)
+        judgement = Judgement(mode)
         offsets = []
         shown = 0
         with open(tsv_path, "rb") as tsv, open(self._path(analysis_id, "jsonl"), "wb") as handle:
@@ -535,24 +534,18 @@ class PacketJobs:
                 if shown % ROWS_INDEX_EVERY == 0:
                     offsets.append(handle.tell())
                 handle.write(json.dumps(decoded, default=str, ensure_ascii=False).encode() + b"\n")
-                evaluator.add(decoded)
-                groups.add(decoded)
+                judgement.add(decoded)
                 shown += 1
-        findings = evaluator.findings()
+        findings = judgement.findings()
         if cancel is not None and cancel.is_set():
             raise _Cancelled()
         with self._lock:
             if analysis_id in self._deleted:
                 raise _Cancelled()
         self._path(analysis_id, "idx").write_text(json.dumps(offsets))
-        self._path(analysis_id, "columns.json").write_text(json.dumps([
-            {"key": c.key, "label": c.label, "decoder": c.decoder, "hidden": c.hidden}
-            for c in columns
-        ]))
-        self._path(analysis_id, "findings.json").write_text(
-            json.dumps([asdict(f) for f in findings], default=str)
-        )
-        self._path(analysis_id, "groups.json").write_text(json.dumps(groups.result(), default=str))
+        self._path(analysis_id, "columns.json").write_text(json.dumps(column_dicts(columns)))
+        self._path(analysis_id, "findings.json").write_text(json.dumps(findings, default=str))
+        self._path(analysis_id, "groups.json").write_text(json.dumps(judgement.groups(), default=str))
         return shown, reader.dropped
 
     def require_done(self, analysis_id: int) -> dict:
@@ -584,17 +577,7 @@ class PacketJobs:
         }
 
     def _display(self, analysis_id: int, rows: list[dict]) -> list[dict[str, str]]:
-        """Each row as the table shows it -- `[2, 8]` → ``PSK / SAE`` -- beside the raw values.
-
-        Formatted here, by the same `packet_decode.format_value` the CSV export
-        uses, so the browser never carries a second copy of the suite names.
-        A column the Host's tshark could not resolve is absent, not "—".
-        """
-        columns = self._read_json(analysis_id, "columns") or []
-        return [
-            {c["key"]: pd.format_value(c["decoder"], row.get(c["key"])) for c in columns if c["key"] in row}
-            for row in rows
-        ]
+        return display_rows(self._read_json(analysis_id, "columns") or [], rows)
 
     def groups(self, analysis_id: int) -> list[dict]:
         self.require_done(analysis_id)
@@ -615,29 +598,7 @@ class PacketJobs:
         self.require_done(analysis_id)
         columns = [c for c in (self._read_json(analysis_id, "columns") or []) if not c["hidden"]]
         handle = open(self._path(analysis_id, "jsonl"), "rb")
-        return self._csv_lines(columns, handle)
-
-    @staticmethod
-    def _csv_lines(columns: list[dict], handle) -> Iterator[str]:
-        buffer = io.StringIO()
-        writer = csv.writer(buffer)
-
-        def flush() -> str:
-            text = buffer.getvalue()
-            buffer.seek(0)
-            buffer.truncate()
-            return text
-
-        with handle:
-            writer.writerow([c["label"] for c in columns])
-            yield flush()
-            for line in handle:
-                decoded = json.loads(line)
-                writer.writerow([
-                    pd.format_value(c["decoder"], decoded.get(c["key"])) if c["key"] in decoded else ""
-                    for c in columns
-                ])
-                yield flush()
+        return csv_lines(columns, _jsonl_rows(handle))
 
     def frame(self, analysis_id: int, frame_number: int) -> Any:
         """One frame's tshark dissection tree, cached once fetched (§B9)."""
@@ -840,20 +801,124 @@ class PacketJobs:
         return not any(w.is_alive() for w in workers)
 
 
-def _tshark_message(stderr: str) -> str:
+# ------------------------------------------------------- results, in public
+#
+# What an analysis's results are made of, as functions of rows rather than of
+# files on disk. The job writer and the read endpoints are built from these,
+# and so is demo/build_demo_data.py, which renders the same results from a
+# fixture without a Host -- through this surface only, so a refactor here
+# breaks a test in test_packet_jobs rather than a rebuild nobody runs
+# (review of #234, point 2).
+
+
+def tshark_message(stderr: str) -> str:
+    """tshark's complaint about a filter, as one line a person can read."""
     lines = [line.strip() for line in stderr.splitlines() if line.strip()]
     if not lines:
         return "tshark rejected the filter."
     return re.sub(r"^tshark:\s*", "", lines[0])
 
 
-def _summarise(findings: list[dict]) -> dict:
+def summarise(findings: list[dict]) -> dict:
+    """Findings counted by severity: ``{"fail": n, "warn": n, "info": n}``."""
     counts = {"fail": 0, "warn": 0, "info": 0}
     for finding in findings:
         severity = finding.get("severity")
         if severity in counts:
             counts[severity] += 1
     return counts
+
+
+def column_dicts(columns) -> list[dict]:
+    """Resolved columns as stored beside the results and served to the browser."""
+    return [{"key": c.key, "label": c.label, "decoder": c.decoder, "hidden": c.hidden}
+            for c in columns]
+
+
+class Judgement:
+    """A Test Mode's rules and grouping, fed one decoded row at a time.
+
+    Holds the findings and one row per group, never the rows themselves, so
+    the job writer can stream a capture of any size through it.
+    """
+
+    def __init__(self, mode: pm.TestMode) -> None:
+        self._evaluator = pr.Evaluator(mode.rules, mode.group_by)
+        self._groups = _GroupSummary(mode.group_by)
+
+    def add(self, decoded: dict) -> None:
+        self._evaluator.add(decoded)
+        self._groups.add(decoded)
+
+    def findings(self) -> list[dict]:
+        return [asdict(f) for f in self._evaluator.findings()]
+
+    def groups(self) -> list[dict]:
+        return self._groups.result()
+
+
+def display_rows(columns: list[dict], rows: list[dict]) -> list[dict[str, str]]:
+    """Each row as the table shows it -- `[2, 8]` → ``PSK / SAE`` -- beside the raw values.
+
+    Formatted here, by the same `packet_decode.format_value` the CSV export
+    uses, so the browser never carries a second copy of the suite names.
+    A column the Host's tshark could not resolve is absent, not "—".
+    """
+    return [
+        {c["key"]: pd.format_value(c["decoder"], row.get(c["key"])) for c in columns if c["key"] in row}
+        for row in rows
+    ]
+
+
+def csv_lines(columns: list[dict], rows) -> Iterator[str]:
+    """The CSV export of ``rows``, one line at a time; ``columns`` are the ones it shows."""
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+
+    def flush() -> str:
+        text = buffer.getvalue()
+        buffer.seek(0)
+        buffer.truncate()
+        return text
+
+    writer.writerow([c["label"] for c in columns])
+    yield flush()
+    for decoded in rows:
+        writer.writerow([
+            pd.format_value(c["decoder"], decoded.get(c["key"])) if c["key"] in decoded else ""
+            for c in columns
+        ])
+        yield flush()
+
+
+def render_results(columns: list[dict], rows: list[dict],
+                   findings: list[dict], groups: list[dict]) -> dict:
+    """Everything the results view shows of one analysis, from its rows.
+
+    ``columns`` as `column_dicts` gives them; ``findings`` and ``groups`` as a
+    `Judgement` of the same rows gives them. Separate from judging so a caller
+    may change the rows in between -- the demo builder judges the captured
+    values and renders aliased ones -- and in memory, so only for a result
+    small enough to hold; the job writer streams instead.
+    """
+    shown = [c for c in columns if not c["hidden"]]
+    return {
+        "columns": columns,
+        "rows": rows,
+        "display": display_rows(columns, rows),
+        "findings": findings,
+        "summary": summarise(findings),
+        "groups": [{**group, "display": text}
+                   for group, text in zip(groups, display_rows(columns, [g["row"] for g in groups]))],
+        "csv": "".join(csv_lines(shown, rows)),
+    }
+
+
+def _jsonl_rows(handle) -> Iterator[dict]:
+    """The decoded rows of a results ``.jsonl``, closing the file once read."""
+    with handle:
+        for line in handle:
+            yield json.loads(line)
 
 
 class _GroupSummary:

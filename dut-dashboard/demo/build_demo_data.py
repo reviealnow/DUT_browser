@@ -1393,8 +1393,9 @@ def build_packets(bundle: Path | None, anon: Anonymiser,
     The frames are synthetic — `make_beacons.py`, one beacon per case the rules
     distinguish — and the dissection is real: the committed TSV is what tshark
     4.4.1 printed for them. Rows, display text, findings, groups and the CSV
-    are produced here by `packet_modes`, `packet_rules` and `PacketJobs`'
-    result writers, exactly as an analysis on a Host would produce them, so
+    are produced here by `packet_modes` and `packet_jobs`' public results
+    surface (`Judgement`, `render_results`, `display_rows`), the same pieces
+    an analysis on a Host is written and served from, so
     the page never decodes a field or judges a frame itself.
 
     What the TSV cannot give — Manual mode's columns, each frame's `-T json`
@@ -1471,7 +1472,7 @@ def build_packets(bundle: Path | None, anon: Anonymiser,
             tr.check_display_filter(text)
             result = _tshark(tshark, ["-n", "-r", "-", "-Y", text], stdin=tr.EMPTY_PCAP, check=False)
             checks[text] = ({"ok": True, "error": None} if result.returncode == 0 else
-                            {"ok": False, "error": pj._tshark_message(result.stderr.decode("utf-8", "replace"))})
+                            {"ok": False, "error": pj.tshark_message(result.stderr.decode("utf-8", "replace"))})
 
         kept: dict[tuple[str, str], list[int]] = {}
         for mode in pm.MODES:
@@ -1509,61 +1510,48 @@ def build_packets(bundle: Path | None, anon: Anonymiser,
     anon.prepare(ssids={t for t in map(_ssid_text, captured_ssids) if not _hidden(t)},
                  macs=captured_macs)
 
-    jobs = pj.PacketJobs(None)
+    # Through `packet_jobs`' public results surface only -- the same pieces the
+    # job writer and the read endpoints are built from (review of #234, point 2).
     analyses = {}
-    with tempfile.TemporaryDirectory() as tmp:
-        jobs.results_dir = Path(tmp)
-        analysis_id = 0
-        for mode in pm.MODES:
-            columns, rows, dropped = decoded[mode.id]
-            header, *lines = [line for line in tsv_by_mode[mode.id].split("\n") if line]
-            number_at = header.split("\t").index("frame.number")
-            runs = {}
-            for (mode_id, text), frames in kept.items():
-                if mode_id != mode.id:
-                    continue
-                # tshark's TSV for this run -- the lines of the frames its filter
-                # keeps -- fed to the job's own writer, which decodes, judges and
-                # groups the real values as an analysis on a Host does.
-                wanted = {str(n) for n in frames}
-                tsv_path = Path(tmp) / f"run-{analysis_id + 1}.tsv"
-                tsv_path.write_bytes("\n".join([header, *(line for line in lines
-                                     if line.split("\t")[number_at] in wanted)]).encode() + b"\n")
-                analysis_id += 1
-                shown, _ = jobs._write_results(analysis_id, columns, tsv_path, mode)
-                if shown != len(frames):
-                    raise SystemExit(f"{mode.id} {text!r}: the writer kept {shown} of "
-                                     f"{len(frames)} frames")
-                # Only then aliased: the results files, rewritten in place so the
-                # CSV and the display text are made from the aliased rows.
-                jsonl = jobs._path(analysis_id, "jsonl")
-                aliased = [_alias_row(json.loads(line), anon)
-                           for line in jsonl.read_bytes().splitlines()]
-                jsonl.write_bytes(b"".join(json.dumps(row, default=str, ensure_ascii=False).encode()
-                                           + b"\n" for row in aliased))
-                findings, groups = _alias_findings_and_groups(
-                    jobs._read_json(analysis_id, "findings") or [],
-                    jobs._read_json(analysis_id, "groups") or [], mode.group_by, anon)
-                visible = [c for c in jobs._read_json(analysis_id, "columns") if not c["hidden"]]
-                with open(jsonl, "rb") as handle:
-                    csv_text = "".join(pj.PacketJobs._csv_lines(visible, handle))
-                runs[text] = {
-                    "frames": frames,
-                    "findings": findings,
-                    "summary": pj._summarise(findings),
-                    "groups": [{**g, "display": d} for g, d in
-                               zip(groups, jobs._display(analysis_id, [g["row"] for g in groups]))],
-                    "csv": csv_text,
-                }
-            all_shown = [_alias_row(row, anon) for row in rows]
-            analyses[mode.id] = {
-                "columns": jobs._read_json(analysis_id, "columns"),
-                "rows": {str(row["frame"]): row for row in all_shown},
-                "display": {str(row["frame"]): text for row, text in
-                            zip(all_shown, jobs._display(analysis_id, all_shown))},
-                "rowsDropped": dropped,
-                "runs": runs,
+    for mode in pm.MODES:
+        columns, rows, dropped = decoded[mode.id]
+        stored = pj.column_dicts(columns)
+        runs = {}
+        for (mode_id, text), frames in kept.items():
+            if mode_id != mode.id:
+                continue
+            # The rows of the frames this run's filter keeps, judged and grouped
+            # on their real values as an analysis on a Host judges them...
+            wanted = {str(n) for n in frames}
+            selected = [row for row in rows if str(row["frame"]) in wanted]
+            if len(selected) != len(frames):
+                raise SystemExit(f"{mode.id} {text!r}: the decoded rows hold {len(selected)} of "
+                                 f"the {len(frames)} frames tshark keeps")
+            judgement = pj.Judgement(mode)
+            for row in selected:
+                judgement.add(row)
+            # ...and only then aliased, so the CSV and the display text are made
+            # from the aliased rows.
+            findings, groups = _alias_findings_and_groups(
+                judgement.findings(), judgement.groups(), mode.group_by, anon)
+            rendered = pj.render_results(stored, [_alias_row(row, anon) for row in selected],
+                                         findings, groups)
+            runs[text] = {
+                "frames": frames,
+                "findings": rendered["findings"],
+                "summary": rendered["summary"],
+                "groups": rendered["groups"],
+                "csv": rendered["csv"],
             }
+        all_shown = [_alias_row(row, anon) for row in rows]
+        analyses[mode.id] = {
+            "columns": stored,
+            "rows": {str(row["frame"]): row for row in all_shown},
+            "display": {str(row["frame"]): text for row, text in
+                        zip(all_shown, pj.display_rows(stored, all_shown))},
+            "rowsDropped": dropped,
+            "runs": runs,
+        }
 
     payload = {
         "generatedFrom": f"backend/tests/fixtures/packets/beacons_tshark-{PACKET_TSHARK}.tsv",

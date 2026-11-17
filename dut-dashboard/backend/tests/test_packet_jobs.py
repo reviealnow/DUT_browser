@@ -251,6 +251,49 @@ class AnalysisTest(_JobsBench):
         self.assertEqual(table[0], visible)
         self.assertEqual(len(table) - 1, analysis["frames_shown"])
 
+    def test_render_results_is_what_a_finished_analysis_serves(self) -> None:
+        # The demo builder renders through `render_results` with no job at all;
+        # this is what keeps that page and the product from drifting apart.
+        for mode_id in ("beacon_security", "manual"):
+            with self.subTest(mode=mode_id):
+                analysis = self.run_analysis(mode_id=mode_id)
+                self.assertEqual(analysis["status"], "done", analysis["error"])
+                page = self.jobs.rows(analysis["id"], 0, 500)
+                judgement = pj.Judgement(pm.get_mode(mode_id))
+                for row in page["rows"]:
+                    judgement.add(row)
+                rendered = pj.render_results(analysis["columns"], page["rows"],
+                                             judgement.findings(), judgement.groups())
+
+                def plain(value):
+                    return json.loads(json.dumps(value, default=str))
+
+                self.assertEqual(rendered["columns"], analysis["columns"])
+                self.assertEqual(rendered["display"], page["display"])
+                self.assertEqual(plain(rendered["findings"]), self.jobs.findings(analysis["id"]))
+                self.assertEqual(rendered["summary"], analysis["findings_summary"])
+                self.assertEqual(plain(rendered["groups"]), self.jobs.groups(analysis["id"]))
+                self.assertEqual(rendered["csv"], "".join(self.jobs.export_csv(analysis["id"])))
+
+    def test_render_results_shows_the_rows_it_is_given_not_the_ones_judged(self) -> None:
+        # The builder judges captured values, then renders aliased ones.
+        mode = pm.get_mode("beacon_security")
+        columns = pj.column_dicts(pm.resolve_columns(mode, json.loads(FIELD_TYPES.read_text())))
+        rows, _ = expected_rows("beacon_security")
+        judgement = pj.Judgement(mode)
+        for row in rows:
+            judgement.add(row)
+        findings = judgement.findings()
+        aliased = [{**row, "bssid": "02:00:00:00:00:01"} for row in rows]
+        rendered = pj.render_results(columns, aliased, findings, judgement.groups())
+        self.assertEqual({d["bssid"] for d in rendered["display"]}, {"02:00:00:00:00:01"})
+        for real in {r["bssid"] for r in rows}:
+            self.assertNotIn(real, rendered["csv"])
+        self.assertIs(rendered["findings"], findings)
+        table = list(csv.reader(io.StringIO(rendered["csv"])))
+        self.assertEqual(table[0], [c["label"] for c in columns if not c["hidden"]])
+        self.assertEqual(len(table) - 1, len(rows))
+
     def test_extra_fields_become_columns(self) -> None:
         analysis = self.run_analysis(mode_id="manual", extra_fields=["wlan.country_info.code"])
         self.assertEqual(analysis["status"], "done", analysis["error"])
