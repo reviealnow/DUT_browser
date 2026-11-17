@@ -521,6 +521,9 @@ class PacketJobs:
         ``cancel`` is looked at every ``ROWS_INDEX_EVERY`` rows and once at the
         end: a capture near the stdout cap decodes for a while, and Cancel
         must stop it then too, not only while tshark runs (review of #232).
+        A Cancel landing after that last look, while the result files are
+        written, is not seen: ``cancel()`` still answers ``{"ok": True}`` and
+        the analysis ends ``done`` with complete results (review of #237).
         """
         evaluator = pr.Evaluator(mode.rules, mode.group_by)
         groups = _GroupSummary(mode.group_by)
