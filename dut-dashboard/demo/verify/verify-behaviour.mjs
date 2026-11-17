@@ -993,6 +993,17 @@ const report = reporter();
     && $("blocker").textContent === "Edge collector (rack): not connected — ask an admin to connect it",
     $("blocker").textContent);
   report.ok("and Run stays disabled, with no Check Host", $("run").disabled && $("checkHost").hidden);
+  type("wlan.ssid");
+  await wait(700);
+  report.ok("and a filter typed there is not checked: the blocker already says why",
+    $("filterStatus").textContent === "" && $("run").disabled, $("filterStatus").textContent);
+  const pi = [...$("host").options].find(o => o.textContent.startsWith("● "));
+  $("host").value = pi.value;
+  $("host").dispatchEvent(new window.Event("change", { bubbles: true }));
+  await wait(700);
+  report.ok("back on a ready Host, the same filter is checked",
+    $("filterStatus").textContent !== "" && !$("filterStatus").textContent.includes("Checking"),
+    $("filterStatus").textContent);
 
   report.ok("packet-monitor.html threw nothing while all that ran",
     pageErrors(window).length === 0, pageErrors(window).join(" | "));

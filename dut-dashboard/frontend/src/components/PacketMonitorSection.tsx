@@ -105,6 +105,9 @@ export default function PacketMonitorSection() {
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
   const [filesComplete, setFilesComplete] = useState(true);
   const [filesError, setFilesError] = useState("");
+  // Whether the capture list has answered since entry: until then, a file id
+  // kept from an earlier visit cannot be told stale from not-yet-listed.
+  const [filesAnswered, setFilesAnswered] = useState(false);
   // Filter checks by `${hostId}\n${text}`: a result only ever describes the
   // text it was asked about, so neither a stale nor a late answer can enable
   // or block Run for what is in the box now.
@@ -125,17 +128,39 @@ export default function PacketMonitorSection() {
       .then((list) => {
         setFiles(list.files);
         setFilesComplete(list.complete);
+        setFilesAnswered(true);
       })
       .catch((e: unknown) => setFilesError(humanizeApiError(e)));
   }, [load]);
+
+  // The form outlives the section (#231 review, 7), so it can come back
+  // holding a capture deleted or a Host removed meanwhile. The select would
+  // show neither, yet Run would still send it: forget it once the lists say
+  // it is gone. A list that failed to load says nothing, so nothing is cleared:
+  // the captures are this section's and start empty, hence `filesAnswered`;
+  // the Hosts live in the context beside the form, and a failed reload keeps
+  // the list that was there.
+  useEffect(() => {
+    if (filesAnswered && fileId !== null && !files.some((f) => f.id === fileId)) setForm({ fileId: null });
+  }, [filesAnswered, files, fileId, setForm]);
+  useEffect(() => {
+    if (hostId && !hosts.some((h) => h.id === hostId)) setForm({ hostId: "" });
+  }, [hosts, hostId, setForm]);
 
   useEffect(() => {
     if (!modeId && modes.length) setForm({ modeId: modes[0].id });
   }, [modes, modeId, setForm]);
 
-  // Validate as the user types: debounced, and only for a filter not checked yet.
+  const host = hosts.find((h) => h.id === hostId) ?? null;
+  const blocker = host ? hostBlocker(host) : "";
+
+  // Validate as the user types: debounced, and only for a filter not checked
+  // yet -- and only on a Host that can answer. One with a blocker would only
+  // say what the blocker already says, and that answer, cached under this
+  // key, would still read "not checked" once the Host is connected (review
+  // of #235).
   const filterText = filter.trim();
-  const filterKey = hostId && filterText ? `${hostId}\n${filterText}` : "";
+  const filterKey = host && !blocker && filterText ? `${hostId}\n${filterText}` : "";
   const check: PacketFilterCheck | null = filterKey ? (checks[filterKey] ?? null) : null;
   const checking = filterKey !== "" && check === null;
   useEffect(() => {
@@ -152,8 +177,6 @@ export default function PacketMonitorSection() {
   }, [filterKey]);
 
   const mode = modes.find((m) => m.id === modeId) ?? null;
-  const host = hosts.find((h) => h.id === hostId) ?? null;
-  const blocker = host ? hostBlocker(host) : "";
   const running = analysis !== null && (analysis.status === "queued" || analysis.status === "running");
   const extraFields = extra.split(/[\s,]+/).filter(Boolean);
   // A filter must have been checked as it reads now; "could not check" (ok:

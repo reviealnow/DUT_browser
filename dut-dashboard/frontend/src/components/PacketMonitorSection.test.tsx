@@ -572,3 +572,99 @@ describe("PacketMonitorSection, review of #231 points 7-9", () => {
     expect(page.mock.calls.filter(([offset]) => offset === 0)).toHaveLength(2);
   });
 });
+
+describe("PacketMonitorSection, a selection that outlived what it names", () => {
+  let ctx!: ReturnType<typeof usePacketAnalysis>;
+  function Grab() {
+    ctx = usePacketAnalysis();
+    return null;
+  }
+  /** The section behind a switch, with the context's form in reach. */
+  function Navigable() {
+    const [shown, setShown] = useState(true);
+    return (
+      <PacketAnalysisProvider>
+        <Grab />
+        <button type="button" onClick={() => setShown((s) => !s)}>
+          navigate
+        </button>
+        {shown ? <PacketMonitorSection /> : null}
+      </PacketAnalysisProvider>
+    );
+  }
+  const runButton = () => screen.getByRole("button", { name: "Run" }) as HTMLButtonElement;
+  const away = () => fireEvent.click(screen.getByRole("button", { name: "navigate" }));
+  const back = away;
+
+  it("forgets a capture deleted while away, so Run cannot send it", async () => {
+    render(<Navigable />);
+    await choose("Capture file", "3");
+    await choose("Host", "pi");
+    await waitFor(() => expect(runButton().disabled).toBe(false));
+
+    away();
+    api.getFiles.mockResolvedValue({
+      files: [{ id: 5, filename: "later.pcap", size: 1, uploader: null, uploaded_at: "" }],
+      stats: {}, total: 1,
+    });
+    back();
+    await waitFor(() => expect(ctx.form.fileId).toBeNull());
+    expect(runButton().disabled).toBe(true);
+    // Everything else is still in place: picking a capture that exists is all it takes.
+    await choose("Capture file", "5");
+    await waitFor(() => expect(runButton().disabled).toBe(false));
+  });
+
+  it("forgets a Host removed while away", async () => {
+    render(<Navigable />);
+    await choose("Host", "pi");
+    await waitFor(() => expect(ctx.form.hostId).toBe("pi"));
+
+    away();
+    api.getPacketHosts.mockResolvedValue([]);
+    back();
+    await waitFor(() => expect(ctx.form.hostId).toBe(""));
+  });
+
+  it("keeps the selection when a list fails to load: a failure says nothing about it", async () => {
+    render(<Navigable />);
+    await choose("Capture file", "3");
+    await choose("Host", "pi");
+    await waitFor(() => expect(ctx.form.hostId).toBe("pi"));
+
+    away();
+    api.getPacketHosts.mockRejectedValue(new Error("backend down"));
+    api.getFiles.mockRejectedValue(new Error("backend down"));
+    back();
+    await waitFor(() => expect(api.getPacketHosts).toHaveBeenCalledTimes(2));
+    await act(async () => {});
+    expect(ctx.form.hostId).toBe("pi");
+    expect(ctx.form.fileId).toBe(3);
+  });
+
+  it("does not check a filter on a Host with a blocker, and checks it once the Host is connected", async () => {
+    const rack: PacketHost = { ...READY, id: "rack", label: "Rack Pi", connected: false };
+    api.getPacketHosts.mockResolvedValue([READY, rack]);
+    render(<Navigable />);
+    await choose("Capture file", "3");
+    await choose("Host", "rack");
+    expect(await screen.findByText("Rack Pi: not connected — ask an admin to connect it")).toBeTruthy();
+    vi.useFakeTimers();
+    fireEvent.change(screen.getByLabelText("Display filter"), { target: { value: "wlan.ssid" } });
+    await act(async () => {
+      vi.advanceTimersByTime(FILTER_DEBOUNCE_MS * 2);
+    });
+    expect(api.validatePacketFilter).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Filter not checked/)).toBeNull();
+    vi.useRealTimers();
+
+    // An admin connects it; back in the section, the same text is checked for real.
+    away();
+    api.getPacketHosts.mockResolvedValue([READY, { ...rack, connected: true }]);
+    back();
+    expect(await screen.findByText("Filter is valid.", {}, { timeout: 3000 })).toBeTruthy();
+    expect(api.validatePacketFilter).toHaveBeenCalledTimes(1);
+    expect(api.validatePacketFilter).toHaveBeenCalledWith("rack", "wlan.ssid");
+    expect(runButton().disabled).toBe(false);
+  });
+});
