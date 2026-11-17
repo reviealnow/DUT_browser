@@ -105,6 +105,9 @@ export default function PacketMonitorSection() {
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
   const [filesComplete, setFilesComplete] = useState(true);
   const [filesError, setFilesError] = useState("");
+  // Whether the capture list has answered since entry: until then, a file id
+  // kept from an earlier visit cannot be told stale from not-yet-listed.
+  const [filesAnswered, setFilesAnswered] = useState(false);
   // Filter checks by `${hostId}\n${text}`: a result only ever describes the
   // text it was asked about, so neither a stale nor a late answer can enable
   // or block Run for what is in the box now.
@@ -125,9 +128,24 @@ export default function PacketMonitorSection() {
       .then((list) => {
         setFiles(list.files);
         setFilesComplete(list.complete);
+        setFilesAnswered(true);
       })
       .catch((e: unknown) => setFilesError(humanizeApiError(e)));
   }, [load]);
+
+  // The form outlives the section (#231 review, 7), so it can come back
+  // holding a capture deleted or a Host removed meanwhile. The select would
+  // show neither, yet Run would still send it: forget it once the lists say
+  // it is gone. A list that failed to load says nothing, so nothing is cleared:
+  // the captures are this section's and start empty, hence `filesAnswered`;
+  // the Hosts live in the context beside the form, and a failed reload keeps
+  // the list that was there.
+  useEffect(() => {
+    if (filesAnswered && fileId !== null && !files.some((f) => f.id === fileId)) setForm({ fileId: null });
+  }, [filesAnswered, files, fileId, setForm]);
+  useEffect(() => {
+    if (hostId && !hosts.some((h) => h.id === hostId)) setForm({ hostId: "" });
+  }, [hosts, hostId, setForm]);
 
   useEffect(() => {
     if (!modeId && modes.length) setForm({ modeId: modes[0].id });
