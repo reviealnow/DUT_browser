@@ -174,6 +174,20 @@ describe("PacketMonitorSection", () => {
     expect((screen.getByRole("button", { name: "Run" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("lets a disconnected Host be picked, says to ask an admin, and will not run on it", async () => {
+    api.getPacketHosts.mockResolvedValue([READY, { ...READY, id: "rack", label: "Rack Pi", connected: false }]);
+    renderSection();
+    await choose("Capture file", "3");
+    const select = (await screen.findByLabelText("Host")) as HTMLSelectElement;
+    await waitFor(() => expect([...select.options].some((o) => o.value === "rack")).toBe(true));
+    // jsdom lets a script select a disabled option, so check the option itself.
+    expect([...select.options].find((o) => o.value === "rack")!.disabled).toBe(false);
+    fireEvent.change(select, { target: { value: "rack" } });
+    expect(await screen.findByText("Rack Pi: not connected — ask an admin to connect it")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Run" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "Check Host" })).toBeNull();
+  });
+
   it("runs, polls while running, then shows findings and rows", async () => {
     api.createPacketAnalysis.mockResolvedValue(1);
     api.getPacketAnalysis

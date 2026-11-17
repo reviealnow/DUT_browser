@@ -282,8 +282,10 @@ export default function PacketMonitorSection() {
               aria-label="Host"
             >
               <option value="">{hosts.length ? "Choose a Host" : "No Hosts registered"}</option>
+              {/* Every Host can be picked, connected or not: the blocker below
+                  then says why one cannot run, which a greyed-out entry cannot. */}
               {hosts.map((h) => (
-                <option key={h.id} value={h.id} disabled={!h.connected}>
+                <option key={h.id} value={h.id}>
                   {(hostBlocker(h) ? "○ " : "● ") + h.label}
                   {h.probe?.tshark_version ? ` — tshark ${h.probe.tshark_version}` : ""}
                 </option>
