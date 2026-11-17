@@ -139,10 +139,14 @@ export default function PacketMonitorSection() {
   // it is gone. A list that failed to load says nothing, so nothing is cleared:
   // the captures are this section's and start empty, hence `filesAnswered`;
   // the Hosts live in the context beside the form, and a failed reload keeps
-  // the list that was there.
+  // the list that was there. A list cut short at FILES_MAX_PAGES says nothing
+  // either: a capture missing from it may just be older than the cut (review
+  // of #238).
   useEffect(() => {
-    if (filesAnswered && fileId !== null && !files.some((f) => f.id === fileId)) setForm({ fileId: null });
-  }, [filesAnswered, files, fileId, setForm]);
+    if (filesAnswered && filesComplete && fileId !== null && !files.some((f) => f.id === fileId)) {
+      setForm({ fileId: null });
+    }
+  }, [filesAnswered, filesComplete, files, fileId, setForm]);
   useEffect(() => {
     if (hostId && !hosts.some((h) => h.id === hostId)) setForm({ hostId: "" });
   }, [hosts, hostId, setForm]);

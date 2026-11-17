@@ -642,6 +642,26 @@ describe("PacketMonitorSection, a selection that outlived what it names", () => 
     expect(ctx.form.fileId).toBe(3);
   });
 
+  it("keeps the capture when the list was cut short: missing from it is not deleted", async () => {
+    render(<Navigable />);
+    await choose("Capture file", "3");
+    await waitFor(() => expect(ctx.form.fileId).toBe(3));
+
+    away();
+    let next = 100;
+    api.getFiles.mockImplementation(({ q, limit = FILES_PAGE }: { q?: string; limit?: number }) =>
+      Promise.resolve({
+        files: q === ".pcap" ? Array.from({ length: limit }, () => ({ id: next++, filename: "x.pcap", size: 1, uploader: null, uploaded_at: "" })) : [],
+        stats: {},
+        total: q === ".pcap" ? 1_000_000 : 0,
+      }),
+    );
+    back();
+    expect(await screen.findByText(/only the newest are listed/)).toBeTruthy();
+    await act(async () => {});
+    expect(ctx.form.fileId).toBe(3);
+  });
+
   it("does not check a filter on a Host with a blocker, and checks it once the Host is connected", async () => {
     const rack: PacketHost = { ...READY, id: "rack", label: "Rack Pi", connected: false };
     api.getPacketHosts.mockResolvedValue([READY, rack]);
