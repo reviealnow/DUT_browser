@@ -9,7 +9,7 @@ SSID capability — three console sources (verified on AP6 840E, 2026-06):
   * ``iw dev``              -> BSSID (addr), SSID, freq_MHz, channel, width.
   * ``iwconfig``            -> IEEE mode token (e.g. 802.11axa) for generation.
   * ``for f in /etc/hostapd*.conf; do printf '====CONF====%s\\n' "$f"; cat "$f"; done``
-                            -> wpa_key_mgmt / ieee80211w / ieee80211k /
+                            -> wpa_key_mgmt / ieee80211w / rrm_* /
                                bss_transition / mobility_domain / ciphers.
 
 All captures are on-demand serial RPCs; never background-poll.
@@ -464,8 +464,13 @@ def _parse_hostapd_confs(text: str) -> dict[str, dict]:
         for f in /etc/hostapd*.conf; do printf '====CONF====%s\\n' "$f"; cat "$f"; done
 
     Returns {iface: {wpa_key_mgmt: list[str], wpa_pairwise: list[str],
-    group_mgmt_cipher: str|None, ieee80211w: int, ieee80211k: bool,
-    bss_transition: bool, dot11r: bool}}.
+    group_mgmt_cipher: str|None, ieee80211w: int, dot11k: bool|None,
+    dot11v: bool|None, dot11r: bool}}.
+
+    dot11k / dot11v are None when the conf sets none of their keys: some
+    firmware (QCA AP6) enables 802.11k/v in the driver, outside hostapd, so
+    an absent key says nothing about the radio. 802.11r needs FT keys in the
+    conf to run at all, so an absent key does mean off.
     """
     result: dict[str, dict] = {}
     current: dict[str, str] = {}
@@ -476,6 +481,12 @@ def _parse_hostapd_confs(text: str) -> dict[str, dict]:
             return
         def _bool(key: str) -> bool:
             return fields.get(key, "0").strip() == "1"
+        def _set_by(*keys: str) -> bool | None:
+            """True if any key is 1, False if one is present and none is 1, None if absent."""
+            present = [fields[k].strip() for k in keys if k in fields]
+            if not present:
+                return None
+            return any(v == "1" for v in present)
         def _int(key: str, default: int = 0) -> int:
             try:
                 return int(fields.get(key, str(default)).strip())
@@ -492,8 +503,10 @@ def _parse_hostapd_confs(text: str) -> dict[str, dict]:
             "wpa_pairwise": pairwise,
             "group_mgmt_cipher": fields.get("group_mgmt_cipher", "").strip() or None,
             "ieee80211w": _int("ieee80211w"),
-            "ieee80211k": _bool("ieee80211k"),
-            "bss_transition": _bool("bss_transition"),
+            # hostapd's 802.11k keys are rrm_*; `ieee80211k` is not a hostapd
+            # option but is kept in case a vendor build uses it.
+            "dot11k": _set_by("rrm_neighbor_report", "rrm_beacon_report", "ieee80211k"),
+            "dot11v": _set_by("bss_transition"),
             "dot11r": dot11r,
         }
 
@@ -625,9 +638,11 @@ def get_ssid_capabilities(
             "pairwise_cipher": conf.get("wpa_pairwise", []),
             "group_mgmt_cipher": conf.get("group_mgmt_cipher"),
             "pmf": pmf,
-            "dot11k": conf.get("ieee80211k", False) or None if conf else None,
-            "dot11v": conf.get("bss_transition", False) or None if conf else None,
-            "dot11r": conf.get("dot11r", False) or None if conf else None,
+            # None means unknown: no conf read, or (k/v) a conf that does not
+            # set them. A read conf without FT keys is 802.11r off, not None.
+            "dot11k": conf.get("dot11k") if conf else None,
+            "dot11v": conf.get("dot11v") if conf else None,
+            "dot11r": bool(conf.get("dot11r")) if conf else None,
         })
 
     # Sort by band (2.4 → 5 → 6) then iface number for consistent ordering.

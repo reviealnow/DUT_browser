@@ -14,6 +14,15 @@ function fmtStr(v: string | null | undefined): string {
   return v ?? "—";
 }
 
+/** Display names for the report's field keys (same labels as its diffs). */
+const FIELD_LABELS: Record<string, string> = {
+  security: "Security",
+  pmf: "PMF",
+  dot11k: "802.11k",
+  dot11v: "802.11v",
+  dot11r: "802.11r",
+};
+
 /** A matched row with no diffs where some config fields were never compared. */
 function isUnknownMatch(row: CapabilityRow): boolean {
   return row.match && row.diffs.length === 0 && (row.unknown ?? []).length > 0;
@@ -24,7 +33,7 @@ function CapabilityRowView({ row }: { row: CapabilityRow }) {
   const [expanded, setExpanded] = useState(false);
   const hasDiffs = row.diffs.length > 0;
   const unknownMatch = isUnknownMatch(row);
-  const unknownNote = `Config ${(row.unknown ?? []).join(" / ")} unknown (no hostapd conf read), so not compared with the scan`;
+  const unknownNote = `${(row.unknown ?? []).map((f) => FIELD_LABELS[f] ?? f).join(" / ")} not known from the DUT's hostapd conf, so not compared with the scan`;
   const rowClass = hasDiffs
     ? "cap-row cap-row--diff"
     : unknownMatch

@@ -168,6 +168,32 @@ class TestParseHostapdConfs(unittest.TestCase):
 
 
 @unittest.skipIf(shutil.which("sh") is None, "needs a POSIX sh")
+class TestHostapdKvr(unittest.TestCase):
+    """802.11k/v absent from the conf is unknown; 802.11r absent is off."""
+
+    def conf(self, *lines: str) -> dict:
+        dump = "====CONF====/etc/hostapd1.conf\ninterface=ath0\n" + "".join(f"{l}\n" for l in lines)
+        return _parse_hostapd_confs(dump)["ath0"]
+
+    def test_absent_keys(self) -> None:
+        c = self.conf("wpa_key_mgmt=WPA-PSK")
+        self.assertIsNone(c["dot11k"])
+        self.assertIsNone(c["dot11v"])
+        self.assertIs(c["dot11r"], False)
+
+    def test_hostapd_rrm_keys_set_dot11k(self) -> None:
+        self.assertIs(self.conf("rrm_neighbor_report=1")["dot11k"], True)
+        self.assertIs(self.conf("rrm_beacon_report=1")["dot11k"], True)
+        self.assertIs(self.conf("rrm_neighbor_report=0")["dot11k"], False)
+
+    def test_bss_transition(self) -> None:
+        self.assertIs(self.conf("bss_transition=1")["dot11v"], True)
+        self.assertIs(self.conf("bss_transition=0")["dot11v"], False)
+
+    def test_commented_key_is_absent(self) -> None:
+        self.assertIsNone(self.conf("#rrm_neighbor_report=1")["dot11k"])
+
+
 class TestHostapdConfCommand(unittest.TestCase):
     """Run the dump command through a real shell. The parser tests above feed
     `_parse_hostapd_confs` its input directly and never see the command, so
@@ -303,15 +329,39 @@ class TestSecurityWithoutConf(unittest.TestCase):
         caps = self.caps("====CONF====/etc/hostapd1.conf\ninterface=ath0\nssid=guest\n")
         self.assertEqual((caps["ath0"]["security"], caps["ath0"]["pmf"]), ("Open", "disabled"))
 
+    def test_kvr_from_a_read_conf_and_from_none(self) -> None:
+        # ath8 has a conf with no k/v/r keys; ath0 has none at all.
+        caps = self.caps(_HOSTAPD_CONF_DUMP)
+        self.assertIs(caps["ath8"]["dot11r"], False)
+        self.assertIsNone(caps["ath8"]["dot11k"])
+        self.assertIsNone(caps["ath8"]["dot11v"])
+        for key in ("dot11k", "dot11v", "dot11r"):
+            self.assertIsNone(caps["ath0"][key], key)
+
 
 class TestUnknownConfigIsNotADiff(unittest.TestCase):
-    def row(self, security, pmf) -> dict:
+    def row(self, security, pmf, kvr=(False, False, False), seen=(False, False, False)) -> dict:
+        k, v, r = kvr
         ssids = [{"iface": "ath0", "bssid": "02:00:00:00:00:01", "band": "5GHz",
-                  "security": security, "pmf": pmf, "generation": "Wi-Fi 6"}]
+                  "security": security, "pmf": pmf, "generation": "Wi-Fi 6",
+                  "dot11k": k, "dot11v": v, "dot11r": r}]
         survey = {"available": True, "scannable_bands": ["5GHz"],
                   "bss": [{"bssid": "02:00:00:00:00:01", "security": "WPA2-Personal",
-                           "pmf": "optional", "generation": "Wi-Fi 6"}]}
+                           "pmf": "optional", "generation": "Wi-Fi 6",
+                           "dot11k": seen[0], "dot11v": seen[1], "dot11r": seen[2]}]}
         return build_capability_report(ssids, survey)["rows"][0]
+
+    def test_ap6_conf_without_kv_keys_has_no_false_diffs(self) -> None:
+        # #223 bench read: the conf sets no k/v keys (the driver enables
+        # them), no FT keys, and the beacons show k/v on and r off.
+        row = self.row("WPA2-Personal", "optional", kvr=(None, None, False), seen=(True, True, False))
+        self.assertEqual(row["diffs"], [])
+        self.assertEqual(row["unknown"], ["dot11k", "dot11v"])
+
+    def test_a_known_kvr_mismatch_is_still_a_diff(self) -> None:
+        row = self.row("WPA2-Personal", "optional", kvr=(False, False, False), seen=(True, True, True))
+        self.assertEqual([d["field"] for d in row["diffs"]], ["dot11k", "dot11v", "dot11r"])
+        self.assertEqual(row["unknown"], [])
 
     def report(self, security, pmf) -> list[dict]:
         return self.row(security, pmf)["diffs"]
