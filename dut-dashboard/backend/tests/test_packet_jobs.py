@@ -346,6 +346,46 @@ class QueueAndCancelTest(_JobsBench):
         self.assertLess(time.monotonic() - started, 15)
         self.assertEqual(self.jobs.get(analysis_id)["status"], "cancelled")
 
+    def test_cancel_stops_the_decode_and_leaves_no_partial_results(self) -> None:
+        # tshark has finished; the cancel lands while its TSV is being decoded.
+        rows, _ = expected_rows("beacon_security")
+        self.assertGreater(len(rows), 6, "the fixture needs enough rows to stop partway")
+        real_decode = pm.decode_row
+        decoded = []
+
+        def decode_then_cancel(columns, raw):
+            decoded.append(raw)
+            if len(decoded) == 3:
+                running = workspace.query_one(
+                    "SELECT id FROM packet_analyses WHERE status = 'running'")
+                self.jobs.cancel(running["id"])
+            return real_decode(columns, raw)
+
+        with patch.object(pj, "ROWS_INDEX_EVERY", 2), \
+                patch.object(pj.pm, "decode_row", side_effect=decode_then_cancel):
+            analysis = self.run_analysis()
+        self.assertEqual(analysis["status"], "cancelled")
+        self.assertEqual(len(decoded), 4, "the decode should stop at the next check, row 5")
+        self.assertEqual(sorted(p.name for p in (self.root / "packets").iterdir()), [])
+
+    def test_a_cancel_after_the_last_check_still_cancels(self) -> None:
+        rows, _ = expected_rows("beacon_security")
+        real_decode = pm.decode_row
+        decoded = []
+
+        def cancel_on_the_last_row(columns, raw):
+            decoded.append(raw)
+            if len(decoded) == len(rows):
+                running = workspace.query_one(
+                    "SELECT id FROM packet_analyses WHERE status = 'running'")
+                self.jobs.cancel(running["id"])
+            return real_decode(columns, raw)
+
+        with patch.object(pj.pm, "decode_row", side_effect=cancel_on_the_last_row):
+            analysis = self.run_analysis()
+        self.assertEqual(analysis["status"], "cancelled")
+        self.assertEqual(sorted(p.name for p in (self.root / "packets").iterdir()), [])
+
     def test_a_finished_analysis_cannot_be_cancelled(self) -> None:
         analysis = self.run_analysis(mode_id="manual")
         with self.assertRaises(pj.Conflict):
