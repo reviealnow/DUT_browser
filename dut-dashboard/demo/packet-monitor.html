@@ -362,7 +362,12 @@ let checkTimer = null, runTimer = null;
 const modeById = (id) => DATA.modes.find(m => m.id === id) || null;
 const hostById = (id) => DATA.hosts.find(h => h.id === id) || null;
 const filterText = () => S.filter.trim();
-const filterKey = () => (S.hostId && filterText() ? `${S.hostId}\n${filterText()}` : "");
+/* Only a Host that can answer is asked: one with a blocker would just repeat
+   it, and that answer, kept under this key, would outlive the blocker. */
+const filterKey = () => {
+  const host = hostById(S.hostId);
+  return host && !hostBlocker(host) && filterText() ? `${S.hostId}\n${filterText()}` : "";
+};
 const currentCheck = () => { const k = filterKey(); return k ? (S.checks[k] || null) : null; };
 const running = () => S.analysis && (S.analysis.status === "queued" || S.analysis.status === "running");
 const done = () => S.analysis && S.analysis.status === "done";

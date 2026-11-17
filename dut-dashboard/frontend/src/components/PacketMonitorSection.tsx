@@ -151,9 +151,16 @@ export default function PacketMonitorSection() {
     if (!modeId && modes.length) setForm({ modeId: modes[0].id });
   }, [modes, modeId, setForm]);
 
-  // Validate as the user types: debounced, and only for a filter not checked yet.
+  const host = hosts.find((h) => h.id === hostId) ?? null;
+  const blocker = host ? hostBlocker(host) : "";
+
+  // Validate as the user types: debounced, and only for a filter not checked
+  // yet -- and only on a Host that can answer. One with a blocker would only
+  // say what the blocker already says, and that answer, cached under this
+  // key, would still read "not checked" once the Host is connected (review
+  // of #235).
   const filterText = filter.trim();
-  const filterKey = hostId && filterText ? `${hostId}\n${filterText}` : "";
+  const filterKey = host && !blocker && filterText ? `${hostId}\n${filterText}` : "";
   const check: PacketFilterCheck | null = filterKey ? (checks[filterKey] ?? null) : null;
   const checking = filterKey !== "" && check === null;
   useEffect(() => {
@@ -170,8 +177,6 @@ export default function PacketMonitorSection() {
   }, [filterKey]);
 
   const mode = modes.find((m) => m.id === modeId) ?? null;
-  const host = hosts.find((h) => h.id === hostId) ?? null;
-  const blocker = host ? hostBlocker(host) : "";
   const running = analysis !== null && (analysis.status === "queued" || analysis.status === "running");
   const extraFields = extra.split(/[\s,]+/).filter(Boolean);
   // A filter must have been checked as it reads now; "could not check" (ok:

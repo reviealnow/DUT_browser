@@ -641,4 +641,30 @@ describe("PacketMonitorSection, a selection that outlived what it names", () => 
     expect(ctx.form.hostId).toBe("pi");
     expect(ctx.form.fileId).toBe(3);
   });
+
+  it("does not check a filter on a Host with a blocker, and checks it once the Host is connected", async () => {
+    const rack: PacketHost = { ...READY, id: "rack", label: "Rack Pi", connected: false };
+    api.getPacketHosts.mockResolvedValue([READY, rack]);
+    render(<Navigable />);
+    await choose("Capture file", "3");
+    await choose("Host", "rack");
+    expect(await screen.findByText("Rack Pi: not connected — ask an admin to connect it")).toBeTruthy();
+    vi.useFakeTimers();
+    fireEvent.change(screen.getByLabelText("Display filter"), { target: { value: "wlan.ssid" } });
+    await act(async () => {
+      vi.advanceTimersByTime(FILTER_DEBOUNCE_MS * 2);
+    });
+    expect(api.validatePacketFilter).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Filter not checked/)).toBeNull();
+    vi.useRealTimers();
+
+    // An admin connects it; back in the section, the same text is checked for real.
+    away();
+    api.getPacketHosts.mockResolvedValue([READY, { ...rack, connected: true }]);
+    back();
+    expect(await screen.findByText("Filter is valid.", {}, { timeout: 3000 })).toBeTruthy();
+    expect(api.validatePacketFilter).toHaveBeenCalledTimes(1);
+    expect(api.validatePacketFilter).toHaveBeenCalledWith("rack", "wlan.ssid");
+    expect(runButton().disabled).toBe(false);
+  });
 });
