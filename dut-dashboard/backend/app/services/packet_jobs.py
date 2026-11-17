@@ -485,7 +485,7 @@ class PacketJobs:
             raise HostUnavailable(result.error_message())
 
         try:
-            shown, dropped = self._write_results(row["id"], columns, tsv_path, mode)
+            shown, dropped = self._write_results(row["id"], columns, tsv_path, mode, cancel=cancel)
         except BaseException:
             # Nothing half-written outlives the job.
             self._delete_results(row["id"])
@@ -509,13 +509,18 @@ class PacketJobs:
         except (OSError, ValueError):
             return None
 
-    def _write_results(self, analysis_id: int, columns, tsv_path: Path, mode: pm.TestMode) -> tuple[int, int]:
+    def _write_results(self, analysis_id: int, columns, tsv_path: Path, mode: pm.TestMode,
+                       cancel: threading.Event | None = None) -> tuple[int, int]:
         """Decode tshark's TSV into the result files, one row at a time.
 
         Memory is one row, the findings and the per-group summaries -- never
         the capture: the TSV may be up to the runner's stdout cap, and this
         runs in the process that also owns the serial worker (review of #230).
         Returns ``(frames shown, rows dropped)``.
+
+        ``cancel`` is looked at every ``ROWS_INDEX_EVERY`` rows and once at the
+        end: a capture near the stdout cap decodes for a while, and Cancel
+        must stop it then too, not only while tshark runs (review of #232).
         """
         evaluator = pr.Evaluator(mode.rules, mode.group_by)
         groups = _GroupSummary(mode.group_by)
@@ -524,6 +529,8 @@ class PacketJobs:
         with open(tsv_path, "rb") as tsv, open(self._path(analysis_id, "jsonl"), "wb") as handle:
             reader = pd.TsvRows(pd.tsv_file_lines(tsv))
             for raw in reader:
+                if cancel is not None and shown % ROWS_INDEX_EVERY == 0 and cancel.is_set():
+                    raise _Cancelled()
                 decoded = pm.decode_row(columns, raw)
                 if shown % ROWS_INDEX_EVERY == 0:
                     offsets.append(handle.tell())
@@ -532,6 +539,8 @@ class PacketJobs:
                 groups.add(decoded)
                 shown += 1
         findings = evaluator.findings()
+        if cancel is not None and cancel.is_set():
+            raise _Cancelled()
         with self._lock:
             if analysis_id in self._deleted:
                 raise _Cancelled()
