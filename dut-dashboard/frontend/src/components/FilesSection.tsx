@@ -682,6 +682,42 @@ export default function FilesSection({
     reload(PAGE_SIZE);
   }, [reload]);
 
+  // A change made in another window, or by another user, is otherwise seen
+  // only after a page reload (#240). Refetch when the window comes back, the
+  // same idiom as useAppVersion: no polling, no extra WebSocket. A background
+  // refresh that fails keeps the rows on screen instead of replacing them with
+  // "Could not load files", and focus + visibilitychange firing together for
+  // one return send one request. A response that lands after the search or
+  // sort changed is dropped: the reload for the new query owns the list.
+  const refreshingRef = useRef(false);
+  useEffect(() => {
+    let current = true;
+    const refresh = () => {
+      if (refreshingRef.current) return;
+      refreshingRef.current = true;
+      getFiles({ limit: Math.max(PAGE_SIZE, loadedRef.current), offset: 0, q: q || undefined, sort, order })
+        .then((next) => {
+          if (!current) return;
+          loadedRef.current = next.files.length;
+          setData(next);
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          refreshingRef.current = false;
+        });
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      current = false;
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [q, sort, order]);
+
   // Header click cycle: other column -> asc; asc -> desc; desc -> back to default.
   const onSort = useCallback((col: FileSortKey) => {
     setSorting((prev) => {
