@@ -213,4 +213,36 @@ describe("the Shared Files list after changes made elsewhere (#240)", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(screen.queryByTitle(LONG)).toBeNull();
   });
+
+  it("drops a refresh that lands after Load more appended a page (review of #241)", async () => {
+    const SECOND = "b.pcap";
+    const second = { ...LISTING.files[0], id: 2, filename: SECOND };
+    getFiles.mockResolvedValue({ ...LISTING, total: 2 });
+    render(<FilesSection query="" />);
+    await screen.findByTitle(LONG);
+
+    let resolve: (v: FilesList) => void = () => {};
+    getFiles.mockReturnValueOnce(new Promise<FilesList>((r) => (resolve = r)));
+    fireEvent.focus(window);
+
+    getFiles.mockResolvedValueOnce({ ...LISTING, files: [second], total: 2 });
+    fireEvent.click(screen.getByRole("button", { name: /Load more/ }));
+    await screen.findByTitle(SECOND);
+
+    resolve({ ...LISTING, total: 2 }); // page 1 only, asked for before Load more
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.getByTitle(SECOND)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Load more/ })).toBeNull();
+  });
+
+  it("treats a refresh after a failed first load as a retry", async () => {
+    getFiles.mockRejectedValueOnce(new Error("offline"));
+    render(<FilesSection query="" />);
+    await screen.findByText("Could not load files");
+
+    fireEvent.focus(window);
+
+    expect(await screen.findByTitle(LONG)).toBeTruthy();
+    expect(screen.queryByText("Could not load files")).toBeNull();
+  });
 });
