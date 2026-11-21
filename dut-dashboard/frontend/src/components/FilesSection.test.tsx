@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { FilesList } from "../api/rest";
@@ -14,7 +14,7 @@ const getFiles = vi.fn();
 
 vi.mock("../api/rest", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/rest")>()),
-  getFiles: () => getFiles(),
+  getFiles: (...args: unknown[]) => getFiles(...args),
 }));
 
 const { default: FilesSection } = await import("./FilesSection");
@@ -141,5 +141,76 @@ describe("the Shared Files Filename column", () => {
       get.mockRestore();
       set.mockRestore();
     }
+  });
+});
+
+describe("the Shared Files list after changes made elsewhere (#240)", () => {
+  const EMPTY: FilesList = { ...LISTING, files: [], total: 0, stats: { ...LISTING.stats, total: 0 } };
+
+  async function listed() {
+    render(<FilesSection query="" />);
+    await screen.findByTitle(LONG);
+    expect(getFiles).toHaveBeenCalledTimes(1);
+  }
+
+  it("refetches when the window regains focus, and drops a file deleted in another window", async () => {
+    await listed();
+    getFiles.mockResolvedValue(EMPTY);
+
+    fireEvent.focus(window);
+
+    await waitFor(() => expect(screen.queryByTitle(LONG)).toBeNull());
+    expect(getFiles).toHaveBeenCalledTimes(2);
+  });
+
+  it("refetches when the tab becomes visible again", async () => {
+    await listed();
+    getFiles.mockResolvedValue(EMPTY);
+
+    fireEvent(document, new Event("visibilitychange"));
+
+    await waitFor(() => expect(screen.queryByTitle(LONG)).toBeNull());
+  });
+
+  it("keeps the rows when a background refresh fails", async () => {
+    await listed();
+    getFiles.mockRejectedValue(new Error("offline"));
+
+    fireEvent.focus(window);
+
+    await waitFor(() => expect(getFiles).toHaveBeenCalledTimes(2));
+    await Promise.resolve();
+    expect(screen.getByTitle(LONG)).toBeTruthy();
+    expect(screen.queryByText("Could not load files")).toBeNull();
+  });
+
+  it("sends one request when focus and visibilitychange fire for the same return", async () => {
+    await listed();
+    let resolve: (v: FilesList) => void = () => {};
+    getFiles.mockReturnValue(new Promise<FilesList>((r) => (resolve = r)));
+
+    fireEvent.focus(window);
+    fireEvent(document, new Event("visibilitychange"));
+    expect(getFiles).toHaveBeenCalledTimes(2);
+
+    resolve(EMPTY);
+    await waitFor(() => expect(screen.queryByTitle(LONG)).toBeNull());
+  });
+
+  it("drops a refresh that lands after the search changed", async () => {
+    const view = render(<FilesSection query="" />);
+    await screen.findByTitle(LONG);
+    let resolve: (v: FilesList) => void = () => {};
+    getFiles.mockReturnValueOnce(new Promise<FilesList>((r) => (resolve = r)));
+    fireEvent.focus(window);
+
+    getFiles.mockResolvedValue(EMPTY);
+    view.rerender(<FilesSection query="no-such-file" />);
+    await waitFor(() => expect(getFiles).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(screen.queryByTitle(LONG)).toBeNull());
+
+    resolve(LISTING); // the old query's answer, arriving late
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByTitle(LONG)).toBeNull();
   });
 });
