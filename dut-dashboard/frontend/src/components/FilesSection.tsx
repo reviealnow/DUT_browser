@@ -632,6 +632,10 @@ export default function FilesSection({
   // Rows currently on screen: reload refetches that many from offset 0 so an
   // upload/delete refresh doesn't collapse the list back to the first page.
   const loadedRef = useRef(PAGE_SIZE);
+  // Bumped by every fetch this window asks for itself (reload, Load more), so
+  // a background refresh that went out before one of them can tell that its
+  // answer is older than what is on screen (review of #241).
+  const generationRef = useRef(0);
 
   useEffect(() => {
     const t = setTimeout(() => setQ(query.trim()), 300);
@@ -640,6 +644,7 @@ export default function FilesSection({
 
   const reload = useCallback(
     (limit?: number) => {
+      generationRef.current += 1;
       setFailed(false);
       getFiles({
         limit: limit ?? Math.max(PAGE_SIZE, loadedRef.current),
@@ -659,6 +664,7 @@ export default function FilesSection({
 
   const loadMore = useCallback(() => {
     if (!data) return;
+    generationRef.current += 1;
     setLoadingMore(true);
     getFiles({ limit: PAGE_SIZE, offset: data.files.length, q: q || undefined, sort, order })
       .then((next) => {
@@ -687,19 +693,23 @@ export default function FilesSection({
   // same idiom as useAppVersion: no polling, no extra WebSocket. A background
   // refresh that fails keeps the rows on screen instead of replacing them with
   // "Could not load files", and focus + visibilitychange firing together for
-  // one return send one request. A response that lands after the search or
-  // sort changed is dropped: the reload for the new query owns the list.
+  // one return send one request. An answer that lands after this window
+  // fetched for itself -- a new search or sort, Load more, the reload after an
+  // upload or delete -- is dropped, because the list on screen is newer than
+  // it. A refresh that succeeds after a failed load is a retry, so it clears
+  // the failure.
   const refreshingRef = useRef(false);
   useEffect(() => {
-    let current = true;
     const refresh = () => {
       if (refreshingRef.current) return;
       refreshingRef.current = true;
+      const generation = generationRef.current;
       getFiles({ limit: Math.max(PAGE_SIZE, loadedRef.current), offset: 0, q: q || undefined, sort, order })
         .then((next) => {
-          if (!current) return;
+          if (generation !== generationRef.current) return;
           loadedRef.current = next.files.length;
           setData(next);
+          setFailed(false);
         })
         .catch(() => undefined)
         .finally(() => {
@@ -712,7 +722,6 @@ export default function FilesSection({
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", onVisible);
     return () => {
-      current = false;
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", onVisible);
     };
